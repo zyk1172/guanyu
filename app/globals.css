@@ -8,8 +8,18 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-gray-150: #e8eaee;
+  --color-gray-850: #1f2937;
+  --color-amber-850: #78350f;
+  --color-indigo-550: #5145e5;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --text-xxs: 0.6875rem;
+  --text-xxs--line-height: 0.95rem;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1.12rem;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.35rem;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -23,4 +33,136 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+* {
+  min-width: 0;
+}
+
+@keyframes toast-fade {
+  0% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  12%,
+  82% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@keyframes scan-line {
+  from {
+    transform: translateX(-120%);
+  }
+  to {
+    transform: translateX(120%);
+  }
+}
+
+@keyframes step-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .scan-line {
+    animation: scan-line 2.6s ease-in-out infinite;
+  }
+
+  .step-pulse {
+    animation: step-pulse 1.6s ease-in-out infinite;
+  }
+
+  .toast-fade {
+    animation: toast-fade 1800ms ease both;
+  }
+}
+
+.interactive-lift {
+  transition:
+    box-shadow 180ms ease,
+    border-color 180ms ease,
+    background-color 180ms ease,
+    color 180ms ease;
+  will-change: transform;
+}
+
+.interactive-lift:hover {
+  transform: none;
+}
+
+.interactive-lift:active {
+  transform: none;
+}
+
+input,
+textarea,
+select {
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    background-color 180ms ease;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.10);
+}
+
+.result-card,
+.animated-panel,
+.card-subtle {
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    background-color 180ms ease;
+  will-change: transform;
+}
+
+.result-card:hover,
+.card-subtle:hover {
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+
+.animated-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+.animated-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 15% 0%, rgba(79, 70, 229, 0.12), transparent 34%),
+    radial-gradient(circle at 85% 10%, rgba(14, 165, 233, 0.08), transparent 32%);
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+
+.animated-panel:hover::before {
+  opacity: 1;
 }

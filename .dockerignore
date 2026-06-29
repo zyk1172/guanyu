@@ -1,0 +1,14 @@
+.git
+.next
+node_modules
+npm-debug.log
+.DS_Store
+.env
+.env.local
+.env.qnap
+*.db
+*.sqlite
+*.sqlite3
+dev.db
+prisma/dev.db
+sqlite-export.json

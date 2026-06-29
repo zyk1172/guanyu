@@ -1,0 +1,67 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String        @id @default(cuid())
+  email         String        @unique
+  password      String        // 密码
+  name          String?
+  image         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  settings      UserSettings?
+  audits        Audit[]
+}
+
+model UserSettings {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  defaultModelName      String   @default("gpt-4o")
+  llmBaseUrl            String   @default("https://api.openai.com/v1")
+  llmApiKeyEncrypted    String?
+  defaultReasoningDepth String   @default("medium") // none, low, medium, high, extreme
+  defaultAnalysisMode   String   @default("quick")    // quick, deep
+  defaultIsPublic       Boolean  @default(true)
+  defaultSaveResult     Boolean  @default(true)
+  defaultEnableCharts   Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model Audit {
+  id                            String   @id @default(cuid())
+  userId                        String
+  user                          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title                         String
+  source                        String
+  publishedAt                   String
+  originalContent               String
+  focus                         String?
+  analysisMode                  String   // quick, deep
+  reasoningDepth                String   // none, low, medium, high, extreme
+  modelName                     String
+  newsSummary                   String
+  auditResultJson               String   // 存储完整结构化审视结果
+  credibilityScore              Int      @default(0)
+  informationCompletenessScore  Int      @default(0)
+  narrativeBiasScore            Int      @default(0)
+  evidenceStrengthScore         Int      @default(0)
+  speculationRiskScore          Int      @default(0)
+  viewCount                     Int      @default(0)
+  heatScore                     Int      @default(0)
+  isPublic                      Boolean  @default(true)
+  createdAt                     DateTime @default(now())
+  updatedAt                     DateTime @updatedAt
+
+  @@index([userId])
+  @@index([heatScore])
+  @@index([createdAt])
+}
