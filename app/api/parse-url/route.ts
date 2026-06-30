@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import * as cheerio from 'cheerio';
 import type { AnyNode } from 'domhandler';
+import { extractPublishedDate } from '@/lib/publishedDate.mjs';
 
 export const maxDuration = 30;
 
@@ -8,6 +9,9 @@ interface ParseResult {
   title: string;
   source: string;
   date: string;
+  publishedAt: string;
+  publishedAtSource: string;
+  publishedAtConfidence: string;
   content: string;
   url: string;
 }
@@ -159,16 +163,6 @@ function parseHtml(html: string, url: string): ParseResult {
     || (() => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; } })()
     || '';
 
-  const rawDate = $('meta[property="article:published_time"]').attr('content')
-    || $('meta[name="publishdate"]').attr('content')
-    || $('meta[name="date"]').attr('content')
-    || $('meta[name="DC.date.issued"]').attr('content')
-    || $('#NewsArticlePubDay').text()
-    || '';
-  const date = rawDate
-    .replace('T', ' ')
-    .slice(0, 16);
-
   const content = (() => {
     for (const selector of ARTICLE_SELECTORS) {
       const node = $(selector).first();
@@ -195,7 +189,19 @@ function parseHtml(html: string, url: string): ParseResult {
     return extractText($('body'), $);
   })().slice(0, 15000);
 
-  return { title, source, date, content, url };
+  const published = extractPublishedDate(html, source);
+  const date = published.publishedAt;
+
+  return {
+    title,
+    source,
+    date,
+    publishedAt: published.publishedAt,
+    publishedAtSource: published.publishedAtSource,
+    publishedAtConfidence: published.publishedAtConfidence,
+    content,
+    url,
+  };
 }
 
 function extractText($el: cheerio.Cheerio<AnyNode>, $: cheerio.CheerioAPI): string {

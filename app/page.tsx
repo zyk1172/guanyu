@@ -9,7 +9,7 @@ import LoadingState from '../components/LoadingState';
 import ErrorMessage from '../components/ErrorMessage';
 import Header from '../components/Header';
 import { GsapReveal } from '../components/GsapMotion';
-import { AnalysisResult, AnalysisMode, getThinkingDepthLabel } from '../lib/types';
+import { AnalysisResult, AnalysisMode, PublishedAtConfidence, PublishedAtSource, getThinkingDepthLabel } from '../lib/types';
 
 interface HotAudit {
   id: string;
@@ -28,6 +28,8 @@ interface AuditSubmitData {
   title: string;
   source: string;
   date: string;
+  publishedAtSource: PublishedAtSource;
+  publishedAtConfidence: PublishedAtConfidence;
   content: string;
   focus: string;
   mode: AnalysisMode;
@@ -151,6 +153,8 @@ export default function Home() {
                     title: lastSubmittedData?.title,
                     source: lastSubmittedData?.source,
                     publishedAt: lastSubmittedData?.date,
+                    publishedAtSource: lastSubmittedData?.publishedAtSource,
+                    publishedAtConfidence: lastSubmittedData?.publishedAtConfidence,
                     analysisMode: lastSubmittedData?.mode,
                   }}
                 />

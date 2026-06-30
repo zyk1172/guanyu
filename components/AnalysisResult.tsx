@@ -1,12 +1,21 @@
 'use client';
 
-import React, { useState } from 'react';
-import { AnalysisResult, EvidenceGrade, SpeculationRisk, VerificationStatus } from '../lib/types';
+import React, { useMemo, useState } from 'react';
+import {
+  AnalysisResult,
+  DeepAnalysisResult,
+  EvidenceGrade,
+  QuickAnalysisResult,
+  ReadWorthLabel,
+  SpeculationRisk,
+  VerificationStatus,
+  VerificationStatusCode,
+} from '../lib/types';
 import AuditCharts from './AuditCharts';
 import { GsapReveal } from './GsapMotion';
 import InteractiveQA, { ChatMessage } from './InteractiveQA';
-import { computeReadWorth } from '../lib/readWorth';
 import ReadWorthVerdict from './ReadWorthVerdict';
+import { computeReadWorth } from '../lib/readWorth';
 
 interface AnalysisResultProps {
   result: AnalysisResult;
@@ -16,6 +25,8 @@ interface AnalysisResultProps {
     title?: string;
     source?: string;
     publishedAt?: string;
+    publishedAtSource?: string;
+    publishedAtConfidence?: string;
     modelName?: string;
     reasoningDepth?: string;
     analysisMode?: string;
@@ -25,6 +36,33 @@ interface AnalysisResultProps {
   };
 }
 
+const STATUS_LABELS: Record<VerificationStatusCode, string> = {
+  source_supported: '原文支持',
+  externally_verified: '外部已核验',
+  partially_supported: '部分支持',
+  pending_verification: '待核验',
+  unable_to_verify: '暂无法确认',
+};
+
+const SOURCE_LABELS: Record<string, string> = {
+  user_input: '用户填写',
+  json_ld: 'JSON-LD',
+  meta_article: 'article meta',
+  meta_og: 'OG meta',
+  meta_pubdate: 'pubdate meta',
+  time_tag: 'time 标签',
+  body_people_daily_format: '正文人民日报版面日期',
+  body_regex: '正文日期匹配',
+  unknown: '未知',
+};
+
+const CONFIDENCE_LABELS: Record<string, string> = {
+  high: '高',
+  medium: '中',
+  low: '低',
+  unknown: '未知',
+};
+
 const EVIDENCE_DEFINITIONS: Record<EvidenceGrade, string> = {
   A: '原始文件、官方数据、法院文书、财报、政策原文',
   B: '多方独立报道、公开数据库、专业机构报告',
@@ -33,19 +71,31 @@ const EVIDENCE_DEFINITIONS: Record<EvidenceGrade, string> = {
   E: '高推测、缺乏直接证据、仅作为待验证假设',
 };
 
+function isQuick(result: AnalysisResult): result is QuickAnalysisResult {
+  return (result as any).reportType === 'quick';
+}
+
+function isDeep(result: AnalysisResult): result is DeepAnalysisResult {
+  return (result as any).reportType === 'deep';
+}
+
 function normalizeDisplayCopy<T>(value: T): T {
   if (typeof value === 'string') {
     return value.replace(/审计/g, '审视').replace(/审查/g, '审视') as T;
   }
-  if (Array.isArray(value)) {
-    return value.map((item) => normalizeDisplayCopy(item)) as T;
-  }
+  if (Array.isArray(value)) return value.map((item) => normalizeDisplayCopy(item)) as T;
   if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [key, normalizeDisplayCopy(item)])
-    ) as T;
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalizeDisplayCopy(item)])) as T;
   }
   return value;
+}
+
+function normalizeStatus(value?: VerificationStatus | string): VerificationStatusCode {
+  if (value === 'externally_verified' || value === 'source_supported' || value === 'partially_supported' || value === 'pending_verification' || value === 'unable_to_verify') return value;
+  if (value === '已核验' || value === '原文支持') return 'source_supported';
+  if (value === '部分核验') return 'partially_supported';
+  if (value === '暂无法确认') return 'unable_to_verify';
+  return 'pending_verification';
 }
 
 function evidenceClass(grade?: string) {
@@ -66,18 +116,16 @@ function riskClass(risk?: SpeculationRisk | string) {
 }
 
 function statusClass(status?: VerificationStatus | string) {
-  if (status === '已核验') return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/30 dark:bg-emerald-950/20 dark:text-emerald-300';
-  if (status === '部分核验') return 'border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-900/30 dark:bg-cyan-950/20 dark:text-cyan-300';
-  if (status === '暂无法确认') return 'border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300';
+  const normalized = normalizeStatus(status);
+  if (normalized === 'externally_verified') return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/30 dark:bg-emerald-950/20 dark:text-emerald-300';
+  if (normalized === 'source_supported') return 'border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-900/30 dark:bg-indigo-950/20 dark:text-indigo-300';
+  if (normalized === 'partially_supported') return 'border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-900/30 dark:bg-cyan-950/20 dark:text-cyan-300';
+  if (normalized === 'unable_to_verify') return 'border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300';
   return 'border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900/30 dark:bg-orange-950/20 dark:text-orange-300';
 }
 
-function Badge({ children, className }: { children: React.ReactNode; className: string }) {
-  return (
-    <span className={`inline-flex rounded border px-2 py-0.5 text-xxs font-bold ${className}`}>
-      {children}
-    </span>
-  );
+function Badge({ children, className, title }: { children: React.ReactNode; className: string; title?: string }) {
+  return <span title={title} className={`inline-flex rounded border px-2 py-0.5 text-xxs font-bold ${className}`}>{children}</span>;
 }
 
 function Section({ title, children, aside }: { title: string; children: React.ReactNode; aside?: React.ReactNode }) {
@@ -92,269 +140,526 @@ function Section({ title, children, aside }: { title: string; children: React.Re
   );
 }
 
+function line(value: unknown, fallback = '当前材料不足，无法形成可靠判断') {
+  const text = value === undefined || value === null ? '' : String(value).trim();
+  return text && text !== '未提供' && text !== '暂无' ? text : fallback;
+}
+
+function statusLabel(value?: VerificationStatus | string) {
+  return STATUS_LABELS[normalizeStatus(value)];
+}
+
 function JudgmentCard({ item }: { item: any }) {
+  const evidence = item.evidenceGrade || item.currentEvidenceGrade || item.evidence_grade || 'D';
+  const status = item.verificationStatus || item.verification_status;
+  const risk = item.speculationRisk || item.speculation_risk;
   return (
     <article className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs dark:border-gray-850 dark:bg-gray-900">
-      <div className="font-bold leading-relaxed text-gray-950 dark:text-white">{item.title}</div>
-      <p className="mt-1 leading-relaxed text-gray-600 dark:text-gray-300">{item.detail}</p>
+      <div className="font-bold leading-relaxed text-gray-950 dark:text-white">{line(item.title, '关键判断')}</div>
+      <p className="mt-1 leading-relaxed text-gray-600 dark:text-gray-300">{line(item.content || item.description || item.detail)}</p>
       <div className="mt-2 flex flex-wrap gap-1.5">
-        <Badge className="border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-900/30 dark:bg-indigo-950/20 dark:text-indigo-300">
-          {item.judgment_type || '基于原文的合理推断'}
+        {item.judgmentType && (
+          <Badge className="border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-900/30 dark:bg-indigo-950/20 dark:text-indigo-300">{item.judgmentType}</Badge>
+        )}
+        <Badge className={evidenceClass(evidence)} title={EVIDENCE_DEFINITIONS[evidence as EvidenceGrade]}>
+          证据 {evidence}
         </Badge>
-        <Badge className={evidenceClass(item.evidence_grade || item.evidence_strength)}>
-          证据 {item.evidence_grade || item.evidence_strength || 'D'}
-        </Badge>
-        <Badge className={statusClass(item.verification_status)}>
-          {item.verification_status || '待验证'}
-        </Badge>
-        <Badge className={riskClass(item.speculation_risk)}>
-          风险 {item.speculation_risk || '中'}
-        </Badge>
+        <Badge className={statusClass(status)}>{statusLabel(status)}</Badge>
+        {risk && <Badge className={riskClass(risk)}>风险 {risk}</Badge>}
       </div>
-      {item.verification_method && (
+      {(item.nextVerification || item.whyItMatters) && (
         <p className="mt-2 text-xxs font-semibold leading-relaxed text-gray-500 dark:text-gray-400">
-          验证路径：{item.verification_method}
+          {item.whyItMatters ? `重要性：${item.whyItMatters}；` : ''}验证路径：{line(item.nextVerification, '寻找原始材料、公开数据、多方报道或当事方回应。')}
         </p>
       )}
     </article>
   );
 }
 
-function line(value: unknown) {
-  return value === undefined || value === null || value === '' ? '未提供' : String(value);
+function convertLegacyResult(result: any, auditMeta?: AnalysisResultProps['auditMeta']): DeepAnalysisResult {
+  const scoreSummary = result.score_summary || {};
+  const scores = {
+    credibility: Number(scoreSummary.credibility_score ?? 70),
+    informationCompleteness: Number(scoreSummary.information_completeness_score ?? 60),
+    narrativeBias: Number(scoreSummary.narrative_bias_score ?? 45),
+    evidenceStrength: Number(scoreSummary.evidence_strength_score ?? 60),
+    speculationRisk: Number(scoreSummary.speculation_risk_score ?? 45),
+  };
+  return {
+    reportType: 'deep',
+    methodology: '观隅九镜审读法',
+    meta: {
+      title: auditMeta?.title || '',
+      source: auditMeta?.source || '',
+      publishedAt: auditMeta?.publishedAt || '',
+      publishedAtSource: (auditMeta?.publishedAtSource as any) || 'unknown',
+      publishedAtConfidence: (auditMeta?.publishedAtConfidence as any) || 'unknown',
+      modelName: auditMeta?.modelName || '',
+      reasoningDepth: auditMeta?.reasoningDepth || '',
+      analysisMode: 'deep',
+      createdAt: auditMeta?.createdAt || '',
+      viewCount: auditMeta?.viewCount,
+      isPublic: auditMeta?.isPublic,
+    },
+    generationScope: result.report_meta?.generated_scope || '历史记录兼容展示；新报告不再展开九镜方法步骤。',
+    scoreExplanation: result.report_meta?.scoring_note || '评分用于衡量报道结构与证据状态，不等同于判断新闻真假。',
+    newsSummary: result.news_summary || '',
+    oneSentenceConclusion: result.one_sentence_conclusion || '',
+    readingValue: (result.read_worth?.label || '暂无法判断') as ReadWorthLabel,
+    read_worth: result.read_worth,
+    scores,
+    scoreReasons: {
+      credibility: scoreSummary.score_reasoning?.credibility_score || '',
+      informationCompleteness: scoreSummary.score_reasoning?.information_completeness_score || '',
+      narrativeBias: scoreSummary.score_reasoning?.narrative_bias_score || '',
+      evidenceStrength: scoreSummary.score_reasoning?.evidence_strength_score || '',
+      speculationRisk: scoreSummary.score_reasoning?.speculation_risk_score || '',
+    },
+    keyFindings: (result.key_findings || []).slice(0, 3).map((item: any) => ({
+      title: item.title,
+      content: item.detail,
+      judgmentType: item.judgment_type || '基于原文的合理推断',
+      evidenceGrade: item.evidence_grade || 'D',
+      verificationStatus: normalizeStatus(item.verification_status),
+      speculationRisk: item.speculation_risk || '中',
+      nextVerification: item.verification_method || '',
+    })),
+    supportingEvidence: (result.narrative_supporting_evidence || []).map((item: any) => ({
+      content: item.detail,
+      supportsNarrative: item.original_basis,
+      evidenceGrade: item.evidence_grade || 'C',
+      verificationStatus: normalizeStatus(item.verification_status),
+      limitation: item.verification_method || '',
+    })),
+    informationGaps: (result.major_information_gaps || []).map((item: any) => ({
+      title: item.title,
+      description: item.detail,
+      whyItMatters: item.why_it_matters,
+      currentEvidenceGrade: item.evidence_grade || 'D',
+      verificationStatus: normalizeStatus(item.verification_status),
+      nextVerification: item.verification_method || '',
+    })),
+    stakeholderRelations: (result.nine_mirror_review?.interest_cost_map || []).map((item: any) => ({
+      role: item.actor || item.role,
+      possibleBenefit: item.role === '受益者' ? item.possible_interest_or_cost : '',
+      possibleCost: item.role === '成本承担者' ? item.possible_interest_or_cost : '',
+      judgmentType: item.judgment_type || '基于原文的合理推断',
+      speculationRisk: item.speculation_risk || '中',
+      pendingVerification: item.verification_method || '',
+    })),
+    alternativeExplanations: (result.nine_mirror_review?.alternative_explanation_comparison || []).slice(0, 4).map((item: any) => ({
+      explanation: item.explanation,
+      reasonableness: item.reasonableness || '中',
+      currentEvidenceStatus: item.evidence_strength || '证据有限',
+      speculationRisk: item.speculation_risk || '中',
+      neededVerification: item.verification_method || '',
+    })),
+    evidenceVerificationSummary: {
+      strongestEvidence: '历史记录未单独保存该归纳。',
+      weakestEvidence: '历史记录未单独保存该归纳。',
+      sourceSupportedClaims: [],
+      externallyVerifiedClaims: [],
+      pendingVerificationClaims: [],
+      unableToVerifyClaims: result.web_verification?.unconfirmed_items || [],
+    },
+    verificationRoadmap: (result.nine_mirror_review?.verification_roadmap || []).slice(0, 6).map((item: any) => ({
+      question: item.target,
+      materialType: item.material_type || '多源报道',
+      whyItMatters: item.why_needed,
+      priority: item.priority || '中',
+    })),
+    questionsToAsk: result.questions_to_ask_next || [],
+    onlineVerification: {
+      enabled: Boolean(result.web_verification),
+      status: result.web_verification ? 'has_results' : 'not_enabled',
+      verifiedSources: (result.web_verification?.verified_sources || []).map((item: any) => ({
+        title: item.title,
+        url: item.url,
+        sourceType: item.source_type,
+        relevance: item.relevance,
+        verificationStatus: normalizeStatus(item.verification_status),
+        evidenceGrade: item.evidence_grade || 'C',
+        note: item.note,
+      })),
+      backgroundSources: (result.web_verification?.background_sources || []).map((item: any) => ({
+        title: item.title,
+        url: item.url,
+        sourceType: item.source_type,
+        relevance: item.relevance,
+        verificationStatus: normalizeStatus(item.verification_status),
+        evidenceGrade: item.evidence_grade || 'C',
+        note: item.note,
+      })),
+      pendingLeads: (result.web_verification?.leads_to_verify || []).map((item: any) => ({
+        title: item.title,
+        url: item.url,
+        sourceType: item.source_type,
+        relevance: item.relevance,
+        verificationStatus: normalizeStatus(item.verification_status),
+        evidenceGrade: item.evidence_grade || 'D',
+        note: item.note,
+      })),
+      unableToConfirm: result.web_verification?.unconfirmed_items || [],
+    },
+    riskNotice: '本报告不替用户断言新闻真假，只帮助识别叙事结构、证据缺口、缺席视角和待验证问题。',
+  };
+}
+
+function useNormalizedResult(result: AnalysisResult, auditMeta?: AnalysisResultProps['auditMeta']) {
+  return useMemo(() => {
+    const clean = normalizeDisplayCopy(result);
+    if (isQuick(clean) || isDeep(clean)) return clean;
+    return convertLegacyResult(clean, auditMeta);
+  }, [result, auditMeta]);
+}
+
+function chartProps(report: QuickAnalysisResult | DeepAnalysisResult) {
+  const evidenceGrades: EvidenceGrade[] = [];
+  if (isQuick(report)) {
+    report.mainNarrativeIssues.forEach((item) => evidenceGrades.push(item.evidenceGrade));
+    report.mainInformationGaps.forEach((item) => evidenceGrades.push(item.currentEvidenceGrade));
+  } else {
+    report.keyFindings.forEach((item) => evidenceGrades.push(item.evidenceGrade));
+    report.supportingEvidence.forEach((item) => evidenceGrades.push(item.evidenceGrade));
+    report.informationGaps.forEach((item) => evidenceGrades.push(item.currentEvidenceGrade));
+  }
+
+  const stakeholderItems = isDeep(report)
+    ? report.stakeholderRelations.map((item) => ({
+        actor: item.role,
+        role: item.possibleBenefit ? '受益者' as const : item.possibleCost ? '成本承担者' as const : '沉默者' as const,
+        possible_interest_or_cost: item.possibleBenefit || item.possibleCost || item.pendingVerification,
+        evidence_strength: 'D' as EvidenceGrade,
+        speculation_risk: item.speculationRisk,
+        verification_method: item.pendingVerification,
+      }))
+    : [];
+
+  return {
+    credibilityScore: report.scores.credibility,
+    completenessScore: report.scores.informationCompleteness,
+    biasScore: report.scores.narrativeBias,
+    evidenceScore: report.scores.evidenceStrength,
+    riskScore: report.scores.speculationRisk,
+    beneficiariesCount: isDeep(report) ? report.stakeholderRelations.filter((item) => item.possibleBenefit).length : 0,
+    costBearersCount: isDeep(report) ? report.stakeholderRelations.filter((item) => item.possibleCost).length : 0,
+    missingPerspectivesCount: isQuick(report) ? report.mainInformationGaps.length : report.informationGaps.length,
+    alternativeExplanationsCount: isDeep(report) ? report.alternativeExplanations.length : 0,
+    evidenceGrades,
+    missingPerspectiveStatuses: [],
+    interestCostItems: stakeholderItems,
+  };
+}
+
+function MetaGrid({ report, auditMeta }: { report: QuickAnalysisResult | DeepAnalysisResult; auditMeta?: AnalysisResultProps['auditMeta'] }) {
+  const meta = report.meta;
+  const publishedAt = meta.publishedAt || auditMeta?.publishedAt || '';
+  const source = meta.publishedAtSource || auditMeta?.publishedAtSource || 'unknown';
+  const confidence = meta.publishedAtConfidence || auditMeta?.publishedAtConfidence || 'unknown';
+  const items = [
+    ['新闻标题', meta.title || auditMeta?.title],
+    ['新闻来源', meta.source || auditMeta?.source],
+    ['发布时间', publishedAt || '未能可靠识别发布时间'],
+    ['时间来源', SOURCE_LABELS[source] || source],
+    ['时间可信度', CONFIDENCE_LABELS[confidence] || confidence],
+    ['使用模型', meta.modelName || auditMeta?.modelName],
+    ['思考强度', meta.reasoningDepth || auditMeta?.reasoningDepth],
+    ['分析模式', meta.analysisMode || auditMeta?.analysisMode],
+    ['报告生成时间', meta.createdAt || auditMeta?.createdAt],
+    ['点击数', meta.viewCount ?? auditMeta?.viewCount],
+    ['公开状态', (meta.isPublic ?? auditMeta?.isPublic) === undefined ? undefined : (meta.isPublic ?? auditMeta?.isPublic) ? '公开展示' : '仅自己可见'],
+    ['方法论', report.methodology],
+  ];
+
+  return (
+    <Section title="报告元信息" aside={<Badge className="border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">阅读价值：{report.readingValue}</Badge>}>
+      <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-2 lg:grid-cols-3">
+        {items.map(([label, value]) => (
+          <div key={String(label)} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 dark:border-gray-850 dark:bg-gray-900">
+            <div className="text-xxs font-bold text-gray-400">{label}</div>
+            <div className="mt-1 break-words font-semibold text-gray-800 dark:text-gray-200">{line(value, label === '发布时间' ? '未能可靠识别发布时间' : '未填写')}</div>
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+function OriginalContentPanel({ originalContent }: { originalContent?: string }) {
+  const [open, setOpen] = useState(false);
+  if (!originalContent?.trim()) return null;
+  return (
+    <Section title="新闻原文" aside={<button type="button" onClick={() => setOpen((value) => !value)} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-bold text-gray-700 transition hover:bg-gray-100 active:scale-[0.98] dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">{open ? '收起原文' : '查看原文'}</button>}>
+      {!open ? (
+        <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400">完整原文默认折叠，只在需要核对模型引用和上下文时展开。</p>
+      ) : (
+        <pre className="max-h-[420px] overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs leading-6 text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300">{originalContent}</pre>
+      )}
+    </Section>
+  );
+}
+
+function WebVerificationView({ report }: { report: DeepAnalysisResult }) {
+  const web = report.onlineVerification;
+  if (!web.enabled || web.status === 'not_enabled') {
+    return <p className="rounded-lg border border-dashed border-gray-200 p-3 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">本次未启用联网核验</p>;
+  }
+  if (web.status === 'no_reliable_sources') {
+    return <p className="rounded-lg border border-dashed border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">未找到可用于外部核验的可靠来源</p>;
+  }
+
+  const groups = [
+    ['已核验来源', web.verifiedSources],
+    ['相关背景来源', web.backgroundSources],
+    ['待核验线索', web.pendingLeads],
+  ] as const;
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+        {groups.map(([title, items]) => (
+          <div key={title} className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">
+            <h4 className="text-xs font-black text-gray-900 dark:text-white">{title}</h4>
+            <div className="mt-2 space-y-2">
+              {items.length === 0 ? (
+                <p className="text-xs text-gray-400">当前无可靠条目。</p>
+              ) : items.slice(0, 4).map((source, index) => (
+                <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer" className="block rounded-lg border border-gray-100 bg-white p-2 text-xs transition hover:border-sky-300 dark:border-gray-800 dark:bg-gray-950 dark:hover:border-sky-800">
+                  <div className="line-clamp-2 font-bold text-gray-950 dark:text-white">{line(source.title, '来源标题')}</div>
+                  <p className="mt-1 line-clamp-2 text-gray-500 dark:text-gray-400">{source.relevance || source.note}</p>
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    <Badge className={statusClass(source.verificationStatus)}>{statusLabel(source.verificationStatus)}</Badge>
+                    <Badge className={evidenceClass(source.evidenceGrade)}>证据 {source.evidenceGrade}</Badge>
+                  </div>
+                </a>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      {web.unableToConfirm.length > 0 && (
+        <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">
+          <h4 className="text-xs font-black text-gray-900 dark:text-white">暂无法确认的信息</h4>
+          <ul className="mt-2 space-y-1.5">
+            {web.unableToConfirm.map((item, index) => <li key={`${item}-${index}`} className="text-xs leading-relaxed text-gray-600 dark:text-gray-300">- {item}</li>)}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function bullets(items: string[]) {
-  return items.length > 0 ? items.map((item) => `- ${item}`) : ['- 暂无'];
+  return items.length > 0 ? items.map((item) => `- ${item}`) : ['- 当前材料不足，无法形成可靠判断'];
 }
 
-function judgmentMarkdown(item: any) {
+function markdownFor(report: QuickAnalysisResult | DeepAnalysisResult, originalContent?: string, qaMessages: ChatMessage[] = []) {
+  const meta = report.meta;
+  const common = [
+    '# 观隅 · 新闻叙事审视报告',
+    '',
+    '## 报告元信息',
+    `- 新闻标题：${line(meta.title, '未填写')}`,
+    `- 新闻来源：${line(meta.source, '未填写')}`,
+    `- 新闻发布时间：${meta.publishedAt || '未能可靠识别发布时间'}`,
+    `- 发布时间来源：${SOURCE_LABELS[meta.publishedAtSource] || meta.publishedAtSource}`,
+    `- 发布时间可信度：${CONFIDENCE_LABELS[meta.publishedAtConfidence] || meta.publishedAtConfidence}`,
+    `- 使用模型：${line(meta.modelName, '未填写')}`,
+    `- 思考强度：${line(meta.reasoningDepth, '未填写')}`,
+    `- 分析模式：${line(meta.analysisMode, '未填写')}`,
+    `- 报告生成时间：${line(meta.createdAt, '未填写')}`,
+    `- 方法论：${report.methodology}`,
+    `- 阅读价值判断：${report.readingValue}`,
+    '',
+    '## 新闻简要总结',
+    report.newsSummary,
+    '',
+  ];
+
+  const scoreLines = [
+    '## 核心指数',
+    `- 可信度：${report.scores.credibility}`,
+    `- 信息完整度：${report.scores.informationCompleteness}`,
+    `- 叙事倾向性：${report.scores.narrativeBias}`,
+    `- 证据强度：${report.scores.evidenceStrength}`,
+    `- 推测风险：${report.scores.speculationRisk}`,
+    '',
+  ];
+
+  if (isQuick(report)) {
+    return [
+      ...common,
+      '## 一句话判断',
+      report.oneSentenceJudgment,
+      '',
+      ...scoreLines,
+      '## 最主要的 3 个叙事问题',
+      ...report.mainNarrativeIssues.map((item) => `- **${item.title}**：${item.content}（${item.judgmentType}，证据 ${item.evidenceGrade}，${statusLabel(item.verificationStatus)}，风险 ${item.speculationRisk}；验证：${item.nextVerification}）`),
+      '',
+      '## 最主要的 3 个信息缺口',
+      ...report.mainInformationGaps.map((item) => `- **${item.title}**：${item.description}（证据 ${item.currentEvidenceGrade}，${statusLabel(item.verificationStatus)}；验证：${item.nextVerification}）`),
+      '',
+      '## 最值得追问的 3 个问题',
+      ...bullets(report.questionsToAsk),
+      '',
+      '## 交互式追问记录',
+      ...(qaMessages.length ? qaMessages.map((message, index) => `### ${index + 1}. ${message.role === 'user' ? '我的问题' : '审视助手回答'}\n\n${message.content}`) : ['暂无交互式追问记录。']),
+      '',
+      '## 附录：新闻原文',
+      originalContent?.trim() || '未保存原文。',
+      '',
+      '## 风险提示',
+      report.riskNotice,
+    ].join('\n');
+  }
+
   return [
-    `- **${line(item.title || item.claim || item.expression || item.actor || item.evidence || item.target || item.explanation)}**`,
-    item.detail ? `  - 内容：${item.detail}` : '',
-    item.claim_type ? `  - 主张类型：${item.claim_type}` : '',
-    item.evidence_source ? `  - 证据来源：${item.evidence_source}` : '',
-    item.category ? `  - 语言分类：${item.category}` : '',
-    item.effect ? `  - 影响：${item.effect}` : '',
-    item.role ? `  - 角色：${item.role}` : '',
-    item.possible_interest_or_cost ? `  - 可能利益或代价：${item.possible_interest_or_cost}` : '',
-    item.grade_reason ? `  - 等级理由：${item.grade_reason}` : '',
-    item.possible_issue ? `  - 可能问题：${item.possible_issue}` : '',
-    item.issue_explanation ? `  - 问题说明：${item.issue_explanation}` : '',
-    item.reasonableness ? `  - 合理性：${item.reasonableness}` : '',
-    item.material_type ? `  - 材料类型：${item.material_type}` : '',
-    item.why_needed ? `  - 为什么需要：${item.why_needed}` : '',
-    item.how_to_verify ? `  - 如何验证：${item.how_to_verify}` : '',
-    item.priority ? `  - 优先级：${item.priority}` : '',
-    item.judgment_type ? `  - 判断类型：${item.judgment_type}` : '',
-    item.evidence_grade || item.evidence_strength || item.grade ? `  - 证据等级：${item.evidence_grade || item.evidence_strength || item.grade}` : '',
-    item.verification_status ? `  - 核验状态：${item.verification_status}` : '',
-    item.speculation_risk ? `  - 推测风险：${item.speculation_risk}` : '',
-    item.verification_method ? `  - 下一步验证：${item.verification_method}` : '',
-  ].filter(Boolean).join('\n');
+    ...common,
+    '## 一句话审视结论',
+    report.oneSentenceConclusion,
+    '',
+    ...scoreLines,
+    '## 评分理由',
+    `- 可信度：${report.scoreReasons.credibility}`,
+    `- 信息完整度：${report.scoreReasons.informationCompleteness}`,
+    `- 叙事倾向性：${report.scoreReasons.narrativeBias}`,
+    `- 证据强度：${report.scoreReasons.evidenceStrength}`,
+    `- 推测风险：${report.scoreReasons.speculationRisk}`,
+    '',
+    '## 最关键的 3 个发现',
+    ...report.keyFindings.map((item) => `- **${item.title}**：${item.content}（${item.judgmentType}，证据 ${item.evidenceGrade}，${statusLabel(item.verificationStatus)}，风险 ${item.speculationRisk}；验证：${item.nextVerification}）`),
+    '',
+    '## 支持原文叙事的证据',
+    ...report.supportingEvidence.map((item) => `- ${item.content}；支撑：${item.supportsNarrative}；证据 ${item.evidenceGrade}；${statusLabel(item.verificationStatus)}；局限：${item.limitation}`),
+    '',
+    '## 主要信息缺口',
+    ...report.informationGaps.map((item) => `- **${item.title}**：${item.description}；重要性：${item.whyItMatters}；证据 ${item.currentEvidenceGrade}；${statusLabel(item.verificationStatus)}；验证：${item.nextVerification}`),
+    '',
+    '## 关键利益关系',
+    ...report.stakeholderRelations.map((item) => `- **${item.role}**：可能利益：${item.possibleBenefit || '原文未披露，需核验'}；可能代价：${item.possibleCost || '原文未披露，需核验'}；${item.judgmentType}；风险 ${item.speculationRisk}；待验证：${item.pendingVerification}`),
+    '',
+    '## 替代解释对照',
+    ...report.alternativeExplanations.map((item) => `- **${item.explanation}**：合理性 ${item.reasonableness}；当前证据：${item.currentEvidenceStatus}；风险 ${item.speculationRisk}；需验证：${item.neededVerification}`),
+    '',
+    '## 证据与核验状态',
+    `- 最强证据：${report.evidenceVerificationSummary.strongestEvidence}`,
+    `- 最弱证据：${report.evidenceVerificationSummary.weakestEvidence}`,
+    ...bullets(report.evidenceVerificationSummary.sourceSupportedClaims.map((item) => `仅由原文支持：${item}`)),
+    ...bullets(report.evidenceVerificationSummary.pendingVerificationClaims.map((item) => `待外部核验：${item}`)),
+    '',
+    '## 验证路线图',
+    ...report.verificationRoadmap.map((item) => `- **${item.question}**：材料类型 ${item.materialType}；优先级 ${item.priority}；重要性：${item.whyItMatters}`),
+    '',
+    '## 继续追问清单',
+    ...bullets(report.questionsToAsk),
+    '',
+    '## 交互式追问记录',
+    ...(qaMessages.length ? qaMessages.map((message, index) => `### ${index + 1}. ${message.role === 'user' ? '我的问题' : '审视助手回答'}\n\n${message.content}`) : ['暂无交互式追问记录。']),
+    '',
+    '## 附录：新闻原文',
+    originalContent?.trim() || '未保存原文。',
+    '',
+    '## 风险提示',
+    report.riskNotice,
+  ].join('\n');
 }
 
-function sourceMarkdown(source: any) {
-  return [
-    `- **${line(source.title)}**`,
-    source.url ? `  - 链接：${source.url}` : '',
-    source.source_type ? `  - 来源类型：${source.source_type}` : '',
-    source.relevance ? `  - 相关性：${source.relevance}` : '',
-    source.verification_status ? `  - 核验状态：${source.verification_status}` : '',
-    source.evidence_grade ? `  - 证据等级：${source.evidence_grade}` : '',
-    source.note ? `  - 说明：${source.note}` : '',
-  ].filter(Boolean).join('\n');
-}
-
-export default function AnalysisResultView({ result: rawResult, auditId, originalContent, auditMeta }: AnalysisResultProps) {
-  const result = normalizeDisplayCopy(rawResult);
-  const [qaMessages, setQaMessages] = useState<ChatMessage[]>([]);
-  const readWorth = result.read_worth || computeReadWorth(result);
-  const scoreSummary = result.score_summary || {
-    credibility_score: 70,
-    information_completeness_score: 70,
-    narrative_bias_score: 40,
-    evidence_strength_score: 70,
-    speculation_risk_score: 30,
-    score_reasoning: {
-      credibility_score: '默认评估理由',
-      information_completeness_score: '默认评估理由',
-      narrative_bias_score: '默认评估理由',
-      evidence_strength_score: '默认评估理由',
-      speculation_risk_score: '默认评估理由',
-    },
-  };
-
-  const nineMirror = result.nine_mirror_review;
-  const keyFindings = result.key_findings?.length
-    ? result.key_findings
-    : [{
-        title: '表层叙事与待核验缺口并存',
-        detail: result.one_sentence_conclusion || '需要结合原文、九镜模块和外部材料进一步核验。',
-        judgment_type: '基于原文的合理推断',
-        evidence_grade: 'D',
-        verification_status: '待验证',
-        speculation_risk: '中',
-        verification_method: '结合原文、原始材料和多方报道继续核验。',
-      }];
-  const supportingEvidence = result.narrative_supporting_evidence?.length
-    ? result.narrative_supporting_evidence
-    : (nineMirror?.atomic_claims || []).filter((item) => item.claim_type === '事实陈述').slice(0, 4).map((item) => ({
-        title: '原文明确事实',
-        detail: item.claim,
-        original_basis: item.evidence_source || item.claim,
-        judgment_type: '原文明确事实',
-        evidence_grade: item.evidence_strength,
-        verification_status: item.verification_status || '部分核验',
-        speculation_risk: '低',
-        verification_method: item.verification_method || '回到原文和原始出处核验。',
-      }));
-  const informationGaps = result.major_information_gaps?.length
-    ? result.major_information_gaps
-    : (nineMirror?.missing_perspective_matrix || []).filter((item) => item.status !== '已呈现').slice(0, 5).map((item) => ({
-        title: `${item.perspective_type}信息不足`,
-        detail: item.why_it_matters,
-        missing_information: item.perspective_type,
-        why_it_matters: item.why_it_matters,
-        judgment_type: item.judgment_type || '基于原文的合理推断',
-        evidence_grade: item.evidence_strength,
-        verification_status: item.verification_status || '待验证',
-        speculation_risk: item.speculation_risk,
-        verification_method: item.verification_method,
-      }));
-
-  const downloadText = (filename: string, content: string, type: string) => {
-    const blob = new Blob([content], { type });
+function DownloadButton({ report, originalContent, qaMessages }: { report: QuickAnalysisResult | DeepAnalysisResult; originalContent?: string; qaMessages: ChatMessage[] }) {
+  const download = () => {
+    const blob = new Blob([markdownFor(report, originalContent, qaMessages)], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = filename;
+    link.download = 'guanyu-review.md';
     document.body.appendChild(link);
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
   };
 
-  const toMarkdownReport = () => {
-    const web = result.web_verification;
-    const nine = result.nine_mirror_review;
-    return [
-      '# 观隅 · 新闻叙事审视报告',
-      '',
-      '## 报告元信息',
-      `- 新闻标题：${line(auditMeta?.title)}`,
-      `- 新闻来源：${line(auditMeta?.source)}`,
-      `- 发布时间：${line(auditMeta?.publishedAt)}`,
-      `- 使用模型：${line(auditMeta?.modelName)}`,
-      `- 思考强度：${line(auditMeta?.reasoningDepth)}`,
-      `- 分析模式：${line(auditMeta?.analysisMode)}`,
-      `- 生成时间：${line(auditMeta?.createdAt)}`,
-      `- 点击数：${line(auditMeta?.viewCount)}`,
-      `- 公开状态：${auditMeta?.isPublic === undefined ? '未提供' : auditMeta.isPublic ? '公开展示' : '仅自己可见'}`,
-      `- 方法论：${line(result.report_meta?.methodology || nine?.methodology_name)}`,
-      `- 生成范围：${line(result.report_meta?.generated_scope)}`,
-      `- 评分说明：${line(result.report_meta?.scoring_note)}`,
-      `- 是否值得读：${readWorth.label}`,
-      '',
-      '## 新闻原文',
-      originalContent?.trim() || '未提供原文。',
-      '',
-      '## 新闻简要总结',
-      result.news_summary || '暂无。',
-      '',
-      '## 一句话审视结论',
-      result.one_sentence_conclusion || '暂无。',
-      '',
-      '## 核心指数',
-      `- 可信度：${scoreSummary.credibility_score}`,
-      `- 信息完整度：${scoreSummary.information_completeness_score}`,
-      `- 叙事倾向性：${scoreSummary.narrative_bias_score}`,
-      `- 证据强度：${scoreSummary.evidence_strength_score}`,
-      `- 推测风险：${scoreSummary.speculation_risk_score}`,
-      '',
-      '### 评分理由',
-      `- 可信度：${line(scoreSummary.score_reasoning?.credibility_score)}`,
-      `- 信息完整度：${line(scoreSummary.score_reasoning?.information_completeness_score)}`,
-      `- 叙事倾向性：${line(scoreSummary.score_reasoning?.narrative_bias_score)}`,
-      `- 证据强度：${line(scoreSummary.score_reasoning?.evidence_strength_score)}`,
-      `- 推测风险：${line(scoreSummary.score_reasoning?.speculation_risk_score)}`,
-      '',
-      '## 最关键的 3 个发现',
-      ...(keyFindings.length ? keyFindings.map(judgmentMarkdown) : ['- 暂无']),
-      '',
-      '## 支持原文叙事的证据',
-      ...(supportingEvidence.length ? supportingEvidence.map(judgmentMarkdown) : ['- 暂无']),
-      '',
-      '## 主要信息缺口',
-      ...(informationGaps.length ? informationGaps.map(judgmentMarkdown) : ['- 暂无']),
-      '',
-      '## 观隅九镜审读法',
-      '',
-      '### 1. 原子主张拆解',
-      ...(nine?.atomic_claims?.length ? nine.atomic_claims.map(judgmentMarkdown) : ['- 暂无']),
-      '',
-      '### 2. 叙事框架分析',
-      `- 问题定义：${line(nine?.narrative_frame_analysis?.problem_definition)}`,
-      `- 责任归因：${line(nine?.narrative_frame_analysis?.responsibility_attribution)}`,
-      `- 道德立场：${line(nine?.narrative_frame_analysis?.moral_position)}`,
-      `- 暗示方案：${line(nine?.narrative_frame_analysis?.implied_solution)}`,
-      `- 判断类型：${line(nine?.narrative_frame_analysis?.judgment_type)}`,
-      `- 证据等级：${line(nine?.narrative_frame_analysis?.evidence_strength)}`,
-      `- 核验状态：${line(nine?.narrative_frame_analysis?.verification_status)}`,
-      `- 推测风险：${line(nine?.narrative_frame_analysis?.speculation_risk)}`,
-      `- 下一步验证：${line(nine?.narrative_frame_analysis?.verification_method)}`,
-      '',
-      '### 3. 语言框架审视',
-      ...(nine?.language_frame_audit?.length ? nine.language_frame_audit.map(judgmentMarkdown) : ['- 暂无']),
-      '',
-      '### 4. 缺席视角矩阵',
-      ...(nine?.missing_perspective_matrix?.length ? nine.missing_perspective_matrix.map((item) => judgmentMarkdown({
-        ...item,
-        title: `${item.perspective_type}：${item.status}`,
-        detail: item.why_it_matters,
-      })) : ['- 暂无']),
-      '',
-      '### 5. 利益—代价地图',
-      ...(nine?.interest_cost_map?.length ? nine.interest_cost_map.map(judgmentMarkdown) : ['- 暂无']),
-      '',
-      '### 6. 证据阶梯评级',
-      ...(nine?.evidence_ladder?.length ? nine.evidence_ladder.map(judgmentMarkdown) : ['- 暂无']),
-      '',
-      '### 7. 因果链审视',
-      ...(nine?.causal_chain_audit?.length ? nine.causal_chain_audit.map(judgmentMarkdown) : ['- 暂无']),
-      '',
-      '### 8. 替代解释对照',
-      ...(nine?.alternative_explanation_comparison?.length ? nine.alternative_explanation_comparison.map(judgmentMarkdown) : ['- 暂无']),
-      '',
-      '### 9. 验证路线图',
-      ...(nine?.verification_roadmap?.length ? nine.verification_roadmap.map(judgmentMarkdown) : ['- 暂无']),
-      '',
-      '## 联网核验结果',
-      '',
-      '### 已核验来源',
-      ...(web?.verified_sources?.length ? web.verified_sources.map(sourceMarkdown) : ['- 暂无']),
-      '',
-      '### 相关背景来源',
-      ...(web?.background_sources?.length ? web.background_sources.map(sourceMarkdown) : ['- 暂无']),
-      '',
-      '### 待核验线索',
-      ...(web?.leads_to_verify?.length ? web.leads_to_verify.map(sourceMarkdown) : ['- 暂无']),
-      '',
-      '### 暂无法确认的信息',
-      ...bullets(web?.unconfirmed_items || []),
-      '',
-      '## 继续追问清单',
-      ...bullets(result.questions_to_ask_next || []),
-      '',
-      '## 交互式追问记录',
-      ...(qaMessages.length
-        ? qaMessages.map((message, index) => `### ${index + 1}. ${message.role === 'user' ? '我的问题' : '审视助手回答'}\n\n${message.content}`)
-        : ['暂无交互式追问记录。']),
-      '',
-      '## 风险提示',
-      '该内容属于推测性分析，请结合更多来源验证，不应直接视为事实。本报告不替用户断言所谓隐藏真相，只帮助识别新闻叙事结构、证据缺口、缺席视角和待验证问题。',
-    ].join('\n');
-  };
+  return (
+    <div data-gsap-reveal className="flex flex-wrap justify-end gap-2">
+      <button onClick={download} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100 active:scale-[0.98] dark:border-indigo-900/40 dark:bg-indigo-950/20 dark:text-indigo-300">
+        导出完整 Markdown
+      </button>
+    </div>
+  );
+}
+
+function QuickReportView({ report, originalContent, auditMeta, qaMessages }: { report: QuickAnalysisResult; originalContent?: string; auditMeta?: AnalysisResultProps['auditMeta']; qaMessages: ChatMessage[] }) {
+  return (
+    <>
+      <MetaGrid report={report} auditMeta={auditMeta} />
+      <Section title="新闻简要总结"><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{report.newsSummary}</p></Section>
+      <Section title="一句话判断"><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.oneSentenceJudgment}</p></Section>
+      <AuditCharts {...chartProps(report)} />
+      <Section title="最主要的 3 个叙事问题">
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-3">{report.mainNarrativeIssues.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} />)}</div>
+      </Section>
+      <Section title="最主要的 3 个信息缺口">
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-3">{report.mainInformationGaps.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} />)}</div>
+      </Section>
+      <Section title="最值得追问的 3 个问题">
+        <ul className="grid grid-cols-1 gap-2 md:grid-cols-3">{report.questionsToAsk.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs font-semibold leading-relaxed text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300">{item}</li>)}</ul>
+      </Section>
+      <OriginalContentPanel originalContent={originalContent} />
+      <DownloadButton report={report} originalContent={originalContent} qaMessages={qaMessages} />
+    </>
+  );
+}
+
+function DeepReportView({ report, originalContent, auditMeta, qaMessages }: { report: DeepAnalysisResult; originalContent?: string; auditMeta?: AnalysisResultProps['auditMeta']; qaMessages: ChatMessage[] }) {
+  return (
+    <>
+      <MetaGrid report={report} auditMeta={auditMeta} />
+      <Section title="新闻简要总结"><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{report.newsSummary}</p></Section>
+      <Section title="一句话审视结论"><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.oneSentenceConclusion}</p></Section>
+      <AuditCharts {...chartProps(report)} />
+      <Section title="最关键的 3 个发现"><div className="grid grid-cols-1 gap-3 lg:grid-cols-3">{report.keyFindings.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} />)}</div></Section>
+      <Section title="支持原文叙事的证据" aside={<span className="text-xxs font-semibold text-gray-400">避免只唱反调</span>}>
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">{report.supportingEvidence.map((item, index) => <JudgmentCard key={`${item.content}-${index}`} item={{ title: item.supportsNarrative, content: item.content, evidenceGrade: item.evidenceGrade, verificationStatus: item.verificationStatus, nextVerification: item.limitation }} />)}</div>
+      </Section>
+      <Section title="主要信息缺口"><div className="grid grid-cols-1 gap-2 md:grid-cols-2">{report.informationGaps.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} />)}</div></Section>
+      <Section title="关键利益关系">
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
+          {report.stakeholderRelations.map((item, index) => <JudgmentCard key={`${item.role}-${index}`} item={{ title: item.role, content: `可能利益：${item.possibleBenefit || '原文未披露，需进一步核验。'}；可能代价：${item.possibleCost || '原文未披露，需进一步核验。'}`, judgmentType: item.judgmentType, speculationRisk: item.speculationRisk, nextVerification: item.pendingVerification, verificationStatus: 'pending_verification', evidenceGrade: 'D' }} />)}
+        </div>
+      </Section>
+      <Section title="替代解释对照">
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">{report.alternativeExplanations.map((item, index) => <JudgmentCard key={`${item.explanation}-${index}`} item={{ title: item.explanation, content: `合理性：${item.reasonableness}；当前证据：${item.currentEvidenceStatus}`, speculationRisk: item.speculationRisk, nextVerification: item.neededVerification, verificationStatus: 'pending_verification', evidenceGrade: item.speculationRisk === '高' ? 'E' : 'D' }} />)}</div>
+      </Section>
+      <Section title="证据与核验状态">
+        <div className="grid grid-cols-1 gap-2 text-xs md:grid-cols-2">
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><span className="font-bold">最强证据：</span>{report.evidenceVerificationSummary.strongestEvidence}</div>
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><span className="font-bold">最弱证据：</span>{report.evidenceVerificationSummary.weakestEvidence}</div>
+          {[
+            ['仅由原文支持', report.evidenceVerificationSummary.sourceSupportedClaims],
+            ['外部已核验', report.evidenceVerificationSummary.externallyVerifiedClaims],
+            ['待外部核验', report.evidenceVerificationSummary.pendingVerificationClaims],
+            ['暂无法确认', report.evidenceVerificationSummary.unableToVerifyClaims],
+          ].map(([title, items]) => (
+            <div key={String(title)} className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">
+              <div className="font-black text-gray-900 dark:text-white">{String(title)}</div>
+              <ul className="mt-2 space-y-1 text-gray-600 dark:text-gray-300">{(items as string[]).length ? (items as string[]).map((item, index) => <li key={`${item}-${index}`}>- {item}</li>) : <li>当前材料不足，无法形成可靠判断</li>}</ul>
+            </div>
+          ))}
+        </div>
+      </Section>
+      <Section title="验证路线图">
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">{report.verificationRoadmap.map((item, index) => <article key={`${item.question}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs dark:border-gray-850 dark:bg-gray-900"><div className="font-bold text-gray-950 dark:text-white">{item.question}</div><p className="mt-1 text-gray-600 dark:text-gray-300">{item.whyItMatters}</p><div className="mt-2 flex gap-1.5"><Badge className="border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-900/30 dark:bg-indigo-950/20 dark:text-indigo-300">{item.materialType}</Badge><Badge className={riskClass(item.priority)}>优先级 {item.priority}</Badge></div></article>)}</div>
+      </Section>
+      <Section title="联网核验结果"><WebVerificationView report={report} /></Section>
+      <Section title="继续追问清单"><ul className="grid grid-cols-1 gap-2 md:grid-cols-2">{report.questionsToAsk.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs font-semibold leading-relaxed text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300">{item}</li>)}</ul></Section>
+      <OriginalContentPanel originalContent={originalContent} />
+      <DownloadButton report={report} originalContent={originalContent} qaMessages={qaMessages} />
+    </>
+  );
+}
+
+export default function AnalysisResultView({ result: rawResult, auditId, originalContent, auditMeta }: AnalysisResultProps) {
+  const result = useNormalizedResult(rawResult, auditMeta);
+  const [qaMessages, setQaMessages] = useState<ChatMessage[]>([]);
+  const readWorth = result.read_worth || computeReadWorth(result);
 
   return (
     <GsapReveal className="space-y-4 sm:space-y-5" y={18} stagger={0.055}>
@@ -366,245 +671,18 @@ export default function AnalysisResultView({ result: rawResult, auditId, origina
         <ReadWorthVerdict label={readWorth.label} />
       </div>
 
-      <div data-gsap-reveal className="flex flex-wrap justify-end gap-2">
-        <button onClick={() => downloadText('guanyu-review.md', toMarkdownReport(), 'text/markdown;charset=utf-8')} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100 dark:border-indigo-900/40 dark:bg-indigo-950/20 dark:text-indigo-300">
-          导出完整 Markdown
-        </button>
-      </div>
-
-      <section data-gsap-reveal className="result-summary rounded-xl border border-indigo-800/30 bg-gradient-to-br from-indigo-950 via-indigo-900 to-slate-950 p-4 text-white shadow-sm">
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div className="space-y-2">
-            <div className="text-xxs font-black uppercase tracking-[0.18em] text-indigo-200">Guanyu Narrative Review</div>
-            <h2 className="text-lg font-black leading-tight">观隅 · 新闻叙事审视报告</h2>
-            <p className="max-w-3xl text-sm font-semibold leading-relaxed text-indigo-50">“{result.one_sentence_conclusion}”</p>
-          </div>
-          <div className="rounded-lg border border-white/10 bg-white/5 p-2 text-xxs leading-relaxed text-indigo-100 md:max-w-xs">
-            {result.report_meta?.scoring_note || '评分用于衡量报道结构与证据状态，不等同于判断新闻真假。'}
-          </div>
-        </div>
-      </section>
-
-      <Section title="新闻简要总结">
-        <p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{result.news_summary}</p>
-      </Section>
-
-      <AuditCharts
-        credibilityScore={scoreSummary.credibility_score}
-        completenessScore={scoreSummary.information_completeness_score}
-        biasScore={scoreSummary.narrative_bias_score}
-        evidenceScore={scoreSummary.evidence_strength_score}
-        riskScore={scoreSummary.speculation_risk_score}
-        beneficiariesCount={nineMirror?.interest_cost_map?.filter((item) => item.role === '受益者').length || 0}
-        costBearersCount={nineMirror?.interest_cost_map?.filter((item) => item.role === '成本承担者').length || 0}
-        missingPerspectivesCount={nineMirror?.missing_perspective_matrix?.filter((item) => item.status !== '已呈现').length || 0}
-        alternativeExplanationsCount={nineMirror?.alternative_explanation_comparison?.length || 0}
-        evidenceGrades={nineMirror?.evidence_ladder?.map((item) => item.grade) || []}
-        missingPerspectiveStatuses={nineMirror?.missing_perspective_matrix?.map((item) => item.status) || []}
-        interestCostItems={nineMirror?.interest_cost_map || []}
-      />
-
-      <Section title="最关键的 3 个发现">
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-          {keyFindings.slice(0, 3).map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} />)}
-        </div>
-      </Section>
-
-      <Section title="支持原文叙事的证据" aside={<span className="text-xxs font-semibold text-gray-400">避免只唱反调</span>}>
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-          {supportingEvidence.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} />)}
-        </div>
-      </Section>
-
-      <Section title="主要信息缺口">
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-          {informationGaps.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} />)}
-        </div>
-      </Section>
-
-      {nineMirror && (
-        <Section title="观隅九镜审读法" aside={<span className="text-xxs font-semibold text-gray-400">九个模块统一承载叙事、缺口、利益和替代解释</span>}>
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-              <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">
-                <h4 className="text-xs font-black text-gray-900 dark:text-white">1. 原子主张拆解</h4>
-                <div className="mt-2 space-y-2">
-                  {nineMirror.atomic_claims.slice(0, 8).map((item, index) => (
-                    <JudgmentCard key={`${item.claim}-${index}`} item={{
-                      title: item.claim,
-                      detail: `类型：${item.claim_type}；来源：${item.evidence_source}`,
-                      judgment_type: item.judgment_type,
-                      evidence_grade: item.evidence_strength,
-                      verification_status: item.verification_status,
-                      speculation_risk: item.speculation_risk,
-                      verification_method: item.verification_method,
-                    }} />
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs dark:border-gray-850 dark:bg-gray-900">
-                <h4 className="text-xs font-black text-gray-900 dark:text-white">2. 叙事框架分析</h4>
-                <div className="mt-2 space-y-2 leading-relaxed text-gray-600 dark:text-gray-300">
-                  <p><span className="font-bold text-gray-950 dark:text-white">问题定义：</span>{nineMirror.narrative_frame_analysis.problem_definition}</p>
-                  <p><span className="font-bold text-gray-950 dark:text-white">责任归因：</span>{nineMirror.narrative_frame_analysis.responsibility_attribution}</p>
-                  <p><span className="font-bold text-gray-950 dark:text-white">道德立场：</span>{nineMirror.narrative_frame_analysis.moral_position}</p>
-                  <p><span className="font-bold text-gray-950 dark:text-white">暗示方案：</span>{nineMirror.narrative_frame_analysis.implied_solution}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-              <MirrorList title="3. 语言框架审视" items={nineMirror.language_frame_audit.map((item) => ({
-                title: `${item.expression} / ${item.category}`,
-                detail: item.effect,
-                evidence_grade: item.evidence_strength,
-                verification_status: item.verification_status,
-                speculation_risk: item.speculation_risk,
-                verification_method: item.verification_method,
-              }))} />
-              <MirrorList title="4. 缺席视角矩阵" items={nineMirror.missing_perspective_matrix.map((item) => ({
-                title: `${item.perspective_type}：${item.status}`,
-                detail: item.why_it_matters,
-                evidence_grade: item.evidence_strength,
-                verification_status: item.verification_status,
-                speculation_risk: item.speculation_risk,
-                verification_method: item.verification_method,
-              }))} />
-              <MirrorList title="5. 利益—代价地图" items={nineMirror.interest_cost_map.map((item) => ({
-                title: `${item.actor} / ${item.role}`,
-                detail: item.possible_interest_or_cost,
-                evidence_grade: item.evidence_strength,
-                verification_status: item.verification_status,
-                speculation_risk: item.speculation_risk,
-                verification_method: item.verification_method,
-              }))} />
-              <MirrorList title="6. 证据阶梯评级" items={nineMirror.evidence_ladder.map((item) => ({
-                title: `${item.grade} 级证据`,
-                detail: `${item.evidence}；${item.grade_reason}`,
-                evidence_grade: item.grade,
-                verification_status: item.grade === 'A' || item.grade === 'B' ? '部分核验' : '待验证',
-                speculation_risk: item.grade === 'E' ? '高' : item.grade === 'D' ? '中' : '低',
-                verification_method: item.verification_method,
-              }))} />
-              <MirrorList title="7. 因果链审视" items={nineMirror.causal_chain_audit.map((item) => ({
-                title: item.causal_claim,
-                detail: `${item.possible_issue}：${item.issue_explanation}`,
-                evidence_grade: item.evidence_strength,
-                verification_status: item.verification_status,
-                speculation_risk: item.speculation_risk,
-                verification_method: item.verification_method,
-              }))} />
-              <MirrorList title="8. 替代解释对照" items={nineMirror.alternative_explanation_comparison.map((item) => ({
-                title: item.explanation,
-                detail: `合理性：${item.reasonableness}`,
-                judgment_type: item.judgment_type,
-                evidence_grade: item.evidence_strength,
-                verification_status: item.verification_status,
-                speculation_risk: item.speculation_risk,
-                verification_method: item.verification_method,
-              }))} />
-            </div>
-
-            <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">
-              <h4 className="text-xs font-black text-gray-900 dark:text-white">9. 验证路线图</h4>
-              <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
-                {nineMirror.verification_roadmap.map((item, index) => (
-                  <article key={`${item.target}-${index}`} className="rounded-lg border border-gray-100 bg-white p-3 text-xs dark:border-gray-800 dark:bg-gray-950">
-                    <div className="font-bold text-gray-950 dark:text-white">{item.target}</div>
-                    <p className="mt-1 text-gray-500 dark:text-gray-400">{item.why_needed}</p>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      <Badge className="border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-900/30 dark:bg-indigo-950/20 dark:text-indigo-300">{item.material_type}</Badge>
-                      <Badge className={riskClass(item.priority === '高' ? '高' : item.priority === '低' ? '低' : '中')}>优先级 {item.priority}</Badge>
-                    </div>
-                    <p className="mt-2 text-xxs font-semibold text-gray-500 dark:text-gray-400">方法：{item.how_to_verify}</p>
-                  </article>
-                ))}
-              </div>
-            </div>
-          </div>
-        </Section>
-      )}
-
-      <Section title="联网核验结果" aside={<span className="text-xxs font-semibold text-gray-400">不展示搜索 query 残留</span>}>
-        <WebVerificationView result={result} />
-      </Section>
+      {isQuick(result)
+        ? <QuickReportView report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} auditMeta={auditMeta} qaMessages={qaMessages} />
+        : <DeepReportView report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} auditMeta={auditMeta} qaMessages={qaMessages} />}
 
       <Section title="风险提示">
         <div className="space-y-2 text-xs leading-relaxed text-gray-600 dark:text-gray-300">
-          <p>本报告不替用户断言所谓隐藏真相，只帮助识别新闻叙事结构、证据缺口、缺席视角和待验证问题。</p>
-          <p>凡涉及债务风险、财政兜底、政策考核、政治收益、利益输送、连带责任等敏感判断，除非有 A/B 级材料直接支持，都应视为待验证假设。</p>
+          <p>{result.riskNotice}</p>
+          <p>本报告基于观隅九镜审读法生成，但九镜只作为内部分析流程，不作为正文逐条展开。</p>
         </div>
       </Section>
 
-      {auditId && (
-        <InteractiveQA
-          auditId={auditId}
-          messages={qaMessages}
-          onMessagesChange={setQaMessages}
-        />
-      )}
+      {auditId && <InteractiveQA auditId={auditId} messages={qaMessages} onMessagesChange={setQaMessages} />}
     </GsapReveal>
-  );
-}
-
-function MirrorList({ title, items }: { title: string; items: any[] }) {
-  return (
-    <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">
-      <h4 className="text-xs font-black text-gray-900 dark:text-white">{title}</h4>
-      <div className="mt-2 space-y-2">
-        {items.length === 0 ? (
-          <p className="rounded border border-dashed border-gray-200 p-3 text-xs text-gray-400 dark:border-gray-800">暂无可展示条目。</p>
-        ) : (
-          items.slice(0, 8).map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} />)
-        )}
-      </div>
-    </div>
-  );
-}
-
-function WebVerificationView({ result }: { result: AnalysisResult }) {
-  const web = result.web_verification;
-  const groups = [
-    { title: '已核验来源', items: web?.verified_sources || [] },
-    { title: '相关背景来源', items: web?.background_sources || [] },
-    { title: '待核验线索', items: web?.leads_to_verify || [] },
-  ];
-
-  return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-        {groups.map((group) => (
-          <div key={group.title} className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">
-            <h4 className="text-xs font-black text-gray-900 dark:text-white">{group.title}</h4>
-            <div className="mt-2 space-y-2">
-              {group.items.length === 0 ? (
-                <p className="text-xs text-gray-400">暂无。</p>
-              ) : group.items.slice(0, 4).map((source, index) => (
-                <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer" className="block rounded-lg border border-gray-100 bg-white p-2 text-xs transition hover:border-sky-300 dark:border-gray-800 dark:bg-gray-950 dark:hover:border-sky-800">
-                  <div className="line-clamp-2 font-bold text-gray-950 dark:text-white">{source.title}</div>
-                  <p className="mt-1 line-clamp-2 text-gray-500 dark:text-gray-400">{source.relevance || source.note}</p>
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    <Badge className={statusClass(source.verification_status)}>{source.verification_status}</Badge>
-                    <Badge className={evidenceClass(source.evidence_grade)}>证据 {source.evidence_grade}</Badge>
-                  </div>
-                </a>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {(web?.unconfirmed_items || []).length > 0 && (
-        <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">
-          <h4 className="text-xs font-black text-gray-900 dark:text-white">暂无法确认的信息</h4>
-          <ul className="mt-2 space-y-1.5">
-            {web?.unconfirmed_items.map((item, index) => (
-              <li key={`${item}-${index}`} className="text-xs leading-relaxed text-gray-600 dark:text-gray-300">- {item}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
   );
 }

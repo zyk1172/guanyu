@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { AnalysisMode } from '../lib/types';
+import { AnalysisMode, PublishedAtConfidence, PublishedAtSource } from '../lib/types';
 import ModeSelector from './ModeSelector';
 
 interface AnalysisFormProps {
@@ -8,6 +8,8 @@ interface AnalysisFormProps {
     title: string;
     source: string;
     date: string;
+    publishedAtSource: PublishedAtSource;
+    publishedAtConfidence: PublishedAtConfidence;
     content: string;
     focus: string;
     mode: AnalysisMode;
@@ -20,6 +22,8 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
   const [title, setTitle] = useState('');
   const [source, setSource] = useState('');
   const [date, setDate] = useState('');
+  const [publishedAtSource, setPublishedAtSource] = useState<PublishedAtSource>('unknown');
+  const [publishedAtConfidence, setPublishedAtConfidence] = useState<PublishedAtConfidence>('unknown');
   const [content, setContent] = useState('');
   const [focus, setFocus] = useState('');
   const [mode, setMode] = useState<AnalysisMode>('quick');
@@ -55,7 +59,9 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
 
       if (data.title) setTitle(data.title);
       if (data.source) setSource(data.source);
-      if (data.date) setDate(data.date);
+      if (data.date || data.publishedAt) setDate(data.date || data.publishedAt);
+      setPublishedAtSource(data.publishedAtSource || 'unknown');
+      setPublishedAtConfidence(data.publishedAtConfidence || 'unknown');
       if (data.content) setContent(data.content);
     } catch {
       setParseError('网络错误，请重试');
@@ -74,7 +80,7 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!content.trim() || content.trim().length < 50) return;
-    onSubmit({ title, source, date, content, focus, mode });
+    onSubmit({ title, source, date, publishedAtSource, publishedAtConfidence, content, focus, mode });
   };
 
   const isFormValid = content.trim().length >= 50;
@@ -172,10 +178,17 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
               id="date"
               type="text"
               value={date}
-              onChange={(e) => setDate(e.target.value)}
+              onChange={(e) => {
+                setDate(e.target.value);
+                setPublishedAtSource(e.target.value.trim() ? 'user_input' : 'unknown');
+                setPublishedAtConfidence(e.target.value.trim() ? 'high' : 'unknown');
+              }}
               placeholder="例：2026-06-28 或 刚刚"
               className="interactive-lift w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white"
             />
+            <p className="text-xxs text-gray-400">
+              来源：{publishedAtSource} · 可信度：{publishedAtConfidence}
+            </p>
           </div>
         </div>
 

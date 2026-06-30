@@ -60,8 +60,25 @@ export interface FramingWord {
 
 export type EvidenceGrade = 'A' | 'B' | 'C' | 'D' | 'E';
 export type SpeculationRisk = '高' | '中' | '低';
-export type VerificationStatus = '已核验' | '部分核验' | '待验证' | '暂无法确认';
+export type VerificationStatusCode =
+  | 'source_supported'
+  | 'externally_verified'
+  | 'partially_supported'
+  | 'pending_verification'
+  | 'unable_to_verify';
+export type VerificationStatus = VerificationStatusCode | '已核验' | '部分核验' | '待验证' | '暂无法确认' | '原文支持';
 export type JudgmentType = '原文明确事实' | '基于原文的合理推断' | '待外部验证的假设';
+export type PublishedAtSource =
+  | 'user_input'
+  | 'json_ld'
+  | 'meta_article'
+  | 'meta_og'
+  | 'meta_pubdate'
+  | 'time_tag'
+  | 'body_people_daily_format'
+  | 'body_regex'
+  | 'unknown';
+export type PublishedAtConfidence = 'high' | 'medium' | 'low' | 'unknown';
 
 export interface StructuredJudgment {
   title: string;
@@ -106,7 +123,7 @@ export interface ReportMeta {
   scoring_note: string;
 }
 
-export type ReadWorthLabel = '上好佳作' | '值得一读' | '勉强一看' | '狗屁不通';
+export type ReadWorthLabel = '值得细读' | '可以略读' | '不值一读' | '暂无法判断';
 
 export interface ReadWorthVerdict {
   label: ReadWorthLabel;
@@ -123,6 +140,146 @@ export interface ReadWorthVerdict {
     missingPerspectivePenalty: number;
     unconfirmedItemCount: number;
   };
+}
+
+export interface ReportScores {
+  credibility: number;
+  informationCompleteness: number;
+  narrativeBias: number;
+  evidenceStrength: number;
+  speculationRisk: number;
+}
+
+export interface NormalizedReportMeta {
+  title: string;
+  source: string;
+  publishedAt: string;
+  publishedAtSource: PublishedAtSource;
+  publishedAtConfidence: PublishedAtConfidence;
+  modelName: string;
+  reasoningDepth: string;
+  analysisMode: AnalysisMode;
+  createdAt: string;
+  viewCount?: number;
+  isPublic?: boolean;
+}
+
+export interface ReportJudgment {
+  title: string;
+  content: string;
+  judgmentType: JudgmentType;
+  evidenceGrade: EvidenceGrade;
+  verificationStatus: VerificationStatusCode;
+  speculationRisk: SpeculationRisk;
+  nextVerification: string;
+}
+
+export interface SupportingEvidenceItem {
+  content: string;
+  supportsNarrative: string;
+  evidenceGrade: EvidenceGrade;
+  verificationStatus: VerificationStatusCode;
+  limitation: string;
+}
+
+export interface InformationGapItem {
+  title: string;
+  description: string;
+  whyItMatters: string;
+  currentEvidenceGrade: EvidenceGrade;
+  verificationStatus: VerificationStatusCode;
+  nextVerification: string;
+}
+
+export interface StakeholderRelationItem {
+  role: string;
+  possibleBenefit: string;
+  possibleCost: string;
+  judgmentType: JudgmentType;
+  speculationRisk: SpeculationRisk;
+  pendingVerification: string;
+}
+
+export interface AlternativeExplanationItem {
+  explanation: string;
+  reasonableness: '高' | '中' | '低';
+  currentEvidenceStatus: string;
+  speculationRisk: SpeculationRisk;
+  neededVerification: string;
+}
+
+export interface EvidenceVerificationSummary {
+  strongestEvidence: string;
+  weakestEvidence: string;
+  sourceSupportedClaims: string[];
+  externallyVerifiedClaims: string[];
+  pendingVerificationClaims: string[];
+  unableToVerifyClaims: string[];
+}
+
+export interface VerificationRoadmapTask {
+  question: string;
+  materialType: '原始文件' | '数据' | '专家意见' | '当事方回应' | '多源报道' | '法律法规' | '行业标准';
+  whyItMatters: string;
+  priority: '高' | '中' | '低';
+}
+
+export interface OnlineVerificationSource {
+  title: string;
+  url: string;
+  sourceType: string;
+  relevance: string;
+  verificationStatus: VerificationStatusCode;
+  evidenceGrade: EvidenceGrade;
+  note: string;
+}
+
+export interface OnlineVerification {
+  enabled: boolean;
+  status: 'not_enabled' | 'no_reliable_sources' | 'has_results';
+  verifiedSources: OnlineVerificationSource[];
+  backgroundSources: OnlineVerificationSource[];
+  pendingLeads: OnlineVerificationSource[];
+  unableToConfirm: string[];
+}
+
+export interface QuickAnalysisResult {
+  reportType: 'quick';
+  methodology: '观隅九镜审读法';
+  meta: NormalizedReportMeta;
+  newsSummary: string;
+  oneSentenceJudgment: string;
+  readingValue: ReadWorthLabel;
+  read_worth?: ReadWorthVerdict;
+  scores: ReportScores;
+  mainNarrativeIssues: ReportJudgment[];
+  mainInformationGaps: InformationGapItem[];
+  questionsToAsk: string[];
+  riskNotice: string;
+}
+
+export interface DeepAnalysisResult {
+  reportType: 'deep';
+  methodology: '观隅九镜审读法';
+  meta: NormalizedReportMeta;
+  generationScope: string;
+  scoreExplanation: string;
+  newsSummary: string;
+  oneSentenceConclusion: string;
+  readingValue: ReadWorthLabel;
+  read_worth?: ReadWorthVerdict;
+  scores: ReportScores;
+  scoreReasons: Record<keyof ReportScores, string>;
+  keyFindings: ReportJudgment[];
+  supportingEvidence: SupportingEvidenceItem[];
+  informationGaps: InformationGapItem[];
+  stakeholderRelations: StakeholderRelationItem[];
+  alternativeExplanations: AlternativeExplanationItem[];
+  evidenceVerificationSummary: EvidenceVerificationSummary;
+  verificationRoadmap: VerificationRoadmapTask[];
+  questionsToAsk: string[];
+  onlineVerification: OnlineVerification;
+  riskNotice: string;
 }
 
 export interface MissingPerspective {
@@ -294,7 +451,7 @@ export interface NineMirrorReview {
   verification_roadmap: VerificationRoadmapItem[];
 }
 
-export interface AnalysisResult {
+export interface LegacyAnalysisResult {
   report_meta?: ReportMeta;
   read_worth?: ReadWorthVerdict;
   news_summary: string;
@@ -309,6 +466,8 @@ export interface AnalysisResult {
   questions_to_ask_next: string[];
   one_sentence_conclusion: string;
 }
+
+export type AnalysisResult = QuickAnalysisResult | DeepAnalysisResult | LegacyAnalysisResult;
 
 export const MODE_LABELS: Record<AnalysisMode, string> = {
   quick: '快速分析',

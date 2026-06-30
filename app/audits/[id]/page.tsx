@@ -18,7 +18,6 @@ export default function AuditDetailsPage() {
   const [error, setError] = useState<string | null>(null);
   const [auditRecord, setAuditRecord] = useState<any | null>(null);
   const [isAuthor, setIsAuthor] = useState(false);
-  const [isOriginalOpen, setIsOriginalOpen] = useState(false);
 
   const fetchAuditDetails = async () => {
     setIsLoading(true);
@@ -168,34 +167,6 @@ export default function AuditDetailsPage() {
           </div>
         </div>
 
-        {auditRecord.originalContent && (
-          <section className="rounded-xl border border-gray-150 bg-white p-3 shadow-sm dark:border-gray-900 dark:bg-gray-950 sm:p-4">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h3 className="text-sm font-black text-gray-950 dark:text-white">新闻原文</h3>
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  默认折叠，只在需要核对模型引用和原文上下文时展开。
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsOriginalOpen((value) => !value)}
-                className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-bold text-gray-700 transition hover:bg-gray-100 active:scale-[0.98] dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-850"
-                aria-expanded={isOriginalOpen}
-              >
-                {isOriginalOpen ? '收起原文' : '查看原文'}
-              </button>
-            </div>
-            {isOriginalOpen && (
-              <div className="mt-3 max-h-[420px] overflow-y-auto rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">
-                <pre className="whitespace-pre-wrap break-words text-xs leading-6 text-gray-700 dark:text-gray-300">
-                  {auditRecord.originalContent}
-                </pre>
-              </div>
-            )}
-          </section>
-        )}
-
         {/* B. 核心审视度量指标卡片 & 完整博弈详情面板 */}
         {auditResultParsed ? (
           <div className="space-y-4 sm:space-y-5">
@@ -208,6 +179,8 @@ export default function AuditDetailsPage() {
                 title: auditRecord.title,
                 source: auditRecord.source,
                 publishedAt: auditRecord.publishedAt,
+                publishedAtSource: auditRecord.publishedAtSource,
+                publishedAtConfidence: auditRecord.publishedAtConfidence,
                 modelName: auditRecord.modelName,
                 reasoningDepth: getDepthLabel(auditRecord.reasoningDepth),
                 analysisMode: getModeLabel(auditRecord.analysisMode),
