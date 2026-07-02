@@ -3,6 +3,14 @@ import { encode } from 'next-auth/jwt';
 
 const SESSION_MAX_AGE = 30 * 24 * 60 * 60;
 
+function shouldUseSecureCookie() {
+  return (
+    process.env.NEXTAUTH_URL?.startsWith('https://') ||
+    process.env.VERCEL === '1' ||
+    Boolean(process.env.VERCEL_URL)
+  );
+}
+
 export async function setSessionCookie(
   response: NextResponse,
   user: { id: string; email: string | null }
@@ -21,12 +29,14 @@ export async function setSessionCookie(
     },
   });
 
-  response.cookies.set('next-auth.session-token', token, {
+  const secure = shouldUseSecureCookie();
+  const cookieName = secure ? '__Secure-next-auth.session-token' : 'next-auth.session-token';
+
+  response.cookies.set(cookieName, token, {
     httpOnly: true,
     sameSite: 'lax',
     path: '/',
     maxAge: SESSION_MAX_AGE,
-    secure: process.env.NEXTAUTH_URL?.startsWith('https://') ?? false,
+    secure,
   });
 }
-
