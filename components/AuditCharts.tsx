@@ -31,8 +31,10 @@ const METRIC_HELPERS: Record<string, string> = {
   信息完整度: '越高表示信息越完整',
   叙事倾向性: '越高表示引导性越强',
   证据强度: '越高表示证据越充分',
-  推测风险: '越高表示越需要谨慎',
+  推测不确定性: '越高表示越需要补充核验',
 };
+
+const GRID_STROKE = 'rgba(148, 163, 184, 0.18)';
 
 const EVIDENCE_COLORS: Record<EvidenceGrade, string> = {
   A: '#059669',
@@ -61,7 +63,7 @@ export default function AuditCharts({
     { name: '信息完整度', value: completenessScore, fill: '#10b981' },
     { name: '叙事倾向性', value: biasScore, fill: '#f59e0b' },
     { name: '证据强度', value: evidenceScore, fill: '#06b6d4' },
-    { name: '推测风险', value: riskScore, fill: '#ef4444' },
+    { name: '推测不确定性', value: riskScore, fill: '#ef4444' },
   ];
 
   const countsData = [
@@ -98,7 +100,7 @@ export default function AuditCharts({
         <div className="h-56 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={auditMetrics} layout="vertical" margin={{ top: 6, right: 20, left: 8, bottom: 6 }}>
-              <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e5e7eb" />
+              <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={GRID_STROKE} />
               <XAxis type="number" domain={[0, 100]} fontSize={10} stroke="#888888" tickLine={false} axisLine={false} />
               <YAxis dataKey="name" type="category" fontSize={11} stroke="#666666" width={78} tickLine={false} axisLine={false} />
               <Tooltip content={<MetricTooltip />} cursor={{ fill: 'rgba(79, 70, 229, 0.05)' }} />
@@ -121,7 +123,7 @@ export default function AuditCharts({
         <div className="h-56 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={countsData} margin={{ top: 14, right: 12, left: -18, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={GRID_STROKE} />
               <XAxis dataKey="name" fontSize={11} stroke="#666666" tickLine={false} axisLine={false} />
               <YAxis fontSize={10} stroke="#888888" allowDecimals={false} tickLine={false} axisLine={false} />
               <Tooltip content={<CountTooltip />} cursor={{ fill: 'rgba(16, 185, 129, 0.05)' }} />
@@ -139,7 +141,7 @@ export default function AuditCharts({
         <div className="h-48 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={evidenceData} margin={{ top: 12, right: 12, left: -18, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={GRID_STROKE} />
               <XAxis dataKey="name" fontSize={11} stroke="#666666" tickLine={false} axisLine={false} />
               <YAxis fontSize={10} stroke="#888888" allowDecimals={false} tickLine={false} axisLine={false} />
               <Tooltip content={<CountTooltip />} cursor={{ fill: 'rgba(79, 70, 229, 0.05)' }} />
@@ -157,7 +159,7 @@ export default function AuditCharts({
         <div className="h-48 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={statusData} margin={{ top: 12, right: 12, left: -18, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={GRID_STROKE} />
               <XAxis dataKey="name" fontSize={11} stroke="#666666" tickLine={false} axisLine={false} />
               <YAxis fontSize={10} stroke="#888888" allowDecimals={false} tickLine={false} axisLine={false} />
               <Tooltip content={<CountTooltip />} cursor={{ fill: 'rgba(245, 158, 11, 0.05)' }} />

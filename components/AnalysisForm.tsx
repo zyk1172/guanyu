@@ -1,15 +1,12 @@
 import React, { useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { AnalysisMode, PublishedAtConfidence, PublishedAtSource } from '../lib/types';
+import { AnalysisMode } from '../lib/types';
 import ModeSelector from './ModeSelector';
 
 interface AnalysisFormProps {
   onSubmit: (data: {
     title: string;
     source: string;
-    date: string;
-    publishedAtSource: PublishedAtSource;
-    publishedAtConfidence: PublishedAtConfidence;
     content: string;
     focus: string;
     mode: AnalysisMode;
@@ -21,9 +18,6 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
   const { status } = useSession();
   const [title, setTitle] = useState('');
   const [source, setSource] = useState('');
-  const [date, setDate] = useState('');
-  const [publishedAtSource, setPublishedAtSource] = useState<PublishedAtSource>('unknown');
-  const [publishedAtConfidence, setPublishedAtConfidence] = useState<PublishedAtConfidence>('unknown');
   const [content, setContent] = useState('');
   const [focus, setFocus] = useState('');
   const [mode, setMode] = useState<AnalysisMode>('quick');
@@ -59,9 +53,6 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
 
       if (data.title) setTitle(data.title);
       if (data.source) setSource(data.source);
-      if (data.date || data.publishedAt) setDate(data.date || data.publishedAt);
-      setPublishedAtSource(data.publishedAtSource || 'unknown');
-      setPublishedAtConfidence(data.publishedAtConfidence || 'unknown');
       if (data.content) setContent(data.content);
     } catch {
       setParseError('网络错误，请重试');
@@ -80,7 +71,7 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!content.trim() || content.trim().length < 50) return;
-    onSubmit({ title, source, date, publishedAtSource, publishedAtConfidence, content, focus, mode });
+    onSubmit({ title, source, content, focus, mode });
   };
 
   const isFormValid = content.trim().length >= 50;
@@ -109,7 +100,7 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
               value={urlInput}
               onChange={(e) => { setUrlInput(e.target.value); setParseError(''); }}
               onKeyDown={handleKeyDown}
-              placeholder="粘贴新闻链接，点击自动填充标题、来源、日期和正文..."
+              placeholder="粘贴新闻链接，点击自动填充标题、来源和正文..."
               className="interactive-lift min-w-0 flex-1 px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white"
             />
             <button
@@ -141,7 +132,7 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
           <div className="relative flex justify-center"><span className="bg-white dark:bg-gray-950 px-3 text-xs text-gray-400">或手动输入</span></div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div className="space-y-1">
             <label htmlFor="title" className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
               新闻标题
@@ -168,27 +159,6 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
               placeholder="例：环球时报 / 联合早报 / 自媒体"
               className="interactive-lift w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white"
             />
-          </div>
-
-          <div className="space-y-1">
-            <label htmlFor="date" className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-              发布时间
-            </label>
-            <input
-              id="date"
-              type="text"
-              value={date}
-              onChange={(e) => {
-                setDate(e.target.value);
-                setPublishedAtSource(e.target.value.trim() ? 'user_input' : 'unknown');
-                setPublishedAtConfidence(e.target.value.trim() ? 'high' : 'unknown');
-              }}
-              placeholder="例：2026-06-28 或 刚刚"
-              className="interactive-lift w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white"
-            />
-            <p className="text-xxs text-gray-400">
-              来源：{publishedAtSource} · 可信度：{publishedAtConfidence}
-            </p>
           </div>
         </div>
 
@@ -226,6 +196,10 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
         </div>
 
         <ModeSelector selectedMode={mode} onSelectMode={setMode} />
+
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold leading-relaxed text-amber-800 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-300">
+          每个账号每天 3 次免费审视；免费额度用完后，快速审视消耗 1 点，深度审视消耗 2 点。5 分钟内最多生成 3 份报告。
+        </div>
 
         <button
           type="submit"

@@ -42,16 +42,20 @@ export function GsapRoot({ children }: GsapRootProps) {
         const { reduceMotion, canHover } = context.conditions || {};
 
         if (!reduceMotion) {
-          gsap.to(root.querySelectorAll('[data-gsap-drift]'), {
-            x: (index) => (index % 2 === 0 ? -12 : 14),
-            y: (index) => (index % 2 === 0 ? 10 : -12),
-            scale: (index) => (index % 2 === 0 ? 1.04 : 1.06),
-            duration: 7.5,
-            ease: 'sine.inOut',
-            repeat: -1,
-            yoyo: true,
-            stagger: 0.6,
-          });
+          const driftTargets = Array.from(root.querySelectorAll<HTMLElement>('[data-gsap-drift]'));
+
+          if (driftTargets.length > 0) {
+            gsap.to(driftTargets, {
+              x: (index) => (index % 2 === 0 ? -12 : 14),
+              y: (index) => (index % 2 === 0 ? 10 : -12),
+              scale: (index) => (index % 2 === 0 ? 1.04 : 1.06),
+              duration: 7.5,
+              ease: 'sine.inOut',
+              repeat: -1,
+              yoyo: true,
+              stagger: 0.6,
+            });
+          }
         }
 
         if (reduceMotion || !canHover) return;
@@ -147,7 +151,7 @@ export function GsapReveal({
     const root = scopeRef.current;
     if (!root) return;
 
-    const targets = gsap.utils.toArray<HTMLElement>(root.querySelectorAll(selector));
+    const targets = Array.from(root.querySelectorAll<HTMLElement>(selector));
     if (targets.length === 0) return;
 
     const mm = gsap.matchMedia();

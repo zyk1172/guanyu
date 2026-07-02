@@ -1,5 +1,25 @@
 export type AnalysisMode = 'quick' | 'deep';
 export type ThinkingDepth = 'none' | 'low' | 'medium' | 'high' | 'extreme';
+export type AudienceTheme = 'teen' | 'youth' | 'mature' | 'senior';
+
+export const AUDIENCE_THEME_LABELS: Record<AudienceTheme, string> = {
+  teen: '青少年版',
+  youth: '青年版',
+  mature: '成熟版',
+  senior: '长者版',
+};
+
+export const AUDIENCE_THEME_DESCRIPTIONS: Record<AudienceTheme, string> = {
+  teen: '更明亮，术语解释更直接，优先展示关键内容。',
+  youth: '默认专业风格，信息密度较高，适合高频使用。',
+  mature: '更克制，强调证据、核验状态和阅读节奏。',
+  senior: '更大字号、更高对比度、更少动效和更少可见卡片。',
+};
+
+export function normalizeAudienceThemeValue(value: string | null | undefined): AudienceTheme {
+  if (value === 'teen' || value === 'mature' || value === 'senior') return value;
+  return 'youth';
+}
 
 export const THINKING_DEPTH_LABELS: Record<ThinkingDepth, string> = {
   none: '无',
@@ -69,6 +89,7 @@ export type VerificationStatusCode =
 export type VerificationStatus = VerificationStatusCode | '已核验' | '部分核验' | '待验证' | '暂无法确认' | '原文支持';
 export type JudgmentType = '原文明确事实' | '基于原文的合理推断' | '待外部验证的假设';
 export type PublishedAtSource =
+  | 'ai_assessed'
   | 'user_input'
   | 'json_ld'
   | 'meta_article'
@@ -150,6 +171,12 @@ export interface ReportScores {
   speculationRisk: number;
 }
 
+export interface TimeAssessment {
+  publishedAt: string;
+  basis: string;
+  confidence: PublishedAtConfidence;
+}
+
 export interface NormalizedReportMeta {
   title: string;
   source: string;
@@ -162,6 +189,7 @@ export interface NormalizedReportMeta {
   createdAt: string;
   viewCount?: number;
   isPublic?: boolean;
+  timeAssessment?: TimeAssessment;
 }
 
 export interface ReportJudgment {

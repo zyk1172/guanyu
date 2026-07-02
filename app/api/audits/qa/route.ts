@@ -44,9 +44,9 @@ export async function POST(request: Request) {
 给出冷静、严谨、多维度且符合批判性思维的专业解答。
 遵守底线原则：
 1. 不得凭空编造事实或迎合阴谋论。
-2. 所有推理和假设都要声明其推测风险与证据强弱。
+2. 所有推理和假设都要声明其推测不确定性、证据强弱、受影响的判断对象和下一步核验方式。
 3. 如果相关材料不足，必须明确声明"仅凭当前审视和线索信息无法确切证实，仍待进一步事实核对"。
-4. 不要输出隐藏推理过程，只输出结论、依据、风险和可核查的下一步。`;
+4. 不要输出隐藏推理过程，只输出结论、依据、核验不确定性和可核查的下一步。`;
 
     const recentHistory = Array.isArray(chatHistory) ? chatHistory.slice(-10) : [];
 
@@ -70,7 +70,7 @@ ${auditRecord.originalContent}
 - 信息完整度：${auditRecord.informationCompletenessScore}
 - 叙事倾向性：${auditRecord.narrativeBiasScore}
 - 证据强度：${auditRecord.evidenceStrengthScore}
-- 推测风险：${auditRecord.speculationRiskScore}
+- 推测不确定性：${auditRecord.speculationRiskScore}
 
 【完整反向审视JSON】：
 ${auditRecord.auditResultJson}
@@ -90,7 +90,9 @@ ${recentHistory.map((h: any) => `${h.role === 'user' ? '用户' : 'AI'}: ${Strin
       where: { userId: user.id },
     });
 
-    const apiKey = decryptSecret(userSettings?.llmApiKeyEncrypted) || process.env.OPENAI_API_KEY;
+    const apiKey = userSettings?.llmApiKeyEncrypted
+      ? decryptSecret(userSettings.llmApiKeyEncrypted)
+      : process.env.OPENAI_API_KEY;
     const baseURL = userSettings?.llmBaseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
     const modelName = auditRecord.modelName || process.env.OPENAI_MODEL_DEFAULT || 'gpt-4o';
 

@@ -1,7 +1,18 @@
+import { buildTavilySearchRequest, normalizeTavilySearchResponse } from './tavily-core.mjs';
+import { buildSerperSearchRequest, normalizeSerperSearchResponse } from './serper-core.mjs';
+
 export interface WebSearchSource {
   title: string;
   url: string;
   snippet: string;
+  provider?: 'tavily' | 'serper' | 'duckduckgo';
+}
+
+export interface WebSearchOptions {
+  provider?: 'none' | 'tavily' | 'serper' | 'multi' | 'duckduckgo';
+  tavilyApiKey?: string;
+  tavilySearchDepth?: 'basic' | 'advanced' | string;
+  serperApiKey?: string;
 }
 
 function decodeHtml(value: string): string {
@@ -31,7 +42,37 @@ function normalizeDuckDuckGoUrl(value: string): string {
   }
 }
 
-export async function searchWeb(query: string, limit = 5): Promise<WebSearchSource[]> {
+async function searchTavily(query: string, limit: number, options: WebSearchOptions): Promise<WebSearchSource[]> {
+  const apiKey = options.tavilyApiKey?.trim();
+  if (!apiKey) return [];
+
+  try {
+    const response = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(buildTavilySearchRequest(query, limit, options.tavilySearchDepth || 'basic')),
+      next: { revalidate: 300 },
+    });
+
+    if (!response.ok) {
+      console.error('Tavily search failed with status:', response.status);
+      return [];
+    }
+
+    const payload = await response.json();
+    return normalizeTavilySearchResponse(payload)
+      .slice(0, limit)
+      .map((item: Omit<WebSearchSource, 'provider'>) => ({ ...item, provider: 'tavily' as const }));
+  } catch {
+    console.error('Tavily search failed');
+    return [];
+  }
+}
+
+async function searchDuckDuckGo(query: string, limit = 5): Promise<WebSearchSource[]> {
   const normalizedQuery = query.trim().replace(/\s+/g, ' ');
   if (!normalizedQuery) return [];
 
@@ -53,23 +94,84 @@ export async function searchWeb(query: string, limit = 5): Promise<WebSearchSour
     const html = await response.text();
     const blocks = html.match(/<div class="result results_links[\s\S]*?<\/div>\s*<\/div>/g) || [];
 
-    return blocks
-      .map((block) => {
-        const titleMatch = block.match(/<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
-        const snippetMatch = block.match(/<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/);
+    const results: WebSearchSource[] = [];
+    for (const block of blocks) {
+      const titleMatch = block.match(/<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+      const snippetMatch = block.match(/<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/);
+      if (!titleMatch) continue;
 
-        if (!titleMatch) return null;
+      const item: WebSearchSource = {
+        title: stripHtml(titleMatch[2]),
+        url: normalizeDuckDuckGoUrl(titleMatch[1]),
+        snippet: snippetMatch ? stripHtml(snippetMatch[1]) : '',
+        provider: 'duckduckgo',
+      };
+      if (item.title && item.url) results.push(item);
+      if (results.length >= limit) break;
+    }
 
-        return {
-          title: stripHtml(titleMatch[2]),
-          url: normalizeDuckDuckGoUrl(titleMatch[1]),
-          snippet: snippetMatch ? stripHtml(snippetMatch[1]) : '',
-        };
-      })
-      .filter((item): item is WebSearchSource => Boolean(item?.title && item?.url))
-      .slice(0, limit);
+    return results;
   } catch (error) {
     console.error('Web search failed:', error);
     return [];
   }
+}
+
+async function searchSerper(query: string, limit: number, options: WebSearchOptions): Promise<WebSearchSource[]> {
+  const apiKey = options.serperApiKey?.trim();
+  if (!apiKey) return [];
+
+  try {
+    const response = await fetch('https://google.serper.dev/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-KEY': apiKey,
+      },
+      body: JSON.stringify(buildSerperSearchRequest(query, limit)),
+      next: { revalidate: 300 },
+    });
+
+    if (!response.ok) {
+      console.error('Serper search failed with status:', response.status);
+      return [];
+    }
+
+    const payload = await response.json();
+    return normalizeSerperSearchResponse(payload)
+      .slice(0, limit)
+      .map((item: Omit<WebSearchSource, 'provider'>) => ({ ...item, provider: 'serper' as const }));
+  } catch {
+    console.error('Serper search failed');
+    return [];
+  }
+}
+
+function dedupeSources(sources: WebSearchSource[]) {
+  const seen = new Set<string>();
+  const result: WebSearchSource[] = [];
+
+  for (const source of sources) {
+    const key = source.url.trim().replace(/#.*$/, '').replace(/\/$/, '').toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(source);
+  }
+
+  return result;
+}
+
+export async function searchWeb(query: string, limit = 5, options: WebSearchOptions = {}): Promise<WebSearchSource[]> {
+  const provider = options.provider || 'none';
+  if (provider === 'none') return [];
+  if (provider === 'tavily') return searchTavily(query, limit, options);
+  if (provider === 'serper') return searchSerper(query, limit, options);
+  if (provider === 'multi') {
+    const [tavilyResults, serperResults] = await Promise.all([
+      options.tavilyApiKey ? searchTavily(query, limit, options) : Promise.resolve([]),
+      options.serperApiKey ? searchSerper(query, limit, options) : Promise.resolve([]),
+    ]);
+    return dedupeSources([...tavilyResults, ...serperResults]).slice(0, limit);
+  }
+  return searchDuckDuckGo(query, limit);
 }

@@ -3,14 +3,16 @@ import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { buildCompactFallbackPrompt, buildPrompt } from '@/lib/prompts';
 import { computeReadWorth } from '@/lib/readWorth';
-import { searchWeb } from '@/lib/search';
+import { searchWeb, WebSearchOptions } from '@/lib/search';
 import { decryptSecret } from '@/lib/secret';
+import { assertAnalyzeRateLimit, recordAnalyzeEvent } from '@/lib/rate-limit';
+import { buildUsagePlan, commitUsage, getOrCreateAppSetting } from '@/lib/billing';
+import type { UsageSource } from '@/lib/billing';
 import type {
   AnalysisMode,
   AnalysisResult,
   EvidenceGrade,
   PublishedAtConfidence,
-  PublishedAtSource,
   ReportScores,
   SpeculationRisk,
   VerificationStatusCode,
@@ -68,6 +70,22 @@ function normalizeVerificationStatus(value: unknown, hasExternalResults: boolean
   return 'pending_verification';
 }
 
+function normalizePublishedAt(value: unknown): string {
+  const raw = String(value || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const cnMatch = raw.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
+  if (cnMatch) {
+    const [, year, month, day] = cnMatch;
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+  return '';
+}
+
+function normalizePublishedAtConfidence(value: unknown): PublishedAtConfidence {
+  if (value === 'high' || value === 'medium' || value === 'low') return value;
+  return 'unknown';
+}
+
 function normalizeJudgmentType(value: unknown): JudgmentType {
   if (value === '原文明确事实' || value === '待外部验证的假设') return value;
   return '基于原文的合理推断';
@@ -113,11 +131,11 @@ function normalizeOnlineVerification(parsed: any, factCheckSources: Awaited<Retu
   const sourceFromSearch = (source: any) => ({
     title: String(source?.title || '相关背景来源'),
     url: String(source?.url || ''),
-    sourceType: String(source?.sourceType || source?.source_type || '相关来源'),
+    sourceType: String(source?.sourceType || source?.source_type || source?.provider || '相关来源'),
     relevance: String(source?.relevance || source?.snippet || '可作为背景核对方向。'),
     verificationStatus: normalizeVerificationStatus(source?.verificationStatus || source?.verification_status || 'partially_supported', true),
     evidenceGrade: normalizeEvidenceGrade(source?.evidenceGrade || source?.evidence_grade || 'C'),
-    note: String(source?.note || '仅作为核对来源，不直接等同于事实结论。'),
+    note: String(source?.note || `来自 ${source?.provider || '搜索服务'}；仅作为核对来源，不直接等同于事实结论。`),
   });
 
   if (!existing?.enabled && !hasExternalResults) {
@@ -161,18 +179,24 @@ function normalizeReport(params: {
   const onlineVerification = normalizeOnlineVerification(parsed, factCheckSources);
   const hasExternalResults = onlineVerification.status === 'has_results';
   const scores = getScores(parsed);
+  const timeAssessment = {
+    publishedAt: normalizePublishedAt(parsed?.timeAssessment?.publishedAt || parsed?.time_assessment?.published_at),
+    basis: String(parsed?.timeAssessment?.basis || parsed?.time_assessment?.basis || '模型未能给出可靠发布时间依据。'),
+    confidence: normalizePublishedAtConfidence(parsed?.timeAssessment?.confidence || parsed?.time_assessment?.confidence),
+  };
   const baseMeta = {
     title: meta.title,
     source: meta.source,
-    publishedAt: meta.publishedAt,
-    publishedAtSource: meta.publishedAtSource,
-    publishedAtConfidence: meta.publishedAtConfidence,
+    publishedAt: timeAssessment.publishedAt,
+    publishedAtSource: 'ai_assessed' as const,
+    publishedAtConfidence: timeAssessment.confidence,
     modelName: meta.modelName,
     reasoningDepth: meta.reasoningDepth,
     analysisMode: mode,
     createdAt: meta.createdAt,
     viewCount: meta.viewCount,
     isPublic: meta.isPublic,
+    timeAssessment,
   };
 
   if (mode === 'quick') {
@@ -191,7 +215,7 @@ function normalizeReport(params: {
         normalizeGap(item, `主要信息缺口 ${index + 1}`, hasExternalResults)
       ),
       questionsToAsk: asArray<string>(parsed.questionsToAsk || parsed.questions_to_ask_next).slice(0, 3),
-      riskNotice: String(parsed.riskNotice || '本报告不替用户断言新闻真假，只帮助识别叙事结构、证据缺口和待验证问题。'),
+      riskNotice: String(parsed.riskNotice || '本报告的不确定性主要来自原文证据缺口、外部核验不足和推断链条限制；它影响读者对报道完整性、相关主体责任和后续行动的判断，应通过原始材料、多方报道和当事方回应继续核验。'),
     };
     const readWorth = computeReadWorth(report);
     return { ...report, readingValue: readWorth.label, read_worth: readWorth };
@@ -202,7 +226,7 @@ function normalizeReport(params: {
     methodology: '观隅九镜审读法' as const,
     meta: baseMeta,
     generationScope: String(parsed.generationScope || parsed.report_meta?.generated_scope || '基于用户提供原文、账号配置和可用联网线索生成；不替用户断言新闻真假。'),
-    scoreExplanation: String(parsed.scoreExplanation || parsed.report_meta?.scoring_note || '评分用于衡量报道结构与证据状态，不等同于判断新闻真假。可信度越高表示越可信，信息完整度越高表示信息越完整，叙事倾向性越高表示引导性越强，证据强度越高表示证据越充分，推测风险越高表示越需要谨慎。'),
+    scoreExplanation: String(parsed.scoreExplanation || parsed.report_meta?.scoring_note || '评分用于衡量报道结构与证据状态，不等同于判断新闻真假。可信度越高表示越可信，信息完整度越高表示信息越完整，叙事倾向性越高表示引导性越强，证据强度越高表示证据越充分，推测不确定性越高表示越需要补充核验。'),
     newsSummary: String(parsed.newsSummary || parsed.news_summary || '当前材料不足，无法形成可靠摘要。'),
     oneSentenceConclusion: String(parsed.oneSentenceConclusion || parsed.one_sentence_conclusion || '需要结合更多来源核验报道中的关键信息缺口。'),
     readingValue: '暂无法判断' as const,
@@ -258,7 +282,7 @@ function normalizeReport(params: {
     })),
     questionsToAsk: asArray<string>(parsed.questionsToAsk || parsed.questions_to_ask_next).slice(0, 5),
     onlineVerification,
-    riskNotice: String(parsed.riskNotice || '本报告不替用户断言新闻真假，只帮助识别叙事结构、证据缺口、缺席视角和待验证问题。'),
+    riskNotice: String(parsed.riskNotice || '本报告的不确定性主要来自原文证据缺口、外部核验不足和推断链条限制；它影响读者对报道完整性、相关主体责任和后续行动的判断，应通过原始材料、多方报道和当事方回应继续核验。'),
   };
   const readWorth = computeReadWorth(report);
   return { ...report, readingValue: readWorth.label, read_worth: readWorth };
@@ -266,11 +290,80 @@ function normalizeReport(params: {
 
 function buildSearchContext(sources: Awaited<ReturnType<typeof searchWeb>>): string {
   return sources
-    .map((source, index) => `${index + 1}. ${source.title}\n链接：${source.url}${source.snippet ? `\n摘要：${source.snippet}` : ''}`)
+    .map((source, index) => `${index + 1}. ${source.title}\n搜索服务：${source.provider || 'unknown'}\n链接：${source.url}${source.snippet ? `\n依据摘录：${source.snippet}` : ''}\n核验使用要求：只能支持与该来源标题、链接和摘录直接相关的判断；无法直接支持的判断必须写“暂无法核验”。`)
     .join('\n\n');
 }
 
-async function buildDeepSearchGroups(base: { title?: string; source?: string; content: string }) {
+function buildSearchOptions(params: {
+  usageSource: UsageSource;
+  userSettings: any;
+  appSetting: any;
+}): WebSearchOptions {
+  const useOwnApi = params.usageSource === 'byok';
+  const adminTavilyKey = params.appSetting?.adminTavilyApiKeyEncrypted
+    ? decryptSecret(params.appSetting.adminTavilyApiKeyEncrypted)
+    : (process.env.TAVILY_API_KEY || '');
+  const adminSerperKey = params.appSetting?.adminSerperApiKeyEncrypted
+    ? decryptSecret(params.appSetting.adminSerperApiKeyEncrypted)
+    : (process.env.SERPER_API_KEY || '');
+  const tavilyApiKey = useOwnApi
+    ? (params.userSettings?.enableTavilySearch && params.userSettings?.tavilyApiKeyEncrypted
+        ? decryptSecret(params.userSettings.tavilyApiKeyEncrypted)
+        : '')
+    : ((params.appSetting?.enableAdminTavilySearch || process.env.TAVILY_API_KEY) ? adminTavilyKey : '');
+  const serperApiKey = useOwnApi
+    ? (params.userSettings?.enableSerperSearch && params.userSettings?.serperApiKeyEncrypted
+        ? decryptSecret(params.userSettings.serperApiKeyEncrypted)
+        : '')
+    : ((params.appSetting?.enableAdminSerperSearch || process.env.SERPER_API_KEY) ? adminSerperKey : '');
+  const tavilySearchDepth = useOwnApi ? (params.userSettings?.tavilySearchDepth || 'basic') : 'basic';
+
+  if (tavilyApiKey && serperApiKey) {
+    return {
+      provider: 'multi',
+      tavilyApiKey,
+      serperApiKey,
+      tavilySearchDepth,
+    };
+  }
+  if (tavilyApiKey) {
+    return {
+      provider: 'tavily',
+      tavilyApiKey,
+      tavilySearchDepth,
+    };
+  }
+  if (serperApiKey) {
+    return { provider: 'serper', serperApiKey };
+  }
+  return { provider: 'none' };
+}
+
+function chooseModelConfig(params: {
+  usageSource: UsageSource;
+  userSettings: any;
+  appSetting: any;
+}) {
+  if (params.usageSource !== 'byok') {
+    return {
+      modelName: params.appSetting?.adminModelName || process.env.OPENAI_MODEL_DEFAULT || 'gpt-4o',
+      baseURL: params.appSetting?.adminLlmBaseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
+      apiKey: params.appSetting?.adminLlmApiKeyEncrypted
+        ? decryptSecret(params.appSetting.adminLlmApiKeyEncrypted)
+        : (process.env.OPENAI_API_KEY || ''),
+    };
+  }
+
+  return {
+    modelName: params.userSettings?.defaultModelName || '',
+    baseURL: params.userSettings?.llmBaseUrl || '',
+    apiKey: params.userSettings?.llmApiKeyEncrypted
+      ? decryptSecret(params.userSettings.llmApiKeyEncrypted)
+      : '',
+  };
+}
+
+async function buildDeepSearchGroups(base: { title?: string; source?: string; content: string }, searchOptions: WebSearchOptions) {
   const core = [base.title, base.source].filter(Boolean).join(' ');
   const contentHint = base.content.slice(0, 180).replace(/\s+/g, ' ');
   const queries = [
@@ -279,7 +372,7 @@ async function buildDeepSearchGroups(base: { title?: string; source?: string; co
     `${core} 相关主体 责任 利益 成本 ${contentHint}`,
   ];
 
-  return Promise.all(queries.map(async (query) => searchWeb(query.slice(0, 260), 3)));
+  return Promise.all(queries.map(async (query) => searchWeb(query.slice(0, 260), 3, searchOptions)));
 }
 
 async function callChatCompletions(params: {
@@ -345,43 +438,40 @@ export async function POST(request: Request) {
     if (!currentUser) {
       return NextResponse.json({ error: '请登录后再创建新闻审视。' }, { status: 401 });
     }
+    await assertAnalyzeRateLimit(currentUser.id);
 
-    const userSettings = await prisma.userSettings.findUnique({
-      where: { userId: currentUser.id },
-    });
+    const [userSettings, appSetting] = await Promise.all([
+      prisma.userSettings.findUnique({
+        where: { userId: currentUser.id },
+      }),
+      getOrCreateAppSetting(),
+    ]);
 
     const body = await request.json();
-    const { title, source, date, content, focus, mode } = body;
+    const { title, source, content, focus, mode } = body;
 
     if (!content || content.trim().length < 50) {
       return NextResponse.json({ error: '新闻正文太短，最少需要 50 个字符。' }, { status: 400 });
     }
 
     const truncatedContent = content.slice(0, MAX_NEWS_CONTENT_LENGTH);
-    const defaultModel = process.env.OPENAI_MODEL_DEFAULT || 'gpt-4o';
-    const actualModelName = userSettings?.defaultModelName || defaultModel;
     const actualReasoningDepth = normalizeThinkingDepth(userSettings?.defaultReasoningDepth);
     const requestedMode = mode || userSettings?.defaultAnalysisMode || 'quick';
     const actualAnalysisMode = (VALID_ANALYSIS_MODES.has(requestedMode) ? requestedMode : 'quick') as AnalysisMode;
     const actualIsPublic = userSettings?.defaultIsPublic !== undefined ? userSettings.defaultIsPublic : true;
-
-    const publishedAt = String(date || '').trim();
-    const publishedAtSource = (body.publishedAtSource || (publishedAt ? 'user_input' : 'unknown')) as PublishedAtSource;
-    const publishedAtConfidence = (body.publishedAtConfidence || (publishedAt ? 'high' : 'unknown')) as PublishedAtConfidence;
+    const usagePlan = await buildUsagePlan(currentUser.id, actualAnalysisMode);
+    const searchOptions = buildSearchOptions({ usageSource: usagePlan.source, userSettings, appSetting });
 
     const searchQuery = [title, source, truncatedContent.slice(0, 120)].filter(Boolean).join(' ').slice(0, 240);
-    const factCheckSources = searchQuery ? await searchWeb(searchQuery, 5) : [];
+    const factCheckSources = searchQuery ? await searchWeb(searchQuery, 5, searchOptions) : [];
     const deepSources = actualAnalysisMode === 'deep'
-      ? (await buildDeepSearchGroups({ title, source, content: truncatedContent })).flat()
+      ? (await buildDeepSearchGroups({ title, source, content: truncatedContent }, searchOptions)).flat()
       : [];
     const webSearchContext = buildSearchContext([...factCheckSources, ...deepSources]);
 
     const promptInput = {
       title: title || '未知标题',
       source: source || '未知来源',
-      date: publishedAt,
-      publishedAtSource,
-      publishedAtConfidence,
       content: truncatedContent,
       focus,
       mode: actualAnalysisMode,
@@ -390,17 +480,22 @@ export async function POST(request: Request) {
     };
     const { system, user: userPrompt } = buildPrompt(promptInput);
 
-    if (!userSettings?.llmApiKeyEncrypted) {
-      return NextResponse.json({ error: '未配置大模型 API Key，请先到账号管理中保存大模型密钥。' }, { status: 500 });
+    const modelConfig = chooseModelConfig({ usageSource: usagePlan.source, userSettings, appSetting });
+    if (!modelConfig.apiKey || !modelConfig.modelName || !modelConfig.baseURL) {
+      return NextResponse.json({
+        error: usagePlan.source === 'byok'
+          ? '买断账号需要先在账号管理中保存自己的大模型名称、接口地址和 API Key。'
+          : usagePlan.source === 'free_admin'
+          ? '管理员免费额度模型 API 未配置，请联系管理员。'
+          : '管理员点数模型 API 未配置，请联系管理员。',
+      }, { status: 500 });
     }
-    const apiKey = decryptSecret(userSettings.llmApiKeyEncrypted);
-    const baseURL = userSettings.llmBaseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
 
     let usedFallbackPrompt = false;
     let llmResult = await callChatCompletions({
-      baseURL,
-      apiKey,
-      modelName: actualModelName,
+      baseURL: modelConfig.baseURL,
+      apiKey: modelConfig.apiKey,
+      modelName: modelConfig.modelName,
       system,
       userPrompt,
     });
@@ -409,9 +504,9 @@ export async function POST(request: Request) {
       const fallbackPrompt = buildCompactFallbackPrompt(promptInput);
       usedFallbackPrompt = true;
       llmResult = await callChatCompletions({
-        baseURL,
-        apiKey,
-        modelName: actualModelName,
+        baseURL: modelConfig.baseURL,
+        apiKey: modelConfig.apiKey,
+        modelName: modelConfig.modelName,
         system: fallbackPrompt.system,
         userPrompt: fallbackPrompt.user,
       });
@@ -433,10 +528,10 @@ export async function POST(request: Request) {
       console.error('JSON Parse error:', parseError, 'Raw response:', llmResult.message);
       if (!usedFallbackPrompt) {
         const fallbackPrompt = buildCompactFallbackPrompt(promptInput);
-        const fallbackResult = await callChatCompletions({
-          baseURL,
-          apiKey,
-          modelName: actualModelName,
+          const fallbackResult = await callChatCompletions({
+          baseURL: modelConfig.baseURL,
+          apiKey: modelConfig.apiKey,
+          modelName: modelConfig.modelName,
           system: fallbackPrompt.system,
           userPrompt: fallbackPrompt.user,
         });
@@ -458,10 +553,7 @@ export async function POST(request: Request) {
       meta: {
         title: title || '未命名新闻标题',
         source: source || '未知来源',
-        publishedAt,
-        publishedAtSource,
-        publishedAtConfidence,
-        modelName: actualModelName,
+        modelName: modelConfig.modelName,
         reasoningDepth: actualReasoningDepth,
         createdAt,
         viewCount: 0,
@@ -472,6 +564,9 @@ export async function POST(request: Request) {
     normalizedResult.generationMeta = {
       usedCompactFallback: usedFallbackPrompt,
       hasWebSearchContext: Boolean(webSearchContext),
+      searchProvider: searchOptions.provider || 'none',
+      usageSource: usagePlan.source,
+      pointCost: usagePlan.costPoints,
     };
 
     const scores = normalizedResult.scores;
@@ -479,22 +574,25 @@ export async function POST(request: Request) {
     const saveResult = userSettings?.defaultSaveResult !== false;
     let savedAuditId = '';
 
+    const normalizedPublishedAt = normalizedResult.meta?.publishedAt || '';
+    const normalizedPublishedAtConfidence = normalizedResult.meta?.publishedAtConfidence || 'unknown';
+
     if (saveResult) {
       const dbRecord = await prisma.audit.create({
         data: {
           userId: currentUser.id,
           title: title || '未命名新闻标题',
           source: source || '未知来源',
-          publishedAt,
-          publishedAtSource,
-          publishedAtConfidence,
+          publishedAt: normalizedPublishedAt,
+          publishedAtSource: 'ai_assessed',
+          publishedAtConfidence: normalizedPublishedAtConfidence,
           reportType: normalizedResult.reportType,
           readingValue: normalizedResult.readingValue,
           originalContent: truncatedContent,
           focus: focus || '',
           analysisMode: actualAnalysisMode,
           reasoningDepth: actualReasoningDepth,
-          modelName: actualModelName,
+          modelName: modelConfig.modelName,
           newsSummary: newsSummaryText,
           auditResultJson: JSON.stringify(normalizedResult),
           credibilityScore: scores.credibility,
@@ -508,6 +606,8 @@ export async function POST(request: Request) {
         },
       });
       savedAuditId = dbRecord.id;
+      await commitUsage(usagePlan, dbRecord.id);
+      await recordAnalyzeEvent(currentUser.id);
     }
 
     return NextResponse.json({
@@ -516,6 +616,6 @@ export async function POST(request: Request) {
     });
   } catch (error: any) {
     console.error('Route analyze error:', error);
-    return NextResponse.json({ error: '服务器内部处理出错，请重试' }, { status: 500 });
+    return NextResponse.json({ error: error?.message || '服务器内部处理出错，请重试' }, { status: 500 });
   }
 }

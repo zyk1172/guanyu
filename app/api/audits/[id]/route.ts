@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { getSuperAdminStatus } from '@/lib/admin';
 import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 
@@ -101,7 +102,8 @@ export async function DELETE(
       return NextResponse.json({ error: '记录不存在' }, { status: 404 });
     }
 
-    if (audit.userId !== userId) {
+    const isSuperAdmin = await getSuperAdminStatus(userId);
+    if (audit.userId !== userId && !isSuperAdmin) {
       return NextResponse.json({ error: '你没有权限删除他人的审视记录。' }, { status: 403 });
     }
 

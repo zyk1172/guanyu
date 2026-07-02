@@ -8,10 +8,12 @@ const BASE_RULES = `你是"观隅"新闻叙事审视助手。
 3. 不输出 chain-of-thought，不输出 Markdown，不输出 JSON 之外的文字。
 4. 不得凭空编造事实，不得把基于原文缺口的怀疑写成事实。
 5. 必须区分"原文明确事实""基于原文的合理推断""待外部验证的假设"。
-6. 所有关键判断都必须包含 judgmentType、evidenceGrade、verificationStatus、speculationRisk 和 nextVerification 或等价字段。
+6. 所有关键判断都必须包含 judgmentType、evidenceGrade、verificationStatus、speculationRisk 和 nextVerification 或等价字段；speculationRisk 表示推测不确定性，不是事实危险定性。
 7. 涉及劳动合规、财政风险、政治动机、管理缺陷、经济收益、责任归因、利益输送、连带责任等敏感判断，除非有 A/B 级材料直接支持，否则必须标为"待外部验证的假设"和 pending_verification。
 8. 不得使用粗俗、侮辱性、发泄式评价。阅读价值只能使用：值得细读、可以略读、不值一读、暂无法判断。
 9. 不要使用"未提供""暂无"作为条目标题。材料不足时在深度报告中写"当前材料不足，无法形成可靠判断"，快速报告中可直接省略该项。
+10. 联网核验不是装饰。凡写 externally_verified，必须在内容或 note 中说明由哪个来源链接、哪段依据支持；不能直接支撑的只能写 partially_supported、pending_verification 或 unable_to_verify。
+11. 不能为了显得严谨而强行核验。搜索结果只提供背景、相似报道或间接材料时，必须写清“相关背景来源”或“暂无法核验”，不得写成事实已确认。
 
 证据等级：
 - A：原始文件、官方数据、法院文书、财报、政策原文。
@@ -32,8 +34,13 @@ const BASE_RULES = `你是"观隅"新闻叙事审视助手。
 - informationCompleteness：信息完整度，越高表示信息越完整。
 - narrativeBias：叙事倾向性，越高表示引导性越强。
 - evidenceStrength：证据强度，越高表示证据越充分。
-- speculationRisk：推测风险，越高表示越需要谨慎。
+- speculationRisk：推测不确定性，越高表示越需要补充外部材料核验。
 评分用于衡量报道结构与证据状态，不等同于判断新闻真假。
+
+时间判断：
+- 不要把报告生成时间、网页抓取时间或用户提交时间当作新闻发布时间。
+- 只能根据标题、正文、版面信息、新闻来源文本中的明确日期痕迹判断发布时间。
+- 判断不充分时 publishedAt 留空，confidence 使用 low 或 unknown，并说明依据不足。
 
 大模型思考强度(reasoningDepth)只影响审视严格度，不得暴露隐藏推理过程：
 - none：简洁直接。
@@ -45,6 +52,11 @@ const BASE_RULES = `你是"观隅"新闻叙事审视助手。
 const QUICK_SCHEMA = `{
   "reportType": "quick",
   "methodology": "观隅九镜审读法",
+  "timeAssessment": {
+    "publishedAt": "YYYY-MM-DD 或空字符串",
+    "basis": "判断依据；无法判断时说明依据不足",
+    "confidence": "high | medium | low | unknown"
+  },
   "newsSummary": "100到200字，只总结原文明确内容，不加入审视观点、外部信息或推测",
   "oneSentenceJudgment": "一句话判断新闻最值得注意的信息缺口、叙事倾向或待验证问题，语气克制",
   "readingValue": "值得细读 | 可以略读 | 不值一读 | 暂无法判断",
@@ -77,12 +89,17 @@ const QUICK_SCHEMA = `{
     }
   ],
   "questionsToAsk": ["最值得追问的问题，最多3条"],
-  "riskNotice": "本报告不替用户断言新闻真假，只帮助识别叙事结构、证据缺口和待验证问题。"
+  "riskNotice": "请说明本报告的不确定性来自哪些证据缺口、会影响读者或相关主体的哪类判断，以及下一步应如何核验。"
 }`;
 
 const DEEP_SCHEMA = `{
   "reportType": "deep",
   "methodology": "观隅九镜审读法",
+  "timeAssessment": {
+    "publishedAt": "YYYY-MM-DD 或空字符串",
+    "basis": "判断依据；无法判断时说明依据不足",
+    "confidence": "high | medium | low | unknown"
+  },
   "generationScope": "基于用户提供原文、账号配置和可用联网线索生成；不替用户断言新闻真假",
   "scoreExplanation": "评分用于衡量报道结构与证据状态，不等同于判断新闻真假。说明五个指数方向。",
   "newsSummary": "100到200字，只总结原文明确内容，不加入审视观点、外部信息或推测",
@@ -176,20 +193,17 @@ const DEEP_SCHEMA = `{
     "pendingLeads": [],
     "unableToConfirm": []
   },
-  "riskNotice": "本报告不替用户断言新闻真假，只帮助识别叙事结构、证据缺口、缺席视角和待验证问题。"
+  "riskNotice": "请说明本报告的不确定性来自哪些证据缺口、会影响读者或相关主体的哪类判断，以及下一步应如何核验。"
 }`;
 
 const MODE_PROMPTS: Record<AnalysisMode, string> = {
-  quick: `当前模式：快速分析。输出短报告，只保留摘要、一句话判断、阅读价值、核心指数、最多3个叙事问题、最多3个信息缺口、最多3个追问问题和风险提示。不要输出证据表、验证路线图、九镜章节或新闻原文。JSON schema：\n${QUICK_SCHEMA}`,
-  deep: `当前模式：深度分析。输出完整但不冗长的"观隅 · 新闻叙事审视报告"，结构为：报告元信息由后端补齐、新闻总结、一句话结论、核心指数、最关键3个发现、支持原文叙事的证据、主要信息缺口、关键利益关系、替代解释、证据与核验状态、验证路线图、继续追问和风险提示。不要输出九镜方法步骤。JSON schema：\n${DEEP_SCHEMA}`,
+  quick: `当前模式：快速分析。输出短报告，只保留摘要、一句话判断、阅读价值、核心指数、最多3个叙事问题、最多3个信息缺口、最多3个追问问题和核验不确定性说明。不要输出证据表、验证路线图、九镜章节或新闻原文。JSON schema：\n${QUICK_SCHEMA}`,
+  deep: `当前模式：深度分析。输出完整但不冗长的"观隅 · 新闻叙事审视报告"，结构为：报告元信息由后端补齐、新闻总结、一句话结论、核心指数、最关键3个发现、支持原文叙事的证据、主要信息缺口、关键利益关系、替代解释、证据与核验状态、验证路线图、继续追问和核验不确定性说明。不要输出九镜方法步骤。JSON schema：\n${DEEP_SCHEMA}`,
 };
 
 export function buildPrompt(newsInfo: {
   title: string;
   source: string;
-  date: string;
-  publishedAtSource?: string;
-  publishedAtConfidence?: string;
   content: string;
   focus?: string;
   mode: AnalysisMode;
@@ -199,15 +213,13 @@ export function buildPrompt(newsInfo: {
   const hasWeb = Boolean(newsInfo.webSearchContext?.trim());
   const user = `【新闻标题】${newsInfo.title}
 【新闻来源】${newsInfo.source}
-【新闻发布时间】${newsInfo.date || '未能可靠识别发布时间'}
-【发布时间来源】${newsInfo.publishedAtSource || 'unknown'}
-【发布时间可信度】${newsInfo.publishedAtConfidence || 'unknown'}
+【发布时间判断要求】请由模型根据新闻正文与标题中的日期痕迹判断。无法可靠判断时 timeAssessment.publishedAt 留空，不要把报告生成时间当作发布时间。
 【大模型思考强度/reasoningDepth】${newsInfo.reasoningDepth}
-【联网核验状态】${hasWeb ? '已提供联网线索。只有能被联网线索直接支撑的判断才能使用 externally_verified。' : '未提供联网线索。不得使用 externally_verified。'}
+【联网核验状态】${hasWeb ? '已提供联网线索。只有被具体来源标题、链接和依据摘录直接支撑的判断才能使用 externally_verified；否则必须标为 partially_supported、pending_verification 或 unable_to_verify。' : '未提供联网线索。不得使用 externally_verified。'}
 【新闻正文】
 ${newsInfo.content}
 ${newsInfo.focus ? `\n【用户关注点】${newsInfo.focus}` : ''}
-${hasWeb ? `\n【联网搜索线索】\n${newsInfo.webSearchContext}\n请把联网材料重构为已核验来源、相关背景来源、待核验线索、暂无法确认的信息；不要输出搜索 query 或搜索摘要残留。` : ''}
+${hasWeb ? `\n【联网搜索线索】\n${newsInfo.webSearchContext}\n请把联网材料重构为已核验来源、相关背景来源、待核验线索、暂无法确认的信息；每条已核验来源必须写明支持了什么判断、依据来自哪一个链接和摘录。不要输出搜索 query 或搜索摘要残留。` : ''}
 
 ${MODE_PROMPTS[newsInfo.mode]}`;
 
@@ -220,9 +232,6 @@ ${MODE_PROMPTS[newsInfo.mode]}`;
 export function buildCompactFallbackPrompt(newsInfo: {
   title: string;
   source: string;
-  date: string;
-  publishedAtSource?: string;
-  publishedAtConfidence?: string;
   content: string;
   focus?: string;
   mode: AnalysisMode;

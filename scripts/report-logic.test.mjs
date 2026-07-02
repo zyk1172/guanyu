@@ -3,6 +3,10 @@ import test from 'node:test';
 
 import { extractPublishedDate } from '../lib/publishedDate.mjs';
 import { computeReadWorthCore } from '../lib/read-worth-core.mjs';
+import { isSuperAdminIdentity } from '../lib/admin-core.mjs';
+import { AUDIENCE_THEME_OPTIONS, getAudienceThemeConfig, normalizeAudienceTheme } from '../lib/audience-theme-core.mjs';
+import { buildTavilySearchRequest, normalizeTavilySearchResponse } from '../lib/tavily-core.mjs';
+import { buildSerperSearchRequest, normalizeSerperSearchResponse } from '../lib/serper-core.mjs';
 
 test('extracts People Daily body date before unrelated old dates', () => {
   const html = `
@@ -52,4 +56,77 @@ test('read worth verdict uses only productized labels', () => {
     const verdict = computeReadWorthCore({ scores });
     assert.equal(labels.has(verdict.label), true);
   }
+});
+
+test('tavily request uses basic search by default to preserve free credits', () => {
+  const request = buildTavilySearchRequest('  观隅 联网核验  ', 8);
+
+  assert.deepEqual(request, {
+    query: '观隅 联网核验',
+    search_depth: 'basic',
+    max_results: 8,
+    include_answer: false,
+    include_raw_content: false,
+  });
+});
+
+test('tavily response normalizes official results without leaking raw payload shape', () => {
+  const sources = normalizeTavilySearchResponse({
+    results: [
+      { title: '来源 A', url: 'https://example.com/a', content: '摘要 A', raw_content: '很长的原文' },
+      { title: '', url: 'https://example.com/b', content: '摘要 B' },
+      { title: '来源 C', url: '', content: '摘要 C' },
+    ],
+  });
+
+  assert.deepEqual(sources, [
+    { title: '来源 A', url: 'https://example.com/a', snippet: '摘要 A' },
+  ]);
+});
+
+test('serper request and response normalize google-style results', () => {
+  assert.deepEqual(buildSerperSearchRequest('  观隅  核验  ', 12), {
+    q: '观隅 核验',
+    num: 10,
+    gl: 'cn',
+    hl: 'zh-cn',
+  });
+
+  const sources = normalizeSerperSearchResponse({
+    organic: [
+      { title: '结果 A', link: 'https://example.com/a', snippet: '摘要 A' },
+      { title: '', link: 'https://example.com/b', snippet: '摘要 B' },
+    ],
+    news: [
+      { title: '新闻 C', link: 'https://example.com/c', snippet: '摘要 C' },
+    ],
+  });
+
+  assert.deepEqual(sources, [
+    { title: '结果 A', url: 'https://example.com/a', snippet: '摘要 A' },
+    { title: '新闻 C', url: 'https://example.com/c', snippet: '摘要 C' },
+  ]);
+});
+
+test('super admin identity supports role and scoped env allow-list', () => {
+  assert.equal(isSuperAdminIdentity({ id: 'u1', email: 'owner@example.com', role: 'super_admin' }, {}), true);
+  assert.equal(isSuperAdminIdentity({ id: 'u2', email: 'Root@Example.com' }, { SUPER_ADMIN_EMAILS: 'root@example.com, admin@example.com' }), true);
+  assert.equal(isSuperAdminIdentity({ id: 'u3', email: 'user@example.com' }, { SUPER_ADMIN_IDS: 'u3' }), true);
+  assert.equal(isSuperAdminIdentity({ id: 'u4', email: 'user@example.com' }, { SUPER_ADMIN_EMAILS: 'other@example.com' }), false);
+});
+
+test('audience themes normalize to productized age-group options', () => {
+  assert.deepEqual(AUDIENCE_THEME_OPTIONS.map((item) => item.value), ['teen', 'youth', 'mature', 'senior']);
+  assert.equal(normalizeAudienceTheme('senior'), 'senior');
+  assert.equal(normalizeAudienceTheme('unknown'), 'youth');
+  assert.equal(normalizeAudienceTheme(undefined), 'youth');
+});
+
+test('senior audience theme reduces visible report complexity', () => {
+  const senior = getAudienceThemeConfig('senior');
+  const youth = getAudienceThemeConfig('youth');
+
+  assert.equal(senior.readingGuide, true);
+  assert.equal(senior.detailLimit < youth.detailLimit, true);
+  assert.equal(senior.motion, 'reduced');
 });

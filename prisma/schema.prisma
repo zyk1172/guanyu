@@ -9,15 +9,23 @@ datasource db {
 }
 
 model User {
-  id            String        @id @default(cuid())
-  email         String        @unique
-  password      String        // 密码
-  name          String?
-  image         String?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  settings      UserSettings?
-  audits        Audit[]
+  id                String             @id @default(cuid())
+  email             String             @unique
+  password          String // 密码
+  role              String             @default("user") // user, super_admin
+  planType          String             @default("free") // free, points, byok
+  creditBalance     Int                @default(0)
+  freeQuotaDate     String?
+  freeQuotaUsed     Int                @default(0)
+  name              String?
+  image             String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  settings          UserSettings?
+  audits            Audit[]
+  pointTransactions PointTransaction[]
+  purchaseOrders    PurchaseOrder[]
+  rateLimitEvents   RateLimitEvent[]
 }
 
 model UserSettings {
@@ -27,8 +35,14 @@ model UserSettings {
   defaultModelName      String   @default("gpt-4o")
   llmBaseUrl            String   @default("https://api.openai.com/v1")
   llmApiKeyEncrypted    String?
+  enableTavilySearch    Boolean  @default(false)
+  tavilyApiKeyEncrypted String?
+  tavilySearchDepth     String   @default("basic") // basic, advanced
+  enableSerperSearch    Boolean  @default(false)
+  serperApiKeyEncrypted String?
+  defaultAudienceTheme  String   @default("youth") // teen, youth, mature, senior
   defaultReasoningDepth String   @default("medium") // none, low, medium, high, extreme
-  defaultAnalysisMode   String   @default("quick")    // quick, deep
+  defaultAnalysisMode   String   @default("quick") // quick, deep
   defaultIsPublic       Boolean  @default(true)
   defaultSaveResult     Boolean  @default(true)
   defaultEnableCharts   Boolean  @default(true)
@@ -37,35 +51,112 @@ model UserSettings {
 }
 
 model Audit {
-  id                            String   @id @default(cuid())
-  userId                        String
-  user                          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title                         String
-  source                        String
-  publishedAt                   String
-  publishedAtSource             String   @default("unknown")
-  publishedAtConfidence         String   @default("unknown")
-  reportType                    String   @default("deep")
-  readingValue                  String   @default("暂无法判断")
-  originalContent               String
-  focus                         String?
-  analysisMode                  String   // quick, deep
-  reasoningDepth                String   // none, low, medium, high, extreme
-  modelName                     String
-  newsSummary                   String
-  auditResultJson               String   // 存储完整结构化审视结果
-  credibilityScore              Int      @default(0)
-  informationCompletenessScore  Int      @default(0)
-  narrativeBiasScore            Int      @default(0)
-  evidenceStrengthScore         Int      @default(0)
-  speculationRiskScore          Int      @default(0)
-  viewCount                     Int      @default(0)
-  heatScore                     Int      @default(0)
-  isPublic                      Boolean  @default(true)
-  createdAt                     DateTime @default(now())
-  updatedAt                     DateTime @updatedAt
+  id                           String   @id @default(cuid())
+  userId                       String
+  user                         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title                        String
+  source                       String
+  publishedAt                  String
+  publishedAtSource            String   @default("unknown")
+  publishedAtConfidence        String   @default("unknown")
+  reportType                   String   @default("deep")
+  readingValue                 String   @default("暂无法判断")
+  originalContent              String
+  focus                        String?
+  analysisMode                 String // quick, deep
+  reasoningDepth               String // none, low, medium, high, extreme
+  modelName                    String
+  newsSummary                  String
+  auditResultJson              String // 存储完整结构化审视结果
+  credibilityScore             Int      @default(0)
+  informationCompletenessScore Int      @default(0)
+  narrativeBiasScore           Int      @default(0)
+  evidenceStrengthScore        Int      @default(0)
+  speculationRiskScore         Int      @default(0)
+  viewCount                    Int      @default(0)
+  heatScore                    Int      @default(0)
+  isPublic                     Boolean  @default(true)
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
 
   @@index([userId])
   @@index([heatScore])
   @@index([createdAt])
+}
+
+model AppSetting {
+  id                         String   @id @default("global")
+  adminModelName             String   @default("gpt-4o")
+  adminLlmBaseUrl            String   @default("https://api.openai.com/v1")
+  adminLlmApiKeyEncrypted    String?
+  adminTavilyApiKeyEncrypted String?
+  adminSerperApiKeyEncrypted String?
+  enableAdminTavilySearch    Boolean  @default(false)
+  enableAdminSerperSearch    Boolean  @default(false)
+  alipayQrImageUrl           String   @default("/alipay-qr.jpg")
+  alipayQrNote               String   @default("6 元购买 30 点；30 元买断后可填写自己的大模型和搜索 API。付款备注请填写账号邮箱、昵称或转账时间。")
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+}
+
+model PointTransaction {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  delta        Int
+  balanceAfter Int
+  type         String // consume, grant, purchase, refund
+  reason       String
+  auditId      String?
+  orderId      String?
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model PurchaseOrder {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  packageType   String    @default("points_30") // points_30, byok_lifetime
+  packageName   String    @default("30 点套餐")
+  amountCents   Int       @default(600)
+  points        Int       @default(30)
+  status        String    @default("pending") // pending, confirmed, rejected
+  paymentMethod String    @default("alipay_qr")
+  paymentNote   String?
+  adminNote     String?
+  confirmedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model VerificationCode {
+  id         String    @id @default(cuid())
+  email      String
+  codeHash   String
+  purpose    String    @default("register")
+  expiresAt  DateTime
+  consumedAt DateTime?
+  ipHash     String?
+  createdAt  DateTime  @default(now())
+
+  @@index([email])
+  @@index([purpose])
+  @@index([createdAt])
+}
+
+model RateLimitEvent {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action    String
+  createdAt DateTime @default(now())
+
+  @@index([userId, action, createdAt])
 }

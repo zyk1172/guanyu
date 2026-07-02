@@ -9,7 +9,7 @@ import LoadingState from '../components/LoadingState';
 import ErrorMessage from '../components/ErrorMessage';
 import Header from '../components/Header';
 import { GsapReveal } from '../components/GsapMotion';
-import { AnalysisResult, AnalysisMode, PublishedAtConfidence, PublishedAtSource, getThinkingDepthLabel } from '../lib/types';
+import { AnalysisResult, AnalysisMode, getThinkingDepthLabel } from '../lib/types';
 
 interface HotAudit {
   id: string;
@@ -27,9 +27,6 @@ interface HotAudit {
 interface AuditSubmitData {
   title: string;
   source: string;
-  date: string;
-  publishedAtSource: PublishedAtSource;
-  publishedAtConfidence: PublishedAtConfidence;
   content: string;
   focus: string;
   mode: AnalysisMode;
@@ -128,7 +125,7 @@ export default function Home() {
             </p>
           </div>
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold leading-relaxed text-amber-800 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-300">
-            风险提示：该内容属于推测性分析，请结合更多来源验证，不应直接视为事实。
+            核验不确定性说明：涉及推断的内容需结合更多来源验证，不应直接视为事实。
           </div>
         </div>
 
@@ -152,9 +149,6 @@ export default function Home() {
                   auditMeta={{
                     title: lastSubmittedData?.title,
                     source: lastSubmittedData?.source,
-                    publishedAt: lastSubmittedData?.date,
-                    publishedAtSource: lastSubmittedData?.publishedAtSource,
-                    publishedAtConfidence: lastSubmittedData?.publishedAtConfidence,
                     analysisMode: lastSubmittedData?.mode,
                   }}
                 />
@@ -196,7 +190,7 @@ export default function Home() {
                         <span className="rounded bg-indigo-50 px-2 py-0.5 text-indigo-600 dark:bg-indigo-950/30 dark:text-indigo-300">{audit.modelName}</span>
                         <span className="rounded bg-gray-100 px-2 py-0.5 text-gray-600 dark:bg-gray-800 dark:text-gray-300">{getDepthLabel(audit.reasoningDepth)}</span>
                         <span className="rounded bg-emerald-50 px-2 py-0.5 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">可信度 {audit.credibilityScore}</span>
-                        <span className="rounded bg-amber-50 px-2 py-0.5 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">风险 {audit.speculationRiskScore}</span>
+                        <span className="rounded bg-amber-50 px-2 py-0.5 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">推测不确定性 {audit.speculationRiskScore}</span>
                       </div>
                       <div className="mt-3 flex justify-end">
                         <Link href={`/audits/${audit.id}`} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-indigo-700">

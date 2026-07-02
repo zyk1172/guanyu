@@ -4,6 +4,7 @@ import { getToken } from 'next-auth/jwt';
 import type { NextRequest } from 'next/server';
 import { createHash } from 'crypto';
 import { prisma } from '@/lib/prisma';
+import { isSuperAdminIdentity } from './admin-core.mjs';
 
 export interface CurrentUser {
   id: string;
@@ -37,6 +38,10 @@ export const authOptions: NextAuthOptions = {
             data: {
               email,
               password: hashPassword(credentials.password),
+              role: isSuperAdminIdentity({ email }, {
+                SUPER_ADMIN_EMAILS: process.env.SUPER_ADMIN_EMAILS,
+                SUPER_ADMIN_IDS: process.env.SUPER_ADMIN_IDS,
+              }) ? 'super_admin' : 'user',
               settings: {
                 create: {
                   defaultModelName: process.env.OPENAI_MODEL_DEFAULT || 'gpt-4o',

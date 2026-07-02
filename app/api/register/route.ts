@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { hashPassword } from '@/lib/auth';
 import { setSessionCookie } from '@/lib/session-cookie';
+import { isSuperAdminIdentity } from '@/lib/admin-core.mjs';
+import { verifyEmailCode } from '@/lib/captcha';
 
 async function readRegistration(request: NextRequest) {
   const contentType = request.headers.get('content-type') || '';
@@ -11,6 +13,7 @@ async function readRegistration(request: NextRequest) {
       email: String(body.email || '').trim().toLowerCase(),
       password: String(body.password || ''),
       confirmPassword: String(body.confirmPassword || ''),
+      emailCode: String(body.emailCode || '').trim(),
       wantsJson: true,
     };
   }
@@ -20,6 +23,7 @@ async function readRegistration(request: NextRequest) {
     email: String(formData.get('email') || '').trim().toLowerCase(),
     password: String(formData.get('password') || ''),
     confirmPassword: String(formData.get('confirmPassword') || ''),
+    emailCode: String(formData.get('emailCode') || '').trim(),
     wantsJson: false,
   };
 }
@@ -36,7 +40,7 @@ function errorResponse(message: string, wantsJson: boolean, status = 400) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, password, confirmPassword, wantsJson } = await readRegistration(request);
+    const { email, password, confirmPassword, emailCode, wantsJson } = await readRegistration(request);
 
     if (!email || !password) {
       return errorResponse('请输入邮箱和密码', wantsJson);
@@ -47,16 +51,27 @@ export async function POST(request: NextRequest) {
     if (password !== confirmPassword) {
       return errorResponse('两次输入的密码不一致', wantsJson);
     }
+    if (!emailCode) {
+      return errorResponse('请输入邮箱验证码', wantsJson);
+    }
 
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
       return errorResponse('该邮箱已经注册，请直接登录。', wantsJson, 409);
+    }
+    const emailCodeOk = await verifyEmailCode(email, emailCode);
+    if (!emailCodeOk) {
+      return errorResponse('邮箱验证码错误或已过期，请重新获取。', wantsJson);
     }
 
     const user = await prisma.user.create({
       data: {
         email,
         password: hashPassword(password),
+        role: isSuperAdminIdentity({ email }, {
+          SUPER_ADMIN_EMAILS: process.env.SUPER_ADMIN_EMAILS,
+          SUPER_ADMIN_IDS: process.env.SUPER_ADMIN_IDS,
+        }) ? 'super_admin' : 'user',
         settings: {
           create: {
             defaultModelName: process.env.OPENAI_MODEL_DEFAULT || 'gpt-4o',
