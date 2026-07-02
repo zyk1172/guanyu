@@ -3,7 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { getSuperAdminStatus } from '@/lib/admin';
 import { prisma } from '@/lib/prisma';
 import { encryptSecret } from '@/lib/secret';
-import { isByokPlan } from '@/lib/billing';
+import { getOrCreateAppSetting, isByokPlan } from '@/lib/billing';
 
 const VALID_ANALYSIS_MODES = new Set(['quick', 'deep']);
 const VALID_THINKING_DEPTHS = new Set(['none', 'low', 'medium', 'high', 'extreme', 'quick', 'standard', 'deep', 'exhaustive']);
@@ -40,7 +40,7 @@ export async function GET(request: Request) {
     }
 
     const userId = user.id;
-    const [settings, account, isSuperAdmin] = await Promise.all([
+    const [settings, account, isSuperAdmin, appSetting] = await Promise.all([
       prisma.userSettings.findUnique({
         where: { userId },
       }),
@@ -55,11 +55,14 @@ export async function GET(request: Request) {
         },
       }),
       getSuperAdminStatus(userId),
+      getOrCreateAppSetting(),
     ]);
 
     if (!account) {
       return NextResponse.json({ error: '账号不存在，请重新登录。' }, { status: 401 });
     }
+
+    const canUseOwnApi = isSuperAdmin || isByokPlan(account.planType);
 
     if (!settings) {
       // 预防性创建：如果用户不小心丢了配置
@@ -75,19 +78,41 @@ export async function GET(request: Request) {
           defaultEnableCharts: true,
         },
       });
+      const safeSettings = withSafeModelFields(newSettings);
       return NextResponse.json({
-        ...withSafeModelFields(newSettings),
+        ...safeSettings,
+        ...(!canUseOwnApi ? {
+          defaultModelName: appSetting.adminModelName,
+          llmBaseUrl: appSetting.adminLlmBaseUrl,
+          enableTavilySearch: appSetting.enableAdminTavilySearch,
+          enableSerperSearch: appSetting.enableAdminSerperSearch,
+          hasLlmApiKey: Boolean(appSetting.adminLlmApiKeyEncrypted),
+          hasTavilyApiKey: Boolean(appSetting.adminTavilyApiKeyEncrypted),
+          hasSerperApiKey: Boolean(appSetting.adminSerperApiKeyEncrypted),
+        } : {}),
         account,
         isSuperAdmin,
-        canUseOwnApi: isSuperAdmin || isByokPlan(account.planType),
+        canUseOwnApi,
+        modelConfigSource: canUseOwnApi ? 'personal' : 'admin',
       });
     }
 
+    const safeSettings = withSafeModelFields(settings);
     return NextResponse.json({
-      ...withSafeModelFields(settings),
+      ...safeSettings,
+      ...(!canUseOwnApi ? {
+        defaultModelName: appSetting.adminModelName,
+        llmBaseUrl: appSetting.adminLlmBaseUrl,
+        enableTavilySearch: appSetting.enableAdminTavilySearch,
+        enableSerperSearch: appSetting.enableAdminSerperSearch,
+        hasLlmApiKey: Boolean(appSetting.adminLlmApiKeyEncrypted),
+        hasTavilyApiKey: Boolean(appSetting.adminTavilyApiKeyEncrypted),
+        hasSerperApiKey: Boolean(appSetting.adminSerperApiKeyEncrypted),
+      } : {}),
       account,
       isSuperAdmin,
-      canUseOwnApi: isSuperAdmin || isByokPlan(account.planType),
+      canUseOwnApi,
+      modelConfigSource: canUseOwnApi ? 'personal' : 'admin',
     });
   } catch (error: any) {
     console.error('GET settings error:', error);

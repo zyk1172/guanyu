@@ -91,6 +91,13 @@ function normalizeJudgmentType(value: unknown): JudgmentType {
   return '基于原文的合理推断';
 }
 
+function stringArray(value: unknown, fallback: string[] = []) {
+  const items = asArray<string>(value)
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+  return items.length ? items : fallback;
+}
+
 function getScores(parsed: any): ReportScores {
   const src = parsed?.scores || parsed?.score_summary || {};
   return {
@@ -204,10 +211,18 @@ function normalizeReport(params: {
       reportType: 'quick' as const,
       methodology: '观隅九镜审读法' as const,
       meta: baseMeta,
+      originalReading: String(parsed.originalReading || parsed.original_reading || parsed.newsSummary || parsed.news_summary || '当前材料不足，无法形成可靠速读。'),
+      coreClaim: String(parsed.coreClaim || parsed.core_claim || parsed.surface_narrative || '原文核心主张需要结合全文继续确认。'),
       newsSummary: String(parsed.newsSummary || parsed.news_summary || '当前材料不足，无法形成可靠摘要。'),
       oneSentenceJudgment: String(parsed.oneSentenceJudgment || parsed.one_sentence_conclusion || '需要结合更多来源核验报道中的关键信息缺口。'),
       readingValue: '暂无法判断' as const,
+      readingValueReason: String(parsed.readingValueReason || parsed.reading_value_reason || '当前材料证据状态有限，阅读价值需要结合原文信息完整度和外部核验情况判断。'),
       scores,
+      quickSignals: {
+        mostCredibleInfo: String(parsed.quickSignals?.mostCredibleInfo || parsed.quick_signals?.most_credible_info || '原文明确出现、可直接定位到文本的事实信息相对更可信。'),
+        biggestGap: String(parsed.quickSignals?.biggestGap || parsed.quick_signals?.biggest_gap || '原文缺少能支撑核心结论的关键数据或原始材料。'),
+        narrativeToWatch: String(parsed.quickSignals?.narrativeToWatch || parsed.quick_signals?.narrative_to_watch || '需要警惕把表态、愿景或单方说法包装成已验证成效。'),
+      },
       mainNarrativeIssues: asArray(parsed.mainNarrativeIssues || parsed.key_findings).slice(0, 3).map((item, index) =>
         normalizeJudgment(item, `主要叙事问题 ${index + 1}`, hasExternalResults)
       ),
@@ -215,6 +230,7 @@ function normalizeReport(params: {
         normalizeGap(item, `主要信息缺口 ${index + 1}`, hasExternalResults)
       ),
       questionsToAsk: asArray<string>(parsed.questionsToAsk || parsed.questions_to_ask_next).slice(0, 3),
+      quickConclusion: String(parsed.quickConclusion || parsed.quick_conclusion || '可以先略读原文，重点核对核心数据、原始材料和当事方回应，不宜直接把报道中的成效判断视为已验证事实。'),
       riskNotice: String(parsed.riskNotice || '本报告的不确定性主要来自原文证据缺口、外部核验不足和推断链条限制；它影响读者对报道完整性、相关主体责任和后续行动的判断，应通过原始材料、多方报道和当事方回应继续核验。'),
     };
     const readWorth = computeReadWorth(report);
@@ -227,9 +243,18 @@ function normalizeReport(params: {
     meta: baseMeta,
     generationScope: String(parsed.generationScope || parsed.report_meta?.generated_scope || '基于用户提供原文、账号配置和可用联网线索生成；不替用户断言新闻真假。'),
     scoreExplanation: String(parsed.scoreExplanation || parsed.report_meta?.scoring_note || '评分用于衡量报道结构与证据状态，不等同于判断新闻真假。可信度越高表示越可信，信息完整度越高表示信息越完整，叙事倾向性越高表示引导性越强，证据强度越高表示证据越充分，推测不确定性越高表示越需要补充核验。'),
+    sourceInterpretation: {
+      whatItSays: String(parsed.sourceInterpretation?.whatItSays || parsed.source_interpretation?.what_it_says || parsed.newsSummary || parsed.news_summary || '当前材料不足，无法形成可靠原文解读。'),
+      coreClaims: stringArray(parsed.sourceInterpretation?.coreClaims || parsed.source_interpretation?.core_claims, [String(parsed.oneSentenceConclusion || parsed.one_sentence_conclusion || '原文核心主张需要结合全文继续确认。')]),
+      mainActors: stringArray(parsed.sourceInterpretation?.mainActors || parsed.source_interpretation?.main_actors, ['原文涉及的主要主体需要结合正文继续识别。']),
+      keyEvidence: stringArray(parsed.sourceInterpretation?.keyEvidence || parsed.source_interpretation?.key_evidence, ['当前材料不足，无法形成可靠证据归纳。']),
+      narrativeStyle: String(parsed.sourceInterpretation?.narrativeStyle || parsed.source_interpretation?.narrative_style || '原文叙事方式需要结合措辞和材料来源继续判断。'),
+      likelyReaderImpression: String(parsed.sourceInterpretation?.likelyReaderImpression || parsed.source_interpretation?.likely_reader_impression || '读者最可能带走的印象需要结合标题、摘要和重点段落判断。'),
+    },
     newsSummary: String(parsed.newsSummary || parsed.news_summary || '当前材料不足，无法形成可靠摘要。'),
     oneSentenceConclusion: String(parsed.oneSentenceConclusion || parsed.one_sentence_conclusion || '需要结合更多来源核验报道中的关键信息缺口。'),
     readingValue: '暂无法判断' as const,
+    readingValueReason: String(parsed.readingValueReason || parsed.reading_value_reason || '阅读价值由报道信息完整度、证据强度、叙事倾向性和待核验问题共同决定。'),
     scores,
     scoreReasons: {
       credibility: String(parsed.scoreReasons?.credibility || parsed.score_summary?.score_reasoning?.credibility_score || '当前材料不足，无法形成可靠判断。'),
@@ -237,6 +262,12 @@ function normalizeReport(params: {
       narrativeBias: String(parsed.scoreReasons?.narrativeBias || parsed.score_summary?.score_reasoning?.narrative_bias_score || '当前材料不足，无法形成可靠判断。'),
       evidenceStrength: String(parsed.scoreReasons?.evidenceStrength || parsed.score_summary?.score_reasoning?.evidence_strength_score || '当前材料不足，无法形成可靠判断。'),
       speculationRisk: String(parsed.scoreReasons?.speculationRisk || parsed.score_summary?.score_reasoning?.speculation_risk_score || '当前材料不足，无法形成可靠判断。'),
+    },
+    normalReaderGuide: String(parsed.normalReaderGuide || parsed.normal_reader_guide || '普通读者应先区分原文明确事实、合理推断和待验证假设；重点查看原始材料、关键数据和当事方回应，不要把报道叙事直接等同于事实全貌。'),
+    conclusionLayers: {
+      confirmed: stringArray(parsed.conclusionLayers?.confirmed || parsed.conclusion_layers?.confirmed, ['原文中明确出现的事实可以作为文本内信息理解，但仍不等于外部事实已核验。']),
+      reasonableDoubts: stringArray(parsed.conclusionLayers?.reasonableDoubts || parsed.conclusion_layers?.reasonable_doubts, ['对原文未披露的关键数据、因果链条和利益关系可以保持合理怀疑。']),
+      cannotJudgeYet: stringArray(parsed.conclusionLayers?.cannotJudgeYet || parsed.conclusion_layers?.cannot_judge_yet, ['缺少原始材料、多方来源或当事方回应前，不宜形成确定结论。']),
     },
     keyFindings: asArray(parsed.keyFindings || parsed.key_findings).slice(0, 3).map((item, index) =>
       normalizeJudgment(item, `关键发现 ${index + 1}`, hasExternalResults)
@@ -281,6 +312,7 @@ function normalizeReport(params: {
       priority: item?.priority === '高' || item?.priority === '低' ? item.priority : '中',
     })),
     questionsToAsk: asArray<string>(parsed.questionsToAsk || parsed.questions_to_ask_next).slice(0, 5),
+    cannotConclude: stringArray(parsed.cannotConclude || parsed.cannot_conclude || parsed.evidenceVerificationSummary?.unableToVerifyClaims, ['不能据此直接判断报道结论完全成立，也不能据此推出相反事实。']),
     onlineVerification,
     riskNotice: String(parsed.riskNotice || '本报告的不确定性主要来自原文证据缺口、外部核验不足和推断链条限制；它影响读者对报道完整性、相关主体责任和后续行动的判断，应通过原始材料、多方报道和当事方回应继续核验。'),
   };
@@ -419,6 +451,23 @@ async function callChatCompletions(params: {
   };
 }
 
+function modelErrorMessage(status: number, usageSource: UsageSource) {
+  const scope = usageSource === 'byok' ? '你的个人模型配置' : '管理员全局模型配置';
+  if (status === 401 || status === 403) {
+    return `${scope}的 API Key 无效、未生效或没有调用权限，请检查密钥是否完整、是否填入了正确账号，以及模型服务商是否已启用该 Key。`;
+  }
+  if (status === 404) {
+    return `${scope}中的模型名称或接口地址不可用，请检查模型名和 Base URL。`;
+  }
+  if (status === 429) {
+    return `${scope}触发了上游限流或额度不足，请稍后重试或更换可用额度。`;
+  }
+  if (status >= 500) {
+    return `模型服务暂时不可用或上游通道异常，请稍后重试。`;
+  }
+  return `模型审视调用失败 (状态码 ${status})。`;
+}
+
 function parseAssistantJSON(assistantMessage: string) {
   let cleanText = assistantMessage.trim();
   if (cleanText.startsWith('```json')) {
@@ -514,7 +563,7 @@ export async function POST(request: Request) {
 
     if (!llmResult.ok) {
       console.error('LLM API error:', llmResult.text);
-      return NextResponse.json({ error: `模型审视调用失败 (状态码 ${llmResult.status})` }, { status: 500 });
+      return NextResponse.json({ error: modelErrorMessage(llmResult.status, usagePlan.source) }, { status: 500 });
     }
 
     if (!llmResult.message) {

@@ -57,15 +57,21 @@ const QUICK_SCHEMA = `{
     "basis": "判断依据；无法判断时说明依据不足",
     "confidence": "high | medium | low | unknown"
   },
-  "newsSummary": "100到200字，只总结原文明确内容，不加入审视观点、外部信息或推测",
-  "oneSentenceJudgment": "一句话判断新闻最值得注意的信息缺口、叙事倾向或待验证问题，语气克制",
+  "originalReading": "80到150字，先正常解释原文在讲什么，不批判，不加入外部信息",
+  "coreClaim": "一句话说明原文最想让读者相信什么",
+  "newsSummary": "80到150字，只总结原文明确内容，不加入审视观点、外部信息或推测",
+  "oneSentenceJudgment": "一句话观隅审视：指出最大信息缺口、叙事倾向或待验证问题，语气克制",
   "readingValue": "值得细读 | 可以略读 | 不值一读 | 暂无法判断",
+  "readingValueReason": "用1到2句话说明为什么给出这个阅读价值判断",
   "scores": {
-    "credibility": 0,
     "informationCompleteness": 0,
     "narrativeBias": 0,
-    "evidenceStrength": 0,
-    "speculationRisk": 0
+    "evidenceStrength": 0
+  },
+  "quickSignals": {
+    "mostCredibleInfo": "最可信的信息是什么",
+    "biggestGap": "最大的信息缺口是什么",
+    "narrativeToWatch": "最需要警惕的叙事是什么"
   },
   "mainNarrativeIssues": [
     {
@@ -89,6 +95,7 @@ const QUICK_SCHEMA = `{
     }
   ],
   "questionsToAsk": ["最值得追问的问题，最多3条"],
+  "quickConclusion": "给用户一个行动建议：该怎么读原文、该警惕什么、还需要哪些证据",
   "riskNotice": "请说明本报告的不确定性来自哪些证据缺口、会影响读者或相关主体的哪类判断，以及下一步应如何核验。"
 }`;
 
@@ -102,9 +109,18 @@ const DEEP_SCHEMA = `{
   },
   "generationScope": "基于用户提供原文、账号配置和可用联网线索生成；不替用户断言新闻真假",
   "scoreExplanation": "评分用于衡量报道结构与证据状态，不等同于判断新闻真假。说明五个指数方向。",
+  "sourceInterpretation": {
+    "whatItSays": "原文在讲什么",
+    "coreClaims": ["核心主张"],
+    "mainActors": ["主要主体"],
+    "keyEvidence": ["原文关键证据"],
+    "narrativeStyle": "叙事方式",
+    "likelyReaderImpression": "读者最可能带走的印象"
+  },
   "newsSummary": "100到200字，只总结原文明确内容，不加入审视观点、外部信息或推测",
   "oneSentenceConclusion": "一句话审视结论，指出最值得警惕的信息缺口、叙事倾向或待验证问题",
   "readingValue": "值得细读 | 可以略读 | 不值一读 | 暂无法判断",
+  "readingValueReason": "说明为什么给出这个阅读价值判断",
   "scores": {
     "credibility": 0,
     "informationCompleteness": 0,
@@ -118,6 +134,12 @@ const DEEP_SCHEMA = `{
     "narrativeBias": "评分理由",
     "evidenceStrength": "评分理由",
     "speculationRisk": "评分理由"
+  },
+  "normalReaderGuide": "给普通读者的读法：先看什么、哪些结论不能直接信、应该怎样保留判断",
+  "conclusionLayers": {
+    "confirmed": ["可以确认的内容"],
+    "reasonableDoubts": ["可以合理怀疑的内容"],
+    "cannotJudgeYet": ["暂不能判断的内容"]
   },
   "keyFindings": [
     {
@@ -185,6 +207,7 @@ const DEEP_SCHEMA = `{
     }
   ],
   "questionsToAsk": ["尖锐但合理的问题，3到5条"],
+  "cannotConclude": ["目前不能直接得出的结论"],
   "onlineVerification": {
     "enabled": false,
     "status": "not_enabled | no_reliable_sources | has_results",
@@ -197,8 +220,8 @@ const DEEP_SCHEMA = `{
 }`;
 
 const MODE_PROMPTS: Record<AnalysisMode, string> = {
-  quick: `当前模式：快速分析。输出短报告，只保留摘要、一句话判断、阅读价值、核心指数、最多3个叙事问题、最多3个信息缺口、最多3个追问问题和核验不确定性说明。不要输出证据表、验证路线图、九镜章节或新闻原文。JSON schema：\n${QUICK_SCHEMA}`,
-  deep: `当前模式：深度分析。输出完整但不冗长的"观隅 · 新闻叙事审视报告"，结构为：报告元信息由后端补齐、新闻总结、一句话结论、核心指数、最关键3个发现、支持原文叙事的证据、主要信息缺口、关键利益关系、替代解释、证据与核验状态、验证路线图、继续追问和核验不确定性说明。不要输出九镜方法步骤。JSON schema：\n${DEEP_SCHEMA}`,
+  quick: `当前模式：快速分析。快速分析不是深度报告的缩短版，而是1分钟新闻体检卡。只负责"读懂、判断、提醒"。输出顺序必须服务于：原文速读、核心主张、阅读价值判断、一句话观隅审视、三个关键信号、3个核心指数、最值得追问的3个问题、快速结论。不要输出关键利益关系、替代解释对照、完整证据分级、详细验证路线图、交互式追问记录或新闻原文全文。JSON schema：\n${QUICK_SCHEMA}`,
+  deep: `当前模式：深度分析。输出完整但不冗长的"观隅 · 新闻叙事审视报告"。报告呈现顺序必须是：原文解读、阅读价值判断、给普通读者的读法、一句话观隅审视、核心指数、结论分层、最关键3个发现、支持原文叙事的证据、主要信息缺口、关键利益关系、替代解释对照、证据与核验状态、验证路线图、继续追问清单、目前不能直接得出的结论、风险提示、报告元信息、附录原文。报告元信息和附录原文由前端补齐，但 JSON 必须提供支撑这些章节的字段。不要输出九镜方法步骤。JSON schema：\n${DEEP_SCHEMA}`,
 };
 
 export function buildPrompt(newsInfo: {

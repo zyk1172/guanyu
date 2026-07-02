@@ -123,5 +123,21 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ ok: true, order: updated, balance, planType });
   }
 
+  if (action === 'rejectOrder') {
+    const orderId = String(body.orderId || '');
+    const order = await prisma.purchaseOrder.findUnique({ where: { id: orderId } });
+    if (!order) return NextResponse.json({ error: '订单不存在。' }, { status: 404 });
+    if (order.status !== 'pending') return NextResponse.json({ error: '订单已经处理过。' }, { status: 400 });
+
+    const updated = await prisma.purchaseOrder.update({
+      where: { id: order.id },
+      data: {
+        status: 'rejected',
+        adminNote: String(body.adminNote || '管理员取消订单').trim(),
+      },
+    });
+    return NextResponse.json({ ok: true, order: updated });
+  }
+
   return NextResponse.json({ error: '未知的管理操作。' }, { status: 400 });
 }

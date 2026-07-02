@@ -275,14 +275,23 @@ export interface QuickAnalysisResult {
   reportType: 'quick';
   methodology: '观隅九镜审读法';
   meta: NormalizedReportMeta;
+  originalReading: string;
+  coreClaim: string;
   newsSummary: string;
   oneSentenceJudgment: string;
   readingValue: ReadWorthLabel;
+  readingValueReason: string;
   read_worth?: ReadWorthVerdict;
   scores: ReportScores;
+  quickSignals: {
+    mostCredibleInfo: string;
+    biggestGap: string;
+    narrativeToWatch: string;
+  };
   mainNarrativeIssues: ReportJudgment[];
   mainInformationGaps: InformationGapItem[];
   questionsToAsk: string[];
+  quickConclusion: string;
   riskNotice: string;
 }
 
@@ -292,12 +301,27 @@ export interface DeepAnalysisResult {
   meta: NormalizedReportMeta;
   generationScope: string;
   scoreExplanation: string;
+  sourceInterpretation: {
+    whatItSays: string;
+    coreClaims: string[];
+    mainActors: string[];
+    keyEvidence: string[];
+    narrativeStyle: string;
+    likelyReaderImpression: string;
+  };
   newsSummary: string;
   oneSentenceConclusion: string;
   readingValue: ReadWorthLabel;
+  readingValueReason: string;
   read_worth?: ReadWorthVerdict;
   scores: ReportScores;
   scoreReasons: Record<keyof ReportScores, string>;
+  normalReaderGuide: string;
+  conclusionLayers: {
+    confirmed: string[];
+    reasonableDoubts: string[];
+    cannotJudgeYet: string[];
+  };
   keyFindings: ReportJudgment[];
   supportingEvidence: SupportingEvidenceItem[];
   informationGaps: InformationGapItem[];
@@ -306,6 +330,7 @@ export interface DeepAnalysisResult {
   evidenceVerificationSummary: EvidenceVerificationSummary;
   verificationRoadmap: VerificationRoadmapTask[];
   questionsToAsk: string[];
+  cannotConclude: string[];
   onlineVerification: OnlineVerification;
   riskNotice: string;
 }

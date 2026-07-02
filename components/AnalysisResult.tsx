@@ -205,9 +205,18 @@ function convertLegacyResult(result: any, auditMeta?: AnalysisResultProps['audit
     },
     generationScope: result.report_meta?.generated_scope || '历史记录兼容展示；新报告不再展开九镜方法步骤。',
     scoreExplanation: result.report_meta?.scoring_note || '评分用于衡量报道结构与证据状态，不等同于判断新闻真假。',
+    sourceInterpretation: {
+      whatItSays: result.news_summary || '',
+      coreClaims: result.nine_mirror_review?.atomic_claims?.slice(0, 3).map((item: any) => item.claim) || [],
+      mainActors: result.nine_mirror_review?.interest_cost_map?.slice(0, 5).map((item: any) => item.actor) || [],
+      keyEvidence: result.narrative_supporting_evidence?.slice(0, 4).map((item: any) => item.original_basis || item.detail) || [],
+      narrativeStyle: result.nine_mirror_review?.narrative_frame_analysis?.moral_position || '历史记录未单独保存该归纳。',
+      likelyReaderImpression: result.nine_mirror_review?.narrative_frame_analysis?.implied_solution || '历史记录未单独保存该归纳。',
+    },
     newsSummary: result.news_summary || '',
     oneSentenceConclusion: result.one_sentence_conclusion || '',
     readingValue: (result.read_worth?.label || '暂无法判断') as ReadWorthLabel,
+    readingValueReason: '历史记录未单独保存阅读价值理由；当前标签由评分和证据状态重新计算。',
     read_worth: result.read_worth,
     scores,
     scoreReasons: {
@@ -216,6 +225,12 @@ function convertLegacyResult(result: any, auditMeta?: AnalysisResultProps['audit
       narrativeBias: scoreSummary.score_reasoning?.narrative_bias_score || '',
       evidenceStrength: scoreSummary.score_reasoning?.evidence_strength_score || '',
       speculationRisk: scoreSummary.score_reasoning?.speculation_risk_score || '',
+    },
+    normalReaderGuide: '先区分原文明确事实、合理推断和待验证假设；不要把原文叙事直接等同于事实全貌。',
+    conclusionLayers: {
+      confirmed: [],
+      reasonableDoubts: [],
+      cannotJudgeYet: result.web_verification?.unconfirmed_items || [],
     },
     keyFindings: (result.key_findings || []).slice(0, 3).map((item: any) => ({
       title: item.title,
@@ -271,6 +286,7 @@ function convertLegacyResult(result: any, auditMeta?: AnalysisResultProps['audit
       priority: item.priority || '中',
     })),
     questionsToAsk: result.questions_to_ask_next || [],
+    cannotConclude: result.web_verification?.unconfirmed_items || ['历史记录未单独保存该章节。'],
     onlineVerification: {
       enabled: Boolean(result.web_verification),
       status: result.web_verification ? 'has_results' : 'not_enabled',
@@ -403,6 +419,49 @@ function compactAside(total: number, limit: number) {
   return <span className="text-xxs font-semibold text-gray-400">已优先显示 {limit}/{total} 条，完整内容见 Markdown</span>;
 }
 
+function ReadingValueSection({ label, reason }: { label: ReadWorthLabel; reason?: string }) {
+  return (
+    <Section title="阅读价值判断">
+      <div className="grid gap-3 md:grid-cols-[220px_minmax(0,1fr)]">
+        <ReadWorthVerdict label={label} />
+        <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm leading-relaxed text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300">
+          {line(reason, '该判断综合信息完整度、证据强度、叙事倾向性和待核验问题得出。')}
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+function ScoresSection({ report, quick = false }: { report: QuickAnalysisResult | DeepAnalysisResult; quick?: boolean }) {
+  const rows = quick
+    ? [
+        ['信息完整度', report.scores.informationCompleteness, '原文关键信息够不够'],
+        ['证据强度', report.scores.evidenceStrength, '原文证据硬不硬'],
+        ['叙事倾向性', report.scores.narrativeBias, '原文是否明显单向引导'],
+      ]
+    : [
+        ['可信度', report.scores.credibility, '越高表示越可信'],
+        ['信息完整度', report.scores.informationCompleteness, '越高表示信息越完整'],
+        ['叙事倾向性', report.scores.narrativeBias, '越高表示引导性越强'],
+        ['证据强度', report.scores.evidenceStrength, '越高表示证据越充分'],
+        ['推测不确定性', report.scores.speculationRisk, '越高表示越需要谨慎核验'],
+      ];
+
+  return (
+    <Section title="核心指数" aside={<span className="text-xxs font-semibold text-gray-400">评分不等于判断新闻真假</span>}>
+      <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        {rows.map(([name, value, help]) => (
+          <div key={String(name)} className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">
+            <div className="text-xxs font-bold text-gray-500 dark:text-gray-400">{String(name)}</div>
+            <div className="mt-1 text-2xl font-black text-gray-950 dark:text-white">{Number(value)}/100</div>
+            <div className="mt-1 text-xxs leading-relaxed text-gray-500 dark:text-gray-400">{String(help)}</div>
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
 function WebVerificationView({ report }: { report: DeepAnalysisResult }) {
   const web = report.onlineVerification;
   if (!web.enabled || web.status === 'not_enabled') {
@@ -499,12 +558,145 @@ function webVerificationMarkdown(report: DeepAnalysisResult) {
 
 function markdownFor(report: QuickAnalysisResult | DeepAnalysisResult, originalContent?: string, qaMessages: ChatMessage[] = []) {
   const meta = report.meta;
-  const common = [
+  if (isQuick(report)) {
+    return [
+      '# 观隅 · 快速分析',
+      '',
+      '## 1. 原文速读',
+      '',
+      report.originalReading || report.newsSummary,
+      '',
+      '## 2. 核心主张',
+      '',
+      report.coreClaim,
+      '',
+      '## 3. 阅读价值判断',
+      '',
+      `${report.readingValue}。${report.readingValueReason}`,
+      '',
+      '## 4. 一句话观隅审视',
+      '',
+      report.oneSentenceJudgment,
+      '',
+      '## 5. 三个关键信号',
+      '',
+      `- 最可信信息：${report.quickSignals?.mostCredibleInfo || '暂无'}`,
+      `- 最大信息缺口：${report.quickSignals?.biggestGap || '暂无'}`,
+      `- 最需警惕叙事：${report.quickSignals?.narrativeToWatch || '暂无'}`,
+      '',
+      '## 6. 核心指数',
+      '',
+      ...markdownTable(['指标', '分数', '作用'], [
+        ['信息完整度', report.scores.informationCompleteness, '原文关键信息够不够'],
+        ['证据强度', report.scores.evidenceStrength, '原文证据硬不硬'],
+        ['叙事倾向性', report.scores.narrativeBias, '原文是否明显单向引导'],
+      ]),
+      '',
+      '## 7. 最值得追问的 3 个问题',
+      '',
+      ...bullets(report.questionsToAsk),
+      '',
+      '## 8. 快速结论',
+      '',
+      report.quickConclusion,
+      '',
+      '## 附录 A. 交互式追问记录',
+      '',
+      ...(qaMessages.length ? qaMessages.map((message, index) => `### ${index + 1}. ${message.role === 'user' ? '我的问题' : '审视助手回答'}\n\n${message.content}`) : ['暂无交互式追问记录。']),
+      '',
+      '## 附录 B. 新闻原文',
+      '',
+      originalContent?.trim() || '未保存原文。',
+    ].join('\n');
+  }
+
+  return [
     '# 观隅 · 新闻叙事审视报告',
     '',
     '> 本报告不替用户断言真相，只帮助看清新闻叙事结构、证据缺口、缺席视角和待验证问题。',
     '',
-    '## 1. 报告元信息',
+    '## 1. 原文解读',
+    '',
+    `- 原文在讲什么：${report.sourceInterpretation.whatItSays}`,
+    `- 核心主张：${report.sourceInterpretation.coreClaims.join('；') || '暂无'}`,
+    `- 主要主体：${report.sourceInterpretation.mainActors.join('；') || '暂无'}`,
+    `- 原文关键证据：${report.sourceInterpretation.keyEvidence.join('；') || '暂无'}`,
+    `- 叙事方式：${report.sourceInterpretation.narrativeStyle}`,
+    `- 读者最可能带走的印象：${report.sourceInterpretation.likelyReaderImpression}`,
+    '',
+    '## 2. 阅读价值判断',
+    '',
+    `${report.readingValue}。${report.readingValueReason}`,
+    '',
+    '## 3. 给普通读者的读法',
+    '',
+    report.normalReaderGuide,
+    '',
+    '## 4. 一句话观隅审视',
+    '',
+    report.oneSentenceConclusion,
+    '',
+    '## 5. 核心指数',
+    '',
+    ...markdownTable(['指数', '分数', '方向说明', '评分理由'], [
+      ['可信度', report.scores.credibility, '越高表示越可信', report.scoreReasons.credibility],
+      ['信息完整度', report.scores.informationCompleteness, '越高表示信息越完整', report.scoreReasons.informationCompleteness],
+      ['叙事倾向性', report.scores.narrativeBias, '越高表示引导性越强', report.scoreReasons.narrativeBias],
+      ['证据强度', report.scores.evidenceStrength, '越高表示证据越充分', report.scoreReasons.evidenceStrength],
+      ['推测不确定性', report.scores.speculationRisk, '越高表示越需要谨慎核验', report.scoreReasons.speculationRisk],
+    ]),
+    '',
+    '评分用于衡量报道结构与证据状态，不等同于判断新闻真假。',
+    '',
+    '## 6. 结论分层',
+    '',
+    '### 可以确认',
+    ...bullets(report.conclusionLayers.confirmed),
+    '',
+    '### 可以合理怀疑',
+    ...bullets(report.conclusionLayers.reasonableDoubts),
+    '',
+    '### 暂不能判断',
+    ...bullets(report.conclusionLayers.cannotJudgeYet),
+    '',
+    '## 7. 最关键的 3 个发现',
+    ...report.keyFindings.map((item) => `- **${item.title}**：${item.content}（${item.judgmentType}，证据 ${item.evidenceGrade}，${statusLabel(item.verificationStatus)}，推测不确定性 ${item.speculationRisk}；验证：${item.nextVerification}）`),
+    '',
+    '## 8. 支持原文叙事的证据',
+    ...report.supportingEvidence.map((item) => `- ${item.content}；支撑：${item.supportsNarrative}；证据 ${item.evidenceGrade}；${statusLabel(item.verificationStatus)}；局限：${item.limitation}`),
+    '',
+    '## 9. 主要信息缺口',
+    ...report.informationGaps.map((item) => `- **${item.title}**：${item.description}；重要性：${item.whyItMatters}；证据 ${item.currentEvidenceGrade}；${statusLabel(item.verificationStatus)}；验证：${item.nextVerification}`),
+    '',
+    '## 10. 关键利益关系',
+    ...report.stakeholderRelations.map((item) => `- **${item.role}**：可能利益：${item.possibleBenefit || '原文未披露，需核验'}；可能代价：${item.possibleCost || '原文未披露，需核验'}；${item.judgmentType}；推测不确定性 ${item.speculationRisk}；待验证：${item.pendingVerification}`),
+    '',
+    '## 11. 替代解释对照',
+    ...report.alternativeExplanations.map((item) => `- **${item.explanation}**：合理性 ${item.reasonableness}；当前证据：${item.currentEvidenceStatus}；推测不确定性 ${item.speculationRisk}；需验证：${item.neededVerification}`),
+    '',
+    '## 12. 证据与核验状态',
+    `- 最强证据：${report.evidenceVerificationSummary.strongestEvidence}`,
+    `- 最弱证据：${report.evidenceVerificationSummary.weakestEvidence}`,
+    ...bullets(report.evidenceVerificationSummary.sourceSupportedClaims.map((item) => `仅由原文支持：${item}`)),
+    ...bullets(report.evidenceVerificationSummary.externallyVerifiedClaims.map((item) => `外部已核验：${item}`)),
+    ...bullets(report.evidenceVerificationSummary.pendingVerificationClaims.map((item) => `待外部核验：${item}`)),
+    ...bullets(report.evidenceVerificationSummary.unableToVerifyClaims.map((item) => `暂无法确认：${item}`)),
+    '',
+    '## 13. 验证路线图',
+    ...report.verificationRoadmap.map((item) => `- **${item.question}**：材料类型 ${item.materialType}；优先级 ${item.priority}；重要性：${item.whyItMatters}`),
+    '',
+    '### 联网核验结果',
+    ...(webVerificationMarkdown(report).slice(2)),
+    '## 14. 继续追问清单',
+    ...bullets(report.questionsToAsk),
+    '',
+    '## 15. 目前不能直接得出的结论',
+    ...bullets(report.cannotConclude),
+    '',
+    '## 16. 风险提示',
+    report.riskNotice,
+    '',
+    '## 17. 报告元信息',
     '',
     ...markdownTable(['项目', '内容'], [
       ['新闻标题', line(meta.title, '未填写')],
@@ -517,106 +709,15 @@ function markdownFor(report: QuickAnalysisResult | DeepAnalysisResult, originalC
       ['分析模式', line(meta.analysisMode, '未填写')],
       ['报告生成时间', line(meta.createdAt, '未填写')],
       ['方法论', report.methodology],
-      ['阅读价值判断', report.readingValue],
     ]),
     '',
-    '## 2. 新闻简要总结',
+    '## 18. 附录：新闻原文',
     '',
-    report.newsSummary,
-    '',
-  ];
-
-  const scoreLines = [
-    '## 4. 核心指数',
-    '',
-    ...markdownTable(['指数', '分数', '方向说明'], [
-      ['可信度', report.scores.credibility, '越高表示越可信'],
-      ['信息完整度', report.scores.informationCompleteness, '越高表示信息越完整'],
-      ['叙事倾向性', report.scores.narrativeBias, '越高表示引导性越强'],
-      ['证据强度', report.scores.evidenceStrength, '越高表示证据越充分'],
-      ['推测不确定性', report.scores.speculationRisk, '越高表示越需要补充核验'],
-    ]),
-    '',
-    '评分用于衡量报道结构与证据状态，不等同于判断新闻真假。',
-    '',
-  ];
-
-  if (isQuick(report)) {
-    return [
-      ...common,
-      '## 3. 一句话判断',
-      report.oneSentenceJudgment,
-      '',
-      ...scoreLines,
-      '## 5. 最主要的 3 个叙事问题',
-      ...report.mainNarrativeIssues.map((item) => `- **${item.title}**：${item.content}（${item.judgmentType}，证据 ${item.evidenceGrade}，${statusLabel(item.verificationStatus)}，推测不确定性 ${item.speculationRisk}；验证：${item.nextVerification}）`),
-      '',
-      '## 6. 最主要的 3 个信息缺口',
-      ...report.mainInformationGaps.map((item) => `- **${item.title}**：${item.description}（证据 ${item.currentEvidenceGrade}，${statusLabel(item.verificationStatus)}；验证：${item.nextVerification}）`),
-      '',
-      '## 7. 最值得追问的 3 个问题',
-      ...bullets(report.questionsToAsk),
-      '',
-      '## 8. 交互式追问记录',
-      ...(qaMessages.length ? qaMessages.map((message, index) => `### ${index + 1}. ${message.role === 'user' ? '我的问题' : '审视助手回答'}\n\n${message.content}`) : ['暂无交互式追问记录。']),
-      '',
-      '## 9. 附录：新闻原文',
-      originalContent?.trim() || '未保存原文。',
-      '',
-      '## 10. 核验不确定性说明',
-      report.riskNotice,
-    ].join('\n');
-  }
-
-  return [
-    ...common,
-    '## 3. 一句话审视结论',
-    report.oneSentenceConclusion,
-    '',
-    ...scoreLines,
-    '## 5. 评分理由',
-    `- 可信度：${report.scoreReasons.credibility}`,
-    `- 信息完整度：${report.scoreReasons.informationCompleteness}`,
-    `- 叙事倾向性：${report.scoreReasons.narrativeBias}`,
-    `- 证据强度：${report.scoreReasons.evidenceStrength}`,
-    `- 推测不确定性：${report.scoreReasons.speculationRisk}`,
-    '',
-    '## 6. 最关键的 3 个发现',
-    ...report.keyFindings.map((item) => `- **${item.title}**：${item.content}（${item.judgmentType}，证据 ${item.evidenceGrade}，${statusLabel(item.verificationStatus)}，推测不确定性 ${item.speculationRisk}；验证：${item.nextVerification}）`),
-    '',
-    '## 7. 支持原文叙事的证据',
-    ...report.supportingEvidence.map((item) => `- ${item.content}；支撑：${item.supportsNarrative}；证据 ${item.evidenceGrade}；${statusLabel(item.verificationStatus)}；局限：${item.limitation}`),
-    '',
-    '## 8. 主要信息缺口',
-    ...report.informationGaps.map((item) => `- **${item.title}**：${item.description}；重要性：${item.whyItMatters}；证据 ${item.currentEvidenceGrade}；${statusLabel(item.verificationStatus)}；验证：${item.nextVerification}`),
-    '',
-    '## 9. 关键利益关系',
-    ...report.stakeholderRelations.map((item) => `- **${item.role}**：可能利益：${item.possibleBenefit || '原文未披露，需核验'}；可能代价：${item.possibleCost || '原文未披露，需核验'}；${item.judgmentType}；推测不确定性 ${item.speculationRisk}；待验证：${item.pendingVerification}`),
-    '',
-    '## 10. 替代解释对照',
-    ...report.alternativeExplanations.map((item) => `- **${item.explanation}**：合理性 ${item.reasonableness}；当前证据：${item.currentEvidenceStatus}；推测不确定性 ${item.speculationRisk}；需验证：${item.neededVerification}`),
-    '',
-    '## 11. 证据与核验状态',
-    `- 最强证据：${report.evidenceVerificationSummary.strongestEvidence}`,
-    `- 最弱证据：${report.evidenceVerificationSummary.weakestEvidence}`,
-    ...bullets(report.evidenceVerificationSummary.sourceSupportedClaims.map((item) => `仅由原文支持：${item}`)),
-    ...bullets(report.evidenceVerificationSummary.pendingVerificationClaims.map((item) => `待外部核验：${item}`)),
-    '',
-    '## 12. 验证路线图',
-    ...report.verificationRoadmap.map((item) => `- **${item.question}**：材料类型 ${item.materialType}；优先级 ${item.priority}；重要性：${item.whyItMatters}`),
-    '',
-    ...webVerificationMarkdown(report),
-    '## 14. 继续追问清单',
-    ...bullets(report.questionsToAsk),
-    '',
-    '## 15. 交互式追问记录',
-    ...(qaMessages.length ? qaMessages.map((message, index) => `### ${index + 1}. ${message.role === 'user' ? '我的问题' : '审视助手回答'}\n\n${message.content}`) : ['暂无交互式追问记录。']),
-    '',
-    '## 16. 附录：新闻原文',
     originalContent?.trim() || '未保存原文。',
     '',
-    '## 17. 核验不确定性说明',
-    report.riskNotice,
+    '## 附录：交互式追问记录',
+    '',
+    ...(qaMessages.length ? qaMessages.map((message, index) => `### ${index + 1}. ${message.role === 'user' ? '我的问题' : '审视助手回答'}\n\n${message.content}`) : ['暂无交互式追问记录。']),
   ].join('\n');
 }
 
@@ -642,25 +743,33 @@ function DownloadButton({ report, originalContent, qaMessages }: { report: Quick
   );
 }
 
-function QuickReportView({ report, originalContent, qaMessages, displayLimit }: { report: QuickAnalysisResult; originalContent?: string; qaMessages: ChatMessage[]; displayLimit: number }) {
-  const narrativeIssues = limitedItems(report.mainNarrativeIssues, displayLimit);
-  const informationGaps = limitedItems(report.mainInformationGaps, displayLimit);
-  const questions = limitedItems(report.questionsToAsk, displayLimit);
+function QuickReportView({ report, originalContent, qaMessages }: { report: QuickAnalysisResult; originalContent?: string; qaMessages: ChatMessage[] }) {
+  const questions = limitedItems(report.questionsToAsk, 3);
   return (
     <>
-      <Section title="新闻简要总结"><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{report.newsSummary}</p></Section>
-      <Section title="一句话判断"><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.oneSentenceJudgment}</p></Section>
-      <AuditCharts {...chartProps(report)} />
-      <Section title="最主要的叙事问题" aside={compactAside(report.mainNarrativeIssues.length, displayLimit)}>
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-3">{narrativeIssues.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} />)}</div>
+      <Section title="1. 原文速读"><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{report.originalReading || report.newsSummary}</p></Section>
+      <Section title="2. 核心主张"><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.coreClaim}</p></Section>
+      <ReadingValueSection label={report.readingValue} reason={report.readingValueReason} />
+      <Section title="4. 一句话观隅审视"><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.oneSentenceJudgment}</p></Section>
+      <Section title="5. 三个关键信号">
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+          {[
+            ['最可信信息', report.quickSignals?.mostCredibleInfo],
+            ['最大信息缺口', report.quickSignals?.biggestGap],
+            ['最需警惕叙事', report.quickSignals?.narrativeToWatch],
+          ].map(([title, content]) => (
+            <article key={title} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs dark:border-gray-850 dark:bg-gray-900">
+              <div className="font-black text-gray-950 dark:text-white">{title}</div>
+              <p className="mt-1 leading-relaxed text-gray-600 dark:text-gray-300">{line(content)}</p>
+            </article>
+          ))}
+        </div>
       </Section>
-      <Section title="最主要的信息缺口" aside={compactAside(report.mainInformationGaps.length, displayLimit)}>
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-3">{informationGaps.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} />)}</div>
-      </Section>
-      <Section title="最值得追问的问题" aside={compactAside(report.questionsToAsk.length, displayLimit)}>
+      <ScoresSection report={report} quick />
+      <Section title="7. 最值得追问的 3 个问题">
         <ul className="grid grid-cols-1 gap-2 md:grid-cols-3">{questions.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs font-semibold leading-relaxed text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300">{item}</li>)}</ul>
       </Section>
-      <OriginalContentPanel originalContent={originalContent} />
+      <Section title="8. 快速结论"><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{report.quickConclusion}</p></Section>
       <DownloadButton report={report} originalContent={originalContent} qaMessages={qaMessages} />
     </>
   );
@@ -676,23 +785,52 @@ function DeepReportView({ report, originalContent, qaMessages, displayLimit }: {
   const questions = limitedItems(report.questionsToAsk, displayLimit);
   return (
     <>
-      <Section title="新闻简要总结"><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{report.newsSummary}</p></Section>
-      <Section title="一句话审视结论"><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.oneSentenceConclusion}</p></Section>
+      <Section title="1. 原文解读">
+        <div className="grid gap-3 text-xs md:grid-cols-2">
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900 md:col-span-2">
+            <div className="font-black text-gray-950 dark:text-white">原文在讲什么</div>
+            <p className="mt-1 leading-relaxed text-gray-600 dark:text-gray-300">{report.sourceInterpretation.whatItSays || report.newsSummary}</p>
+          </div>
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><div className="font-black">核心主张</div><ul className="mt-1 space-y-1">{report.sourceInterpretation.coreClaims.map((item, index) => <li key={`${item}-${index}`}>- {item}</li>)}</ul></div>
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><div className="font-black">主要主体</div><ul className="mt-1 space-y-1">{report.sourceInterpretation.mainActors.map((item, index) => <li key={`${item}-${index}`}>- {item}</li>)}</ul></div>
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><div className="font-black">原文关键证据</div><ul className="mt-1 space-y-1">{report.sourceInterpretation.keyEvidence.map((item, index) => <li key={`${item}-${index}`}>- {item}</li>)}</ul></div>
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><div className="font-black">叙事方式</div><p className="mt-1 leading-relaxed">{report.sourceInterpretation.narrativeStyle}</p></div>
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900 md:col-span-2"><div className="font-black">读者最可能带走的印象</div><p className="mt-1 leading-relaxed">{report.sourceInterpretation.likelyReaderImpression}</p></div>
+        </div>
+      </Section>
+      <ReadingValueSection label={report.readingValue} reason={report.readingValueReason} />
+      <Section title="3. 给普通读者的读法"><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{report.normalReaderGuide}</p></Section>
+      <Section title="4. 一句话观隅审视"><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.oneSentenceConclusion}</p></Section>
+      <ScoresSection report={report} />
       <AuditCharts {...chartProps(report)} />
-      <Section title="最关键的发现" aside={compactAside(report.keyFindings.length, displayLimit)}><div className="grid grid-cols-1 gap-3 lg:grid-cols-3">{keyFindings.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} />)}</div></Section>
-      <Section title="支持原文叙事的证据" aside={compactAside(report.supportingEvidence.length, displayLimit) || <span className="text-xxs font-semibold text-gray-400">避免只唱反调</span>}>
+      <Section title="6. 结论分层">
+        <div className="grid gap-2 md:grid-cols-3">
+          {[
+            ['可以确认', report.conclusionLayers.confirmed],
+            ['可以合理怀疑', report.conclusionLayers.reasonableDoubts],
+            ['暂不能判断', report.conclusionLayers.cannotJudgeYet],
+          ].map(([title, items]) => (
+            <div key={String(title)} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs dark:border-gray-850 dark:bg-gray-900">
+              <div className="font-black text-gray-950 dark:text-white">{String(title)}</div>
+              <ul className="mt-2 space-y-1 text-gray-600 dark:text-gray-300">{(items as string[]).map((item, index) => <li key={`${item}-${index}`}>- {item}</li>)}</ul>
+            </div>
+          ))}
+        </div>
+      </Section>
+      <Section title="7. 最关键的 3 个发现" aside={compactAside(report.keyFindings.length, displayLimit)}><div className="grid grid-cols-1 gap-3 lg:grid-cols-3">{keyFindings.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} />)}</div></Section>
+      <Section title="8. 支持原文叙事的证据" aside={compactAside(report.supportingEvidence.length, displayLimit) || <span className="text-xxs font-semibold text-gray-400">避免只唱反调</span>}>
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2">{supportingEvidence.map((item, index) => <JudgmentCard key={`${item.content}-${index}`} item={{ title: item.supportsNarrative, content: item.content, evidenceGrade: item.evidenceGrade, verificationStatus: item.verificationStatus, nextVerification: item.limitation }} />)}</div>
       </Section>
-      <Section title="主要信息缺口" aside={compactAside(report.informationGaps.length, displayLimit)}><div className="grid grid-cols-1 gap-2 md:grid-cols-2">{informationGaps.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} />)}</div></Section>
-      <Section title="关键利益关系" aside={compactAside(report.stakeholderRelations.length, displayLimit)}>
+      <Section title="9. 主要信息缺口" aside={compactAside(report.informationGaps.length, displayLimit)}><div className="grid grid-cols-1 gap-2 md:grid-cols-2">{informationGaps.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} />)}</div></Section>
+      <Section title="10. 关键利益关系" aside={compactAside(report.stakeholderRelations.length, displayLimit)}>
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
           {stakeholderRelations.map((item, index) => <JudgmentCard key={`${item.role}-${index}`} item={{ title: item.role, content: `可能利益：${item.possibleBenefit || '原文未披露，需进一步核验。'}；可能代价：${item.possibleCost || '原文未披露，需进一步核验。'}`, judgmentType: item.judgmentType, speculationRisk: item.speculationRisk, nextVerification: item.pendingVerification, verificationStatus: 'pending_verification', evidenceGrade: 'D' }} />)}
         </div>
       </Section>
-      <Section title="替代解释对照" aside={compactAside(report.alternativeExplanations.length, displayLimit)}>
+      <Section title="11. 替代解释对照" aside={compactAside(report.alternativeExplanations.length, displayLimit)}>
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2">{alternativeExplanations.map((item, index) => <JudgmentCard key={`${item.explanation}-${index}`} item={{ title: item.explanation, content: `合理性：${item.reasonableness}；当前证据：${item.currentEvidenceStatus}`, speculationRisk: item.speculationRisk, nextVerification: item.neededVerification, verificationStatus: 'pending_verification', evidenceGrade: item.speculationRisk === '高' ? 'E' : 'D' }} />)}</div>
       </Section>
-      <Section title="证据与核验状态">
+      <Section title="12. 证据与核验状态">
         <div className="grid grid-cols-1 gap-2 text-xs md:grid-cols-2">
           <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><span className="font-bold">最强证据：</span>{report.evidenceVerificationSummary.strongestEvidence}</div>
           <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><span className="font-bold">最弱证据：</span>{report.evidenceVerificationSummary.weakestEvidence}</div>
@@ -709,11 +847,27 @@ function DeepReportView({ report, originalContent, qaMessages, displayLimit }: {
           ))}
         </div>
       </Section>
-      <Section title="验证路线图" aside={compactAside(report.verificationRoadmap.length, displayLimit)}>
+      <Section title="13. 验证路线图" aside={compactAside(report.verificationRoadmap.length, displayLimit)}>
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2">{verificationRoadmap.map((item, index) => <article key={`${item.question}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs dark:border-gray-850 dark:bg-gray-900"><div className="font-bold text-gray-950 dark:text-white">{item.question}</div><p className="mt-1 text-gray-600 dark:text-gray-300">{item.whyItMatters}</p><div className="mt-2 flex gap-1.5"><Badge className="border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-900/30 dark:bg-indigo-950/20 dark:text-indigo-300">{item.materialType}</Badge><Badge className={riskClass(item.priority)}>优先级 {item.priority}</Badge></div></article>)}</div>
       </Section>
       <Section title="联网核验结果"><WebVerificationView report={report} /></Section>
-      <Section title="继续追问清单" aside={compactAside(report.questionsToAsk.length, displayLimit)}><ul className="grid grid-cols-1 gap-2 md:grid-cols-2">{questions.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs font-semibold leading-relaxed text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300">{item}</li>)}</ul></Section>
+      <Section title="14. 继续追问清单" aside={compactAside(report.questionsToAsk.length, displayLimit)}><ul className="grid grid-cols-1 gap-2 md:grid-cols-2">{questions.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs font-semibold leading-relaxed text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300">{item}</li>)}</ul></Section>
+      <Section title="15. 目前不能直接得出的结论"><ul className="space-y-2 text-xs leading-relaxed text-gray-700 dark:text-gray-300">{report.cannotConclude.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">- {item}</li>)}</ul></Section>
+      <Section title="16. 风险提示"><p className="text-xs leading-relaxed text-gray-600 dark:text-gray-300">{report.riskNotice}</p></Section>
+      <Section title="17. 报告元信息">
+        <div className="grid gap-2 text-xs md:grid-cols-2">
+          {[
+            ['新闻标题', report.meta.title],
+            ['新闻来源', report.meta.source],
+            ['发布时间', report.meta.publishedAt || '未能可靠识别发布时间'],
+            ['使用模型', report.meta.modelName],
+            ['思考强度', report.meta.reasoningDepth],
+            ['分析模式', report.meta.analysisMode],
+            ['生成时间', report.meta.createdAt],
+            ['方法论', report.methodology],
+          ].map(([key, value]) => <div key={key} className="rounded-lg bg-gray-50 p-2 dark:bg-gray-900"><span className="font-bold text-gray-500">{key}：</span>{value}</div>)}
+        </div>
+      </Section>
       <OriginalContentPanel originalContent={originalContent} />
       <DownloadButton report={report} originalContent={originalContent} qaMessages={qaMessages} />
     </>
@@ -728,27 +882,11 @@ export default function AnalysisResultView({ result: rawResult, auditId, origina
 
   return (
     <GsapReveal className="space-y-4 sm:space-y-5" y={18} stagger={0.055}>
-      <div data-gsap-reveal className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold leading-relaxed text-amber-850 dark:border-amber-900/30 dark:bg-amber-950/15 dark:text-amber-300">
-        核验不确定性说明：本报告衡量的是报道结构、证据状态和待验证问题；不确定性主要影响读者判断、被报道主体理解以及相关公共讨论，不代表事实定性。
-      </div>
-
-      <div data-gsap-reveal>
-        <ReadWorthVerdict label={readWorth.label} />
-      </div>
-
       {showReadingGuide && <AudienceReadingGuide theme={theme} />}
 
       {isQuick(result)
-        ? <QuickReportView report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} displayLimit={readingLimit} />
+        ? <QuickReportView report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} />
         : <DeepReportView report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} displayLimit={readingLimit} />}
-
-      <Section title="核验不确定性说明">
-        <div className="space-y-2 text-xs leading-relaxed text-gray-600 dark:text-gray-300">
-          <p>{result.riskNotice}</p>
-          <p>这里的“不确定性”指判断对外部材料、原始数据、当事方回应和多方报道的依赖程度。分值越高，越应先补充核验材料再形成结论。</p>
-          <p>本报告基于观隅九镜审读法生成，但九镜只作为内部分析流程，不作为正文逐条展开。</p>
-        </div>
-      </Section>
 
       {auditId && <InteractiveQA auditId={auditId} messages={qaMessages} onMessagesChange={setQaMessages} />}
     </GsapReveal>

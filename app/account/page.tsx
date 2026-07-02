@@ -229,6 +229,23 @@ export default function AccountPage() {
     }
   };
 
+  const handleRejectOrder = async (orderId: string) => {
+    if (!window.confirm('确定取消这笔待确认订单吗？')) return;
+    try {
+      const res = await fetch('/api/billing/admin', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'rejectOrder', orderId, adminNote: '管理员取消订单' }),
+      });
+      if (res.ok) {
+        await fetchAdminBilling();
+        await fetchBilling();
+      }
+    } catch (err) {
+      console.error('取消订单失败:', err);
+    }
+  };
+
   // 4. 修改单个审视记录公开状态
   const toggleAuditPublic = async (id: string, currentPublic: boolean) => {
     try {
@@ -442,12 +459,20 @@ export default function AccountPage() {
                         <div><span className="font-bold text-gray-600 dark:text-gray-300">付款备注：</span><span className="font-black text-amber-700 dark:text-amber-300">{order.paymentNote || '无付款备注'}</span></div>
                         <div><span className="font-bold text-gray-600 dark:text-gray-300">创建时间：</span>{new Date(order.createdAt).toLocaleString()}</div>
                       </div>
-                      <button
-                        onClick={() => handleConfirmOrder(order.id)}
-                        className="mt-2 rounded bg-amber-500 px-3 py-1.5 text-xxs font-bold text-white hover:bg-amber-600"
-                      >
-                        确认订单
-                      </button>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                          onClick={() => handleConfirmOrder(order.id)}
+                          className="rounded bg-amber-500 px-3 py-1.5 text-xxs font-bold text-white hover:bg-amber-600"
+                        >
+                          确认订单
+                        </button>
+                        <button
+                          onClick={() => handleRejectOrder(order.id)}
+                          className="rounded border border-gray-200 bg-white px-3 py-1.5 text-xxs font-bold text-gray-600 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300"
+                        >
+                          取消订单
+                        </button>
+                      </div>
                     </div>
                   ))
                 ) : (
