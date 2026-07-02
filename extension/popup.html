@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="styles.css" />
+    <title>观隅浏览器助手</title>
+  </head>
+  <body>
+    <main class="panel">
+      <header>
+        <div class="brand">观隅</div>
+        <button id="openApp" type="button">打开观隅</button>
+      </header>
+
+      <section class="status">
+        <div id="authState" class="strong">正在检查连接状态...</div>
+        <div id="statusText" class="muted">插件只在你主动点击时读取当前页面。</div>
+      </section>
+
+      <section id="linkPanel" class="link-panel">
+        <label for="linkCode">插件连接码</label>
+        <input id="linkCode" placeholder="例如 1234-5678" autocomplete="off" />
+        <button id="connect" type="button">连接观隅账号</button>
+      </section>
+
+      <section class="actions">
+        <button id="analyzePage" type="button">分析当前页面</button>
+        <button id="analyzeSelection" type="button">分析选中文本</button>
+        <button id="savePage" type="button" class="secondary">保存到观隅</button>
+      </section>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -4,6 +4,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  LabelList,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -34,14 +35,24 @@ const METRIC_HELPERS: Record<string, string> = {
   推测不确定性: '越高表示越需要补充核验',
 };
 
-const GRID_STROKE = 'rgba(148, 163, 184, 0.18)';
+const COLORS = {
+  default: '#64748b',
+  muted: '#94a3b8',
+  warning: '#d97706',
+  risk: '#b91c1c',
+  positive: '#047857',
+  blue: '#2563eb',
+  deepBlue: '#1e3a8a',
+};
+
+const GRID_STROKE = 'rgba(148, 163, 184, 0.12)';
 
 const EVIDENCE_COLORS: Record<EvidenceGrade, string> = {
-  A: '#059669',
-  B: '#0891b2',
-  C: '#d97706',
-  D: '#ea580c',
-  E: '#dc2626',
+  A: COLORS.positive,
+  B: COLORS.blue,
+  C: COLORS.default,
+  D: COLORS.warning,
+  E: COLORS.risk,
 };
 
 export default function AuditCharts({
@@ -59,19 +70,25 @@ export default function AuditCharts({
   interestCostItems = [],
 }: AuditChartsProps) {
   const auditMetrics = [
-    { name: '可信度', value: credibilityScore, fill: '#4f46e5' },
-    { name: '信息完整度', value: completenessScore, fill: '#10b981' },
-    { name: '叙事倾向性', value: biasScore, fill: '#f59e0b' },
-    { name: '证据强度', value: evidenceScore, fill: '#06b6d4' },
-    { name: '推测不确定性', value: riskScore, fill: '#ef4444' },
+    { name: '可信度', value: credibilityScore, fill: COLORS.default },
+    { name: '信息完整度', value: completenessScore, fill: COLORS.default },
+    { name: '证据强度', value: evidenceScore, fill: COLORS.default },
+    { name: '叙事倾向性', value: biasScore, fill: COLORS.warning },
+    { name: '推测不确定性', value: riskScore, fill: COLORS.risk },
   ];
 
-  const countsData = [
-    { name: '受益者', value: beneficiariesCount, fill: '#10b981' },
-    { name: '代价方', value: costBearersCount, fill: '#ef4444' },
-    { name: '缺席视角', value: missingPerspectivesCount, fill: '#f59e0b' },
-    { name: '替代解释', value: alternativeExplanationsCount, fill: '#8b5cf6' },
+  const rawCountsData = [
+    { name: '受益者', value: beneficiariesCount },
+    { name: '代价方', value: costBearersCount },
+    { name: '缺席视角', value: missingPerspectivesCount },
+    { name: '替代解释', value: alternativeExplanationsCount },
   ];
+  const maxCount = Math.max(...rawCountsData.map((item) => item.value));
+  const shouldHighlightCount = rawCountsData.filter((item) => item.value === maxCount).length === 1 && maxCount > 0;
+  const countsData = rawCountsData.map((item) => ({
+    ...item,
+    fill: shouldHighlightCount && item.value === maxCount ? COLORS.warning : COLORS.default,
+  }));
 
   const evidenceData = (['A', 'B', 'C', 'D', 'E'] as EvidenceGrade[]).map((grade) => ({
     name: `${grade}级`,
@@ -82,7 +99,7 @@ export default function AuditCharts({
   const statusData = (['已呈现', '弱呈现', '缺席'] as MissingPerspectiveMatrixItem['status'][]).map((status) => ({
     name: status,
     value: missingPerspectiveStatuses.filter((item) => item === status).length,
-    fill: status === '已呈现' ? '#10b981' : status === '弱呈现' ? '#f59e0b' : '#ef4444',
+    fill: status === '已呈现' ? COLORS.positive : status === '弱呈现' ? COLORS.warning : COLORS.risk,
   }));
 
   const roleData = (['决策者', '受益者', '成本承担者', '沉默者', '中介者'] as InterestCostMapItem['role'][]).map((role) => ({
@@ -95,81 +112,74 @@ export default function AuditCharts({
     <div data-gsap-reveal className="grid grid-cols-1 gap-3 md:grid-cols-2">
       <ChartCard
         title="核心指数"
-        note="评分用于衡量报道结构与证据状态，不等同于判断新闻真假"
+        note="结构评分，不等同于新闻真假"
       >
         <div className="h-56 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={auditMetrics} layout="vertical" margin={{ top: 6, right: 20, left: 8, bottom: 6 }}>
               <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={GRID_STROKE} />
-              <XAxis type="number" domain={[0, 100]} fontSize={10} stroke="#888888" tickLine={false} axisLine={false} />
-              <YAxis dataKey="name" type="category" fontSize={11} stroke="#666666" width={78} tickLine={false} axisLine={false} />
-              <Tooltip content={<MetricTooltip />} cursor={{ fill: 'rgba(79, 70, 229, 0.05)' }} />
+              <XAxis type="number" domain={[0, 100]} hide />
+              <YAxis dataKey="name" type="category" fontSize={11} stroke="#64748b" width={86} tickLine={false} axisLine={false} />
+              <Tooltip content={<MetricTooltip />} cursor={{ fill: 'rgba(100, 116, 139, 0.06)' }} />
               <Bar dataKey="value" radius={[0, 5, 5, 0]} barSize={13} isAnimationActive animationDuration={620}>
                 {auditMetrics.map((entry) => (
                   <Cell key={entry.name} fill={entry.fill} />
                 ))}
+                <LabelList dataKey="value" position="right" className="fill-gray-500 text-[10px] font-bold" />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
-        <div className="grid grid-cols-1 gap-1.5 text-xxs text-gray-500 dark:text-gray-400 sm:grid-cols-2">
-          {Object.entries(METRIC_HELPERS).map(([name, helper]) => (
-            <div key={name}><span className="font-bold text-gray-700 dark:text-gray-200">{name}</span>：{helper}</div>
-          ))}
-        </div>
+        <p className="text-xxs font-semibold text-gray-400">分数用于衡量报道结构与证据状态，不等同于新闻真假。</p>
       </ChartCard>
 
-      <ChartCard title="审视要素数量" note="只统计模型结构化返回的条目">
+      <ChartCard title="审视要素数量" note="结构化条目覆盖">
         <div className="h-56 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={countsData} margin={{ top: 14, right: 12, left: -18, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={GRID_STROKE} />
               <XAxis dataKey="name" fontSize={11} stroke="#666666" tickLine={false} axisLine={false} />
               <YAxis fontSize={10} stroke="#888888" allowDecimals={false} tickLine={false} axisLine={false} />
-              <Tooltip content={<CountTooltip />} cursor={{ fill: 'rgba(16, 185, 129, 0.05)' }} />
+              <Tooltip content={<CountTooltip />} cursor={{ fill: 'rgba(100, 116, 139, 0.06)' }} />
               <Bar dataKey="value" radius={[5, 5, 0, 0]} barSize={22} isAnimationActive animationDuration={560}>
                 {countsData.map((entry) => (
                   <Cell key={entry.name} fill={entry.fill} />
                 ))}
+                <LabelList dataKey="value" position="top" className="fill-gray-500 text-[10px] font-bold" />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
       </ChartCard>
 
-      <ChartCard title="证据等级分布" note="A/B 更接近可核验材料，D/E 代表待验证推断">
+      <ChartCard title="证据等级分布" note="A 强，E 弱">
         <div className="h-48 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={evidenceData} margin={{ top: 12, right: 12, left: -18, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={GRID_STROKE} />
               <XAxis dataKey="name" fontSize={11} stroke="#666666" tickLine={false} axisLine={false} />
               <YAxis fontSize={10} stroke="#888888" allowDecimals={false} tickLine={false} axisLine={false} />
-              <Tooltip content={<CountTooltip />} cursor={{ fill: 'rgba(79, 70, 229, 0.05)' }} />
+              <Tooltip content={<CountTooltip />} cursor={{ fill: 'rgba(100, 116, 139, 0.06)' }} />
               <Bar dataKey="value" radius={[5, 5, 0, 0]} barSize={22} isAnimationActive animationDuration={520}>
                 {evidenceData.map((entry) => (
                   <Cell key={entry.name} fill={entry.fill} />
                 ))}
+                <LabelList dataKey="value" position="top" className="fill-gray-500 text-[10px] font-bold" />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
       </ChartCard>
 
-      <ChartCard title="缺席视角状态" note="展示原文是否覆盖关键观察角度">
-        <div className="h-48 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={statusData} margin={{ top: 12, right: 12, left: -18, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={GRID_STROKE} />
-              <XAxis dataKey="name" fontSize={11} stroke="#666666" tickLine={false} axisLine={false} />
-              <YAxis fontSize={10} stroke="#888888" allowDecimals={false} tickLine={false} axisLine={false} />
-              <Tooltip content={<CountTooltip />} cursor={{ fill: 'rgba(245, 158, 11, 0.05)' }} />
-              <Bar dataKey="value" radius={[5, 5, 0, 0]} barSize={24} isAnimationActive animationDuration={520}>
-                {statusData.map((entry) => (
-                  <Cell key={entry.name} fill={entry.fill} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+      <ChartCard title="缺席视角状态" note="覆盖程度">
+        <div className="grid grid-cols-3 gap-2">
+          {statusData.map((item) => (
+            <div key={item.name} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-center dark:border-gray-850 dark:bg-gray-900">
+              <div className="mx-auto mb-2 h-1.5 w-8 rounded-full" style={{ backgroundColor: item.fill }} />
+              <div className="text-lg font-black text-gray-950 dark:text-white">{item.value}</div>
+              <div className="mt-1 text-xxs font-bold text-gray-500">{item.name}</div>
+            </div>
+          ))}
         </div>
       </ChartCard>
 

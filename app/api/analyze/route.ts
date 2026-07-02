@@ -19,7 +19,7 @@ import type {
   JudgmentType,
 } from '@/lib/types';
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 const MAX_NEWS_CONTENT_LENGTH = 30000;
 const VALID_ANALYSIS_MODES = new Set(['quick', 'deep']);
@@ -338,16 +338,18 @@ function buildSearchOptions(params: {
   const adminSerperKey = params.appSetting?.adminSerperApiKeyEncrypted
     ? decryptSecret(params.appSetting.adminSerperApiKeyEncrypted)
     : (process.env.SERPER_API_KEY || '');
+  const hasAdminTavily = Boolean(adminTavilyKey && (params.appSetting?.enableAdminTavilySearch || params.appSetting?.adminTavilyApiKeyEncrypted || process.env.TAVILY_API_KEY));
+  const hasAdminSerper = Boolean(adminSerperKey && (params.appSetting?.enableAdminSerperSearch || params.appSetting?.adminSerperApiKeyEncrypted || process.env.SERPER_API_KEY));
   const tavilyApiKey = useOwnApi
     ? (params.userSettings?.enableTavilySearch && params.userSettings?.tavilyApiKeyEncrypted
         ? decryptSecret(params.userSettings.tavilyApiKeyEncrypted)
         : '')
-    : ((params.appSetting?.enableAdminTavilySearch || process.env.TAVILY_API_KEY) ? adminTavilyKey : '');
+    : (hasAdminTavily ? adminTavilyKey : '');
   const serperApiKey = useOwnApi
     ? (params.userSettings?.enableSerperSearch && params.userSettings?.serperApiKeyEncrypted
         ? decryptSecret(params.userSettings.serperApiKeyEncrypted)
         : '')
-    : ((params.appSetting?.enableAdminSerperSearch || process.env.SERPER_API_KEY) ? adminSerperKey : '');
+    : (hasAdminSerper ? adminSerperKey : '');
   const tavilySearchDepth = useOwnApi ? (params.userSettings?.tavilySearchDepth || 'basic') : 'basic';
 
   if (tavilyApiKey && serperApiKey) {

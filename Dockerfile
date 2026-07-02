@@ -4,6 +4,7 @@ FROM ${NODE_IMAGE} AS builder
 
 WORKDIR /app
 COPY package*.json ./
+COPY prisma ./prisma
 RUN npm ci --legacy-peer-deps
 COPY . .
 RUN npx prisma generate && npm run build

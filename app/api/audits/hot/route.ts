@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const requestedLimit = Number.parseInt(searchParams.get('limit') || '20', 10);
+    const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 60) : 20;
     const hotAudits = await prisma.audit.findMany({
       where: {
         isPublic: true,
@@ -11,7 +14,7 @@ export async function GET() {
         { heatScore: 'desc' },
         { createdAt: 'desc' },
       ],
-      take: 20,
+      take: limit,
       select: {
         id: true,
         title: true,

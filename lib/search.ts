@@ -54,7 +54,7 @@ async function searchTavily(query: string, limit: number, options: WebSearchOpti
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(buildTavilySearchRequest(query, limit, options.tavilySearchDepth || 'basic')),
-      next: { revalidate: 300 },
+      cache: 'no-store',
     });
 
     if (!response.ok) {
@@ -85,7 +85,7 @@ async function searchDuckDuckGo(query: string, limit = 5): Promise<WebSearchSour
             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/126 Safari/537.36',
           Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         },
-        next: { revalidate: 300 },
+        cache: 'no-store',
       }
     );
 
@@ -129,7 +129,7 @@ async function searchSerper(query: string, limit: number, options: WebSearchOpti
         'X-API-KEY': apiKey,
       },
       body: JSON.stringify(buildSerperSearchRequest(query, limit)),
-      next: { revalidate: 300 },
+      cache: 'no-store',
     });
 
     if (!response.ok) {

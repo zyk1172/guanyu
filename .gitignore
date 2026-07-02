@@ -34,6 +34,7 @@ yarn-error.log*
 .env*
 !.env.example
 !.env.qnap.example
+!.env.vercel.example
 
 # local databases and exported data
 *.db

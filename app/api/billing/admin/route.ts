@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { getSuperAdminStatus } from '@/lib/admin';
 import { activateByokPlan, getOrCreateAppSetting, grantPoints } from '@/lib/billing';
+import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { prisma } from '@/lib/prisma';
 import { encryptSecret } from '@/lib/secret';
 
@@ -28,6 +29,7 @@ function safeAppSetting(setting: Awaited<ReturnType<typeof getOrCreateAppSetting
 }
 
 export async function GET(request: Request) {
+  await ensureRuntimeSchema();
   const admin = await requireAdmin(request);
   if (!admin) {
     return NextResponse.json({ error: '你没有权限管理计费设置。' }, { status: 403 });
@@ -56,6 +58,7 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: NextRequest) {
+  await ensureRuntimeSchema();
   const admin = await requireAdmin(request);
   if (!admin) {
     return NextResponse.json({ error: '你没有权限管理计费设置。' }, { status: 403 });
@@ -71,6 +74,8 @@ export async function PATCH(request: NextRequest) {
       enableAdminTavilySearch: Boolean(body.enableAdminTavilySearch),
       enableAdminSerperSearch: Boolean(body.enableAdminSerperSearch),
       alipayQrImageUrl: String(body.alipayQrImageUrl || '').trim(),
+      alipayPointsQrImageUrl: String(body.alipayPointsQrImageUrl || '/alipay-points.jpg').trim(),
+      alipayByokQrImageUrl: String(body.alipayByokQrImageUrl || '/alipay-byok.jpg').trim(),
       alipayQrNote: String(body.alipayQrNote || '').trim() || '6 元购买 30 点；30 元买断后可填写自己的大模型和搜索 API。付款备注请填写账号邮箱、昵称或转账时间。',
     };
     if (String(body.adminLlmApiKey || '').trim()) update.adminLlmApiKeyEncrypted = encryptSecret(String(body.adminLlmApiKey).trim());

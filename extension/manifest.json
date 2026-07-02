@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "观隅浏览器助手",
+  "version": "0.1.0",
+  "description": "将当前新闻页面或选中文本发送到观隅 Web App 进行新闻叙事审视。",
+  "permissions": ["activeTab", "scripting", "contextMenus", "storage"],
+  "host_permissions": ["https://guanyu-seven.vercel.app/*", "http://localhost:3000/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}

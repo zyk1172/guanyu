@@ -311,6 +311,7 @@ export default function AccountPage() {
             <h2 className="text-lg font-black text-gray-950 dark:text-white leading-tight">账号管理</h2>
             <p className="text-xs text-gray-500 dark:text-gray-400">管理基本信息、模型设置、审视偏好和历史生成记录。</p>
           </div>
+          <div className="flex flex-wrap items-center gap-2">
           <div className="flex bg-gray-100 dark:bg-gray-900 p-0.5 rounded-lg border border-gray-150 dark:border-gray-800">
             <button
               onClick={() => setActiveTab('info')}
@@ -330,6 +331,10 @@ export default function AccountPage() {
             >
               我的审视记录
             </button>
+          </div>
+          <Link href="/account/extensions" className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-bold text-gray-600 transition hover:bg-white dark:border-gray-800 dark:text-gray-300 dark:hover:bg-gray-900">
+            插件授权
+          </Link>
           </div>
         </div>
 
@@ -421,9 +426,13 @@ export default function AccountPage() {
                     <div className="mt-0.5 text-xxs opacity-75">可自备模型和搜索 API</div>
                   </button>
                 </div>
-                {billing?.alipayQrImageUrl ? (
+                {(selectedPackageType === 'byok_lifetime' ? billing?.alipayByokQrImageUrl : billing?.alipayPointsQrImageUrl || billing?.alipayQrImageUrl) ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={billing.alipayQrImageUrl} alt="支付宝收款二维码" className="mt-3 h-36 w-36 rounded-lg border object-cover" />
+                  <img
+                    src={selectedPackageType === 'byok_lifetime' ? billing?.alipayByokQrImageUrl : billing?.alipayPointsQrImageUrl || billing?.alipayQrImageUrl}
+                    alt={selectedPackageType === 'byok_lifetime' ? '30 元买断支付宝收款二维码' : '6 元点数支付宝收款二维码'}
+                    className="mt-3 h-36 w-36 rounded-lg border object-cover"
+                  />
                 ) : (
                   <div className="mt-3 flex h-36 w-36 items-center justify-center rounded-lg border bg-gray-50 text-center text-xxs font-bold text-gray-400 dark:border-gray-800 dark:bg-gray-900">
                     支付宝二维码占位
@@ -800,7 +809,8 @@ export default function AccountPage() {
 
                     <div className="flex items-center gap-2.5 justify-end text-xs font-bold flex-wrap">
                       {showAllAudits ? (
-                        <span
+                        <button
+                          onClick={() => toggleAuditPublic(audit.id, audit.isPublic)}
                           className={`px-2.5 py-1 rounded text-xxs font-black border ${
                             audit.isPublic
                               ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
@@ -808,7 +818,7 @@ export default function AccountPage() {
                           }`}
                         >
                           {audit.isPublic ? '公开展示' : '仅自己可见'}
-                        </span>
+                        </button>
                       ) : (
                         <button
                           onClick={() => toggleAuditPublic(audit.id, audit.isPublic)}

@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { decryptSecret } from '@/lib/secret';
+import { GUANYU_SUPREME_RULE } from '@/lib/prompts';
+import { centsToDisplayPoints, consumeQuestionPoint, effectiveCreditCents, getOrCreateAppSetting, isByokPlan } from '@/lib/billing';
+import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
+
+export const maxDuration = 120;
 
 export async function POST(request: Request) {
   try {
@@ -17,6 +22,7 @@ export async function POST(request: Request) {
     if (!auditId || !question || question.trim().length === 0) {
       return NextResponse.json({ error: '提问参数有误' }, { status: 400 });
     }
+    await ensureRuntimeSchema();
 
     // 2. 从数据库中拉取对应的审视记录，作为完整上下文
     const auditRecord = await prisma.audit.findUnique({
@@ -32,7 +38,9 @@ export async function POST(request: Request) {
     }
 
     // 3. 构建深度追问提示词
-    const systemPrompt = `你是一个针对特定新闻审视报告进行"交互式追问与事实推敲"的智能AI。
+    const systemPrompt = `${GUANYU_SUPREME_RULE}
+
+你是一个针对特定新闻审视报告进行"交互式追问与事实推敲"的智能AI。
 
 现在用户想针对以下这篇【新闻审视报告】向你提出一些批判性、探究性的问题。
 你必须基于：
@@ -86,18 +94,37 @@ ${recentHistory.map((h: any) => `${h.role === 'user' ? '用户' : 'AI'}: ${Strin
 请给出客观严谨的解答：`;
 
     // 4. 读取当前用户数据库中的模型连接配置
-    const userSettings = await prisma.userSettings.findUnique({
-      where: { userId: user.id },
-    });
+    const [userSettings, account, appSetting] = await Promise.all([
+      prisma.userSettings.findUnique({
+        where: { userId: user.id },
+      }),
+      prisma.user.findUnique({
+        where: { id: user.id },
+        select: { planType: true, role: true, creditBalance: true, creditBalanceCents: true },
+      }),
+      getOrCreateAppSetting(),
+    ]);
 
-    const apiKey = userSettings?.llmApiKeyEncrypted
-      ? decryptSecret(userSettings.llmApiKeyEncrypted)
-      : process.env.OPENAI_API_KEY;
-    const baseURL = userSettings?.llmBaseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
-    const modelName = auditRecord.modelName || process.env.OPENAI_MODEL_DEFAULT || 'gpt-4o';
+    const canUseOwnApi = account?.role === 'super_admin' || isByokPlan(account?.planType);
+    const useOwnApi = canUseOwnApi && Boolean(userSettings?.llmApiKeyEncrypted);
+    const apiKey = useOwnApi
+      ? decryptSecret(userSettings!.llmApiKeyEncrypted!)
+      : appSetting.adminLlmApiKeyEncrypted
+        ? decryptSecret(appSetting.adminLlmApiKeyEncrypted)
+        : process.env.OPENAI_API_KEY;
+    const baseURL = useOwnApi
+      ? (userSettings?.llmBaseUrl || appSetting.adminLlmBaseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1')
+      : (appSetting.adminLlmBaseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1');
+    const modelName = useOwnApi
+      ? (userSettings?.defaultModelName || auditRecord.modelName || appSetting.adminModelName || process.env.OPENAI_MODEL_DEFAULT || 'gpt-4o')
+      : (appSetting.adminModelName || process.env.OPENAI_MODEL_DEFAULT || auditRecord.modelName || 'gpt-4o');
 
     if (!apiKey) {
-      return NextResponse.json({ error: '未配置大模型 API Key，请先到账号管理中保存大模型密钥。' }, { status: 500 });
+      return NextResponse.json({ error: '未配置可用的大模型 API Key，请联系管理员配置全局模型，或使用买断账号保存个人模型密钥。' }, { status: 500 });
+    }
+
+    if (!isByokPlan(account?.planType) && effectiveCreditCents(account || { creditBalance: 0, creditBalanceCents: 0 }) < 50) {
+      return NextResponse.json({ error: `追问需要 0.5 点，当前剩余 ${centsToDisplayPoints(effectiveCreditCents(account || { creditBalance: 0, creditBalanceCents: 0 }))} 点。请先购买点数。` }, { status: 402 });
     }
 
     // 5. 请求大模型
@@ -125,8 +152,9 @@ ${recentHistory.map((h: any) => `${h.role === 'user' ? '用户' : 'AI'}: ${Strin
 
     const resData = await response.json();
     const reply = resData.choices?.[0]?.message?.content || '未返回有效解答。';
+    const usage = await consumeQuestionPoint(user.id, auditId);
 
-    return NextResponse.json({ reply });
+    return NextResponse.json({ reply, usage });
 
   } catch (error: any) {
     console.error('Route qa error:', error);

@@ -11,6 +11,7 @@ export async function GET(
     const { id } = await params;
     const user = await getCurrentUser(request);
     const userId = user?.id;
+    const isSuperAdmin = userId ? await getSuperAdminStatus(userId) : false;
 
     const audit = await prisma.audit.findUnique({
       where: { id },
@@ -21,7 +22,7 @@ export async function GET(
     }
 
     // 鉴权逻辑：如果是私有审视且不是创建者本人访问，直接返回 403
-    if (!audit.isPublic && audit.userId !== userId) {
+    if (!audit.isPublic && audit.userId !== userId && !isSuperAdmin) {
       return NextResponse.json({ error: '你没有权限查看这条审视记录。' }, { status: 403 });
     }
 
@@ -61,7 +62,8 @@ export async function PATCH(
       return NextResponse.json({ error: '记录不存在' }, { status: 404 });
     }
 
-    if (audit.userId !== userId) {
+    const isSuperAdmin = await getSuperAdminStatus(userId);
+    if (audit.userId !== userId && !isSuperAdmin) {
       return NextResponse.json({ error: '你没有权限修改他人的审视记录。' }, { status: 403 });
     }
 

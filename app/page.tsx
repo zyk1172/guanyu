@@ -46,7 +46,7 @@ export default function Home() {
 
     async function fetchHotAudits() {
       try {
-        const response = await fetch('/api/audits/hot');
+        const response = await fetch('/api/audits/hot?limit=6');
         if (!response.ok) return;
         const data = await response.json();
         if (isMounted) setHotAudits(data);
@@ -173,7 +173,7 @@ export default function Home() {
                     暂无公开审视记录。
                   </div>
                 ) : (
-                  hotAudits.map((audit) => (
+                  hotAudits.slice(0, 6).map((audit) => (
                     <article key={audit.id} className="interactive-lift rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900/60">
                       <div className="flex flex-wrap items-center gap-1.5 text-xxs font-bold text-gray-400">
                         <span>{audit.source || '未知来源'}</span>
@@ -201,6 +201,11 @@ export default function Home() {
                   ))
                 )}
               </div>
+              {hotAudits.length > 0 && (
+                <Link href="/audits" className="mt-3 block rounded-lg border border-gray-200 px-3 py-2 text-center text-xs font-bold text-gray-700 transition hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-900">
+                  展开更多
+                </Link>
+              )}
             </section>
 
             <section className="rounded-xl border border-gray-100 bg-white p-4 text-xs leading-relaxed text-gray-500 shadow-sm dark:border-gray-800 dark:bg-gray-950 dark:text-gray-400">

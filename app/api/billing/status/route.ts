@@ -7,6 +7,7 @@ import {
   POINT_PACKAGE_POINTS,
   getOrCreateAppSetting,
 } from '@/lib/billing';
+import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { prisma } from '@/lib/prisma';
 
 function todayInShanghai() {
@@ -19,6 +20,7 @@ function todayInShanghai() {
 }
 
 export async function GET(request: Request) {
+  await ensureRuntimeSchema();
   const user = await getCurrentUser(request);
   if (!user) {
     return NextResponse.json({ error: '请登录后查看额度。' }, { status: 401 });
@@ -29,6 +31,7 @@ export async function GET(request: Request) {
       where: { id: user.id },
       select: {
         creditBalance: true,
+        creditBalanceCents: true,
         freeQuotaDate: true,
         freeQuotaUsed: true,
         planType: true,
@@ -49,7 +52,7 @@ export async function GET(request: Request) {
   const today = todayInShanghai();
   const used = account.freeQuotaDate === today ? account.freeQuotaUsed : 0;
   return NextResponse.json({
-    creditBalance: account.creditBalance,
+    creditBalance: Number((((account.creditBalanceCents && account.creditBalanceCents > 0 ? account.creditBalanceCents : account.creditBalance * 100) / 100)).toFixed(1)),
     planType: account.planType,
     canUseOwnApi: account.planType === 'byok',
     freeQuotaLimit: DAILY_FREE_REPORT_LIMIT,
@@ -66,6 +69,8 @@ export async function GET(request: Request) {
       label: '30 元买断 · 自备 API',
     },
     alipayQrImageUrl: appSetting.alipayQrImageUrl,
+    alipayPointsQrImageUrl: appSetting.alipayPointsQrImageUrl || appSetting.alipayQrImageUrl,
+    alipayByokQrImageUrl: appSetting.alipayByokQrImageUrl || appSetting.alipayQrImageUrl,
     alipayQrNote: appSetting.alipayQrNote,
     recentOrders: orders,
   });
