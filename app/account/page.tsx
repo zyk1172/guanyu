@@ -14,6 +14,7 @@ import {
   normalizeAudienceThemeValue,
   normalizeThinkingDepthValue,
 } from '@/lib/types';
+import ThemeSwitcher from '@/components/ThemeSwitcher';
 
 export default function AccountPage() {
   const { data: session, status } = useSession();
@@ -52,6 +53,7 @@ export default function AccountPage() {
   const [adminBilling, setAdminBilling] = useState<any>(null);
   const [canUseOwnApi, setCanUseOwnApi] = useState(false);
   const [selectedPackageType, setSelectedPackageType] = useState<'points_30' | 'byok_lifetime'>('points_30');
+  const hasByokPlan = billing?.planType === 'byok';
 
   // 1. 登录路由守卫
   useEffect(() => {
@@ -138,6 +140,12 @@ export default function AccountPage() {
     }
   }, [session, activeTab, fetchMyAudits]);
 
+  useEffect(() => {
+    if (hasByokPlan && selectedPackageType === 'byok_lifetime') {
+      setSelectedPackageType('points_30');
+    }
+  }, [hasByokPlan, selectedPackageType]);
+
   // 3. 保存设置逻辑
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -194,6 +202,10 @@ export default function AccountPage() {
 
   const handleCreateOrder = async () => {
     setBillingMessage(null);
+    if (hasByokPlan && selectedPackageType === 'byok_lifetime') {
+      setBillingMessage('你已经是买断账号，无需重复购买。');
+      return;
+    }
     try {
       const res = await fetch('/api/billing/orders', {
         method: 'POST',
@@ -295,8 +307,8 @@ export default function AccountPage() {
 
   const getModeLabel = (mode: string) => {
     switch (mode) {
-      case 'quick': return '快速分析';
-      case 'deep': return '深度分析';
+      case 'quick': return '历史快速分析';
+      case 'deep': return '观隅分析';
       default: return mode;
     }
   };
@@ -398,7 +410,7 @@ export default function AccountPage() {
               <div className="rounded-lg border border-dashed border-gray-200 p-3 text-xs dark:border-gray-800">
                 <div className="font-black text-gray-950 dark:text-white">购买额度</div>
                 <p className="mt-1 leading-relaxed text-gray-500 dark:text-gray-400">
-                  6 元购买 30 点，快速审视消耗 1 点，深度审视消耗 2 点；30 元买断后可填写自己的大模型和搜索 API。
+                  6 元购买 30 点，每次观隅分析消耗 3 点，报告追问消耗 1 点；30 元买断后可填写自己的大模型和搜索 API。
                 </p>
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <button
@@ -413,31 +425,38 @@ export default function AccountPage() {
                     <div className="font-black">6 元 / 30 点</div>
                     <div className="mt-0.5 text-xxs opacity-75">用管理员模型和搜索</div>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedPackageType('byok_lifetime')}
-                    className={`rounded-lg border px-3 py-2 text-left transition active:scale-[0.98] ${
-                      selectedPackageType === 'byok_lifetime'
-                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-300'
-                        : 'border-gray-200 bg-white text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300'
-                    }`}
-                  >
-                    <div className="font-black">30 元买断</div>
-                    <div className="mt-0.5 text-xxs opacity-75">可自备模型和搜索 API</div>
-                  </button>
+	                  <button
+	                    type="button"
+	                    disabled={hasByokPlan}
+	                    onClick={() => {
+	                      if (!hasByokPlan) setSelectedPackageType('byok_lifetime');
+	                    }}
+	                    className={`rounded-lg border px-3 py-2 text-left transition active:scale-[0.98] ${
+	                      hasByokPlan
+	                        ? 'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400 opacity-70 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-500'
+	                        : selectedPackageType === 'byok_lifetime'
+	                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-300'
+	                        : 'border-gray-200 bg-white text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300'
+	                    }`}
+	                  >
+	                    <div className="font-black">{hasByokPlan ? '已买断' : '30 元买断'}</div>
+	                    <div className="mt-0.5 text-xxs opacity-75">{hasByokPlan ? '已解锁高级功能' : '可自备模型和搜索 API'}</div>
+	                  </button>
                 </div>
-                {(selectedPackageType === 'byok_lifetime' ? billing?.alipayByokQrImageUrl : billing?.alipayPointsQrImageUrl || billing?.alipayQrImageUrl) ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={selectedPackageType === 'byok_lifetime' ? billing?.alipayByokQrImageUrl : billing?.alipayPointsQrImageUrl || billing?.alipayQrImageUrl}
-                    alt={selectedPackageType === 'byok_lifetime' ? '30 元买断支付宝收款二维码' : '6 元点数支付宝收款二维码'}
-                    className="mt-3 h-36 w-36 rounded-lg border object-cover"
-                  />
-                ) : (
-                  <div className="mt-3 flex h-36 w-36 items-center justify-center rounded-lg border bg-gray-50 text-center text-xxs font-bold text-gray-400 dark:border-gray-800 dark:bg-gray-900">
-                    支付宝二维码占位
-                  </div>
-                )}
+                <div className="mt-4 flex justify-center">
+                  {(selectedPackageType === 'byok_lifetime' ? billing?.alipayByokQrImageUrl : billing?.alipayPointsQrImageUrl || billing?.alipayQrImageUrl) ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={selectedPackageType === 'byok_lifetime' ? billing?.alipayByokQrImageUrl : billing?.alipayPointsQrImageUrl || billing?.alipayQrImageUrl}
+                      alt={selectedPackageType === 'byok_lifetime' ? '30 元买断支付宝收款二维码' : '6 元点数支付宝收款二维码'}
+                      className="h-48 w-48 rounded-xl border bg-white p-2 object-contain shadow-sm"
+                    />
+                  ) : (
+                    <div className="flex h-48 w-48 items-center justify-center rounded-xl border bg-gray-50 text-center text-xs font-bold text-gray-400 dark:border-gray-800 dark:bg-gray-900">
+                      支付宝二维码占位
+                    </div>
+                  )}
+                </div>
                 <p className="mt-2 text-xxs text-gray-400">{billing?.alipayQrNote || '付款后提交备注，等待管理员确认。'}</p>
                 <input
                   value={paymentNote}
@@ -649,7 +668,7 @@ export default function AccountPage() {
 
               <div className="space-y-1 md:col-span-2">
                 <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  阅读主题
+                  年龄阅读偏好
                 </label>
                 <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
                   {(Object.keys(AUDIENCE_THEME_LABELS) as AudienceTheme[]).map((theme) => (
@@ -668,7 +687,15 @@ export default function AccountPage() {
                     </button>
                   ))}
                 </div>
-                <p className="text-xxs text-gray-400">主题会影响界面视觉密度、字号、动效强度和报告默认展示复杂度。</p>
+                <p className="text-xxs text-gray-400">年龄偏好会影响界面视觉密度、字号、动效强度和报告默认展示复杂度。</p>
+              </div>
+
+              <div className="space-y-1 md:col-span-2">
+                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  全局界面主题
+                </label>
+                <ThemeSwitcher variant="cards" />
+                <p className="text-xxs text-gray-400">主题保存在本机浏览器，刷新后保持；会同步影响首页、登录注册、账号页、列表、报告详情、图表和 Markdown 区域。</p>
               </div>
 
               <div className="space-y-1">

@@ -13,14 +13,27 @@ export const metadata: Metadata = {
   },
 };
 
+const themeScript = `
+(function() {
+  try {
+    var theme = localStorage.getItem('guanyu-theme') || 'newspaper';
+    if (!/^(newspaper|night|kids)$/.test(theme)) theme = 'newspaper';
+    document.documentElement.dataset.theme = theme;
+  } catch (error) {
+    document.documentElement.dataset.theme = 'newspaper';
+  }
+})();
+`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN">
+    <html lang="zh-CN" data-theme="newspaper" suppressHydrationWarning>
       <body className="antialiased">
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <Providers>
           <GsapRoot>{children}</GsapRoot>
         </Providers>

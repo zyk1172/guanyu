@@ -523,11 +523,11 @@ export interface LegacyAnalysisResult {
 export type AnalysisResult = QuickAnalysisResult | DeepAnalysisResult | LegacyAnalysisResult;
 
 export const MODE_LABELS: Record<AnalysisMode, string> = {
-  quick: '快速分析',
-  deep: '深度分析',
+  quick: '历史快速分析',
+  deep: '观隅分析',
 };
 
 export const MODE_DESCRIPTIONS: Record<AnalysisMode, string> = {
-  quick: '快速扫描叙事框架和关键盲区',
-  deep: '强化联网核对、评分依据、利益结构、缺席视角和替代解释',
+  quick: '旧版快速报告，仅用于历史记录兼容',
+  deep: '完整联网核对、评分依据、利益结构、缺席视角和替代解释',
 };

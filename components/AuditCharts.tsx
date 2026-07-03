@@ -36,16 +36,18 @@ const METRIC_HELPERS: Record<string, string> = {
 };
 
 const COLORS = {
-  default: '#64748b',
-  muted: '#94a3b8',
-  warning: '#d97706',
-  risk: '#b91c1c',
-  positive: '#047857',
-  blue: '#2563eb',
-  deepBlue: '#1e3a8a',
+  default: 'var(--color-chart-default)',
+  muted: 'var(--color-text-subtle)',
+  warning: 'var(--color-chart-warning)',
+  risk: 'var(--color-chart-risk)',
+  positive: 'var(--color-chart-positive)',
+  blue: 'var(--color-info)',
+  deepBlue: 'var(--color-link)',
 };
 
-const GRID_STROKE = 'rgba(148, 163, 184, 0.12)';
+const GRID_STROKE = 'color-mix(in srgb, var(--color-border) 55%, transparent)';
+const AXIS_STROKE = 'var(--color-text-subtle)';
+const TOOLTIP_CURSOR = 'color-mix(in srgb, var(--color-chart-default) 10%, transparent)';
 
 const EVIDENCE_COLORS: Record<EvidenceGrade, string> = {
   A: COLORS.positive,
@@ -119,8 +121,8 @@ export default function AuditCharts({
             <BarChart data={auditMetrics} layout="vertical" margin={{ top: 6, right: 20, left: 8, bottom: 6 }}>
               <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={GRID_STROKE} />
               <XAxis type="number" domain={[0, 100]} hide />
-              <YAxis dataKey="name" type="category" fontSize={11} stroke="#64748b" width={86} tickLine={false} axisLine={false} />
-              <Tooltip content={<MetricTooltip />} cursor={{ fill: 'rgba(100, 116, 139, 0.06)' }} />
+              <YAxis dataKey="name" type="category" fontSize={11} stroke={AXIS_STROKE} width={86} tickLine={false} axisLine={false} />
+              <Tooltip content={<MetricTooltip />} cursor={{ fill: TOOLTIP_CURSOR }} />
               <Bar dataKey="value" radius={[0, 5, 5, 0]} barSize={13} isAnimationActive animationDuration={620}>
                 {auditMetrics.map((entry) => (
                   <Cell key={entry.name} fill={entry.fill} />
@@ -138,9 +140,9 @@ export default function AuditCharts({
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={countsData} margin={{ top: 14, right: 12, left: -18, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={GRID_STROKE} />
-              <XAxis dataKey="name" fontSize={11} stroke="#666666" tickLine={false} axisLine={false} />
-              <YAxis fontSize={10} stroke="#888888" allowDecimals={false} tickLine={false} axisLine={false} />
-              <Tooltip content={<CountTooltip />} cursor={{ fill: 'rgba(100, 116, 139, 0.06)' }} />
+              <XAxis dataKey="name" fontSize={11} stroke={AXIS_STROKE} tickLine={false} axisLine={false} />
+              <YAxis fontSize={10} stroke={AXIS_STROKE} allowDecimals={false} tickLine={false} axisLine={false} />
+              <Tooltip content={<CountTooltip />} cursor={{ fill: TOOLTIP_CURSOR }} />
               <Bar dataKey="value" radius={[5, 5, 0, 0]} barSize={22} isAnimationActive animationDuration={560}>
                 {countsData.map((entry) => (
                   <Cell key={entry.name} fill={entry.fill} />
@@ -157,9 +159,9 @@ export default function AuditCharts({
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={evidenceData} margin={{ top: 12, right: 12, left: -18, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={GRID_STROKE} />
-              <XAxis dataKey="name" fontSize={11} stroke="#666666" tickLine={false} axisLine={false} />
-              <YAxis fontSize={10} stroke="#888888" allowDecimals={false} tickLine={false} axisLine={false} />
-              <Tooltip content={<CountTooltip />} cursor={{ fill: 'rgba(100, 116, 139, 0.06)' }} />
+              <XAxis dataKey="name" fontSize={11} stroke={AXIS_STROKE} tickLine={false} axisLine={false} />
+              <YAxis fontSize={10} stroke={AXIS_STROKE} allowDecimals={false} tickLine={false} axisLine={false} />
+              <Tooltip content={<CountTooltip />} cursor={{ fill: TOOLTIP_CURSOR }} />
               <Bar dataKey="value" radius={[5, 5, 0, 0]} barSize={22} isAnimationActive animationDuration={520}>
                 {evidenceData.map((entry) => (
                   <Cell key={entry.name} fill={entry.fill} />
@@ -221,10 +223,10 @@ function ChartCard({ title, note, children }: { title: string; note: string; chi
 function MetricTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-lg border border-gray-800 bg-gray-950 px-3 py-2 text-xs text-white shadow-sm">
+    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-xs text-[var(--color-text)] shadow-sm">
       <div className="font-bold">{label}</div>
-      <div className="mt-1 text-gray-200">分值：{payload[0].value}</div>
-      <div className="mt-1 max-w-48 text-xxs text-gray-400">{METRIC_HELPERS[label] || '用于辅助阅读报告结构。'}</div>
+      <div className="mt-1 text-[var(--color-text-muted)]">分值：{payload[0].value}</div>
+      <div className="mt-1 max-w-48 text-xxs text-[var(--color-text-muted)]">{METRIC_HELPERS[label] || '用于辅助阅读报告结构。'}</div>
     </div>
   );
 }
@@ -232,9 +234,9 @@ function MetricTooltip({ active, payload, label }: any) {
 function CountTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-lg border border-gray-800 bg-gray-950 px-3 py-2 text-xs text-white shadow-sm">
+    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-xs text-[var(--color-text)] shadow-sm">
       <div className="font-bold">{label}</div>
-      <div className="mt-1 text-gray-200">数量：{payload[0].value}</div>
+      <div className="mt-1 text-[var(--color-text-muted)]">数量：{payload[0].value}</div>
     </div>
   );
 }

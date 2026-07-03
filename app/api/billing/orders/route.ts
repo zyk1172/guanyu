@@ -12,9 +12,17 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
   const paymentNote = String(body.paymentNote || '').trim().slice(0, 200);
   const packageDefinition = getPackageDefinition(String(body.packageType || 'points_30'));
+  const account = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { planType: true },
+  });
 
   if (!paymentNote) {
     return NextResponse.json({ error: '请填写付款备注，建议写账号邮箱、支付宝昵称或转账时间。' }, { status: 400 });
+  }
+
+  if (packageDefinition.packageType === 'byok_lifetime' && account?.planType === 'byok') {
+    return NextResponse.json({ error: '你已经是买断账号，无需重复购买。' }, { status: 400 });
   }
 
   const order = await prisma.purchaseOrder.create({

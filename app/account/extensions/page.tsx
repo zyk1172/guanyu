@@ -19,6 +19,9 @@ export default function ExtensionSettingsPage() {
   const [code, setCode] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  const [downloadOrigin, setDownloadOrigin] = useState('');
+  const extensionDownloadPath = '/downloads/guanyu-browser-extension.zip';
+  const extensionDownloadUrl = downloadOrigin ? `${downloadOrigin}${extensionDownloadPath}` : extensionDownloadPath;
 
   async function loadSessions() {
     const res = await fetch('/api/extension/sessions');
@@ -58,6 +61,7 @@ export default function ExtensionSettingsPage() {
 
   useEffect(() => {
     loadSessions();
+    setDownloadOrigin(window.location.origin);
   }, []);
 
   return (
@@ -74,6 +78,27 @@ export default function ExtensionSettingsPage() {
           <Link href="/account" className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-bold text-gray-700 transition hover:bg-white dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-900">
             返回账号管理
           </Link>
+        </div>
+
+        <div className="mb-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 shadow-[var(--shadow-card)]">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h2 className="text-sm font-black text-[var(--color-text)]">插件下载地址</h2>
+              <p className="mt-1 text-xs font-semibold text-[var(--color-text-muted)]">
+                下载后在 Chrome / Edge 扩展管理中选择“加载已解压的扩展程序”，再回到本页生成连接码绑定账号。
+              </p>
+              <code className="mt-3 block break-all rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xxs font-semibold text-[var(--color-text)]">
+                {extensionDownloadUrl}
+              </code>
+            </div>
+            <a
+              href={extensionDownloadPath}
+              download
+              className="inline-flex shrink-0 items-center justify-center rounded-[var(--radius-button)] bg-[var(--color-primary)] px-4 py-2 text-xs font-black text-white transition hover:bg-[var(--color-primary-hover)] active:scale-[0.98]"
+            >
+              下载插件
+            </a>
+          </div>
         </div>
 
         <div className="rounded-xl border border-gray-150 bg-white p-4 shadow-sm dark:border-gray-850 dark:bg-gray-950">

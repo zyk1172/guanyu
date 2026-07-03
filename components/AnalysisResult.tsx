@@ -73,6 +73,9 @@ const EVIDENCE_DEFINITIONS: Record<EvidenceGrade, string> = {
   E: '高推测、缺乏直接证据、仅作为待验证假设',
 };
 
+const EMPTY_ONLINE_TITLES = new Set(['相关背景来源', '待核验线索', '来源标题', '未提供', '暂无']);
+const EMPTY_ONLINE_TEXT = new Set(['可作为背景核对方向。', '当前无可靠条目。', '未找到可用于外部核验的可靠来源。']);
+
 function isQuick(result: AnalysisResult): result is QuickAnalysisResult {
   return (result as any).reportType === 'quick';
 }
@@ -145,6 +148,23 @@ function Section({ title, children, aside }: { title: string; children: React.Re
 function line(value: unknown, fallback = '当前材料不足，无法形成可靠判断') {
   const text = value === undefined || value === null ? '' : String(value).trim();
   return text && text !== '未提供' && text !== '暂无' ? text : fallback;
+}
+
+function isUsefulOnlineSource(source: any) {
+  const title = String(source?.title || '').trim();
+  const url = String(source?.url || '').trim();
+  const relevance = String(source?.relevance || source?.note || '').trim();
+  if (!url && (!title || EMPTY_ONLINE_TITLES.has(title)) && (!relevance || EMPTY_ONLINE_TEXT.has(relevance))) return false;
+  if (EMPTY_ONLINE_TITLES.has(title) && (!relevance || EMPTY_ONLINE_TEXT.has(relevance))) return false;
+  return Boolean(url || title || relevance);
+}
+
+function safeHost(url: string) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return '来源标题';
+  }
 }
 
 function statusLabel(value?: VerificationStatus | string) {
@@ -472,9 +492,9 @@ function WebVerificationView({ report }: { report: DeepAnalysisResult }) {
   }
 
   const groups = [
-    ['已核验来源', web.verifiedSources],
-    ['相关背景来源', web.backgroundSources],
-    ['待核验线索', web.pendingLeads],
+    ['已核验来源', web.verifiedSources.filter(isUsefulOnlineSource)],
+    ['相关背景来源', web.backgroundSources.filter(isUsefulOnlineSource)],
+    ['待核验线索', web.pendingLeads.filter(isUsefulOnlineSource)],
   ] as const;
 
   return (
@@ -488,7 +508,7 @@ function WebVerificationView({ report }: { report: DeepAnalysisResult }) {
                 <p className="text-xs text-gray-400">当前无可靠条目。</p>
               ) : items.slice(0, 4).map((source, index) => (
                 <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer" className="block rounded-lg border border-gray-100 bg-white p-2 text-xs transition hover:border-sky-300 dark:border-gray-800 dark:bg-gray-950 dark:hover:border-sky-800">
-                  <div className="line-clamp-2 font-bold text-gray-950 dark:text-white">{line(source.title, '来源标题')}</div>
+                  <div className="line-clamp-2 font-bold text-gray-950 dark:text-white">{line(source.title, source.url ? safeHost(source.url) : '来源标题')}</div>
                   <p className="mt-1 line-clamp-2 text-gray-500 dark:text-gray-400">{source.relevance || source.note}</p>
                   <div className="mt-2 flex flex-wrap gap-1">
                     <Badge className={statusClass(source.verificationStatus)}>{statusLabel(source.verificationStatus)}</Badge>
@@ -535,9 +555,9 @@ function webVerificationMarkdown(report: DeepAnalysisResult) {
   }
 
   const rows = [
-    ...online.verifiedSources.map((item) => ['已核验来源', item.title, item.url, statusLabel(item.verificationStatus), `证据 ${item.evidenceGrade}`, item.relevance || item.note]),
-    ...online.backgroundSources.map((item) => ['相关背景来源', item.title, item.url, statusLabel(item.verificationStatus), `证据 ${item.evidenceGrade}`, item.relevance || item.note]),
-    ...online.pendingLeads.map((item) => ['待核验线索', item.title, item.url, statusLabel(item.verificationStatus), `证据 ${item.evidenceGrade}`, item.relevance || item.note]),
+    ...online.verifiedSources.filter(isUsefulOnlineSource).map((item) => ['已核验来源', item.title, item.url, statusLabel(item.verificationStatus), `证据 ${item.evidenceGrade}`, item.relevance || item.note]),
+    ...online.backgroundSources.filter(isUsefulOnlineSource).map((item) => ['相关背景来源', item.title, item.url, statusLabel(item.verificationStatus), `证据 ${item.evidenceGrade}`, item.relevance || item.note]),
+    ...online.pendingLeads.filter(isUsefulOnlineSource).map((item) => ['待核验线索', item.title, item.url, statusLabel(item.verificationStatus), `证据 ${item.evidenceGrade}`, item.relevance || item.note]),
   ];
 
   return [

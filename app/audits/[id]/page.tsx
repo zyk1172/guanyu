@@ -82,8 +82,8 @@ export default function AuditDetailsPage() {
 
   const getModeLabel = (mode: string) => {
     switch (mode) {
-      case 'quick': return '快速分析';
-      case 'deep': return '深度分析';
+      case 'quick': return '历史快速分析';
+      case 'deep': return '观隅分析';
       default: return mode;
     }
   };

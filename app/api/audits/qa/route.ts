@@ -123,8 +123,8 @@ ${recentHistory.map((h: any) => `${h.role === 'user' ? '用户' : 'AI'}: ${Strin
       return NextResponse.json({ error: '未配置可用的大模型 API Key，请联系管理员配置全局模型，或使用买断账号保存个人模型密钥。' }, { status: 500 });
     }
 
-    if (!isByokPlan(account?.planType) && effectiveCreditCents(account || { creditBalance: 0, creditBalanceCents: 0 }) < 50) {
-      return NextResponse.json({ error: `追问需要 0.5 点，当前剩余 ${centsToDisplayPoints(effectiveCreditCents(account || { creditBalance: 0, creditBalanceCents: 0 }))} 点。请先购买点数。` }, { status: 402 });
+    if (!isByokPlan(account?.planType) && effectiveCreditCents(account || { creditBalance: 0, creditBalanceCents: 0 }) < 100) {
+      return NextResponse.json({ error: `追问需要 1 点，当前剩余 ${centsToDisplayPoints(effectiveCreditCents(account || { creditBalance: 0, creditBalanceCents: 0 }))} 点。请先购买点数。` }, { status: 402 });
     }
 
     // 5. 请求大模型

@@ -107,8 +107,8 @@ export default function MyAuditsPage() {
 
   const getModeLabel = (mode: string) => {
     switch (mode) {
-      case 'quick': return '快速分析';
-      case 'deep': return '深度分析';
+      case 'quick': return '历史快速分析';
+      case 'deep': return '观隅分析';
       default: return mode;
     }
   };
@@ -143,15 +143,15 @@ export default function MyAuditsPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 text-xs">
             <div className="space-y-1">
-              <label className="block text-xxs font-bold text-gray-500 uppercase">分析模式</label>
+              <label className="block text-xxs font-bold text-gray-500 uppercase">报告类型</label>
               <select
                 value={modeFilter}
                 onChange={(e) => setModeFilter(e.target.value)}
                 className="w-full px-2 py-1.5 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 focus:outline-none"
               >
                 <option value="">全部模式</option>
-                <option value="quick">快速分析</option>
-                <option value="deep">深度分析</option>
+                <option value="quick">历史快速分析</option>
+                <option value="deep">观隅分析</option>
               </select>
             </div>
 

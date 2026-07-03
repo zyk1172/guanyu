@@ -72,7 +72,7 @@ export async function GET(request: Request) {
             defaultModelName: process.env.OPENAI_MODEL_DEFAULT || 'gpt-4o',
             llmBaseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
             defaultReasoningDepth: 'medium',
-            defaultAnalysisMode: 'quick',
+            defaultAnalysisMode: 'deep',
             defaultIsPublic: true,
           defaultSaveResult: true,
           defaultEnableCharts: true,
@@ -154,7 +154,7 @@ export async function PATCH(request: Request) {
       defaultSaveResult,
       defaultEnableCharts,
     } = body;
-    const safeAnalysisMode = VALID_ANALYSIS_MODES.has(defaultAnalysisMode) ? defaultAnalysisMode : 'quick';
+    const safeAnalysisMode = VALID_ANALYSIS_MODES.has(defaultAnalysisMode) ? defaultAnalysisMode : 'deep';
     const safeReasoningDepth = normalizeThinkingDepth(defaultReasoningDepth);
     const safeAudienceTheme = VALID_AUDIENCE_THEMES.has(defaultAudienceTheme) ? defaultAudienceTheme : 'youth';
 

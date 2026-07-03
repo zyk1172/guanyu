@@ -35,7 +35,7 @@ function todayInShanghai() {
 }
 
 export function getAnalysisPointCost(mode: string) {
-  return mode === 'deep' ? 2 : 1;
+  return 3;
 }
 
 export function pointsToCents(points: number) {
@@ -178,7 +178,7 @@ export async function commitUsage(plan: UsagePlan, auditId: string) {
         deltaCents: -plan.costCents,
         balanceAfterCents: updated.creditBalanceCents,
         type: 'consume',
-        reason: plan.mode === 'deep' ? '深度审视消耗' : '快速审视消耗',
+        reason: '观隅分析消耗 3 点',
         auditId,
       },
     });
@@ -225,7 +225,7 @@ export async function grantPoints(userId: string, points: number, reason: string
 }
 
 export async function consumeQuestionPoint(userId: string, auditId?: string) {
-  const costCents = 50;
+  const costCents = 100;
 
   await ensureRuntimeSchema();
   return prisma.$transaction(async (tx) => {
@@ -240,7 +240,7 @@ export async function consumeQuestionPoint(userId: string, auditId?: string) {
 
     const currentCents = effectiveCreditCents(user);
     if (currentCents < costCents) {
-      throw new Error(`追问需要 0.5 点，当前剩余 ${centsToDisplayPoints(currentCents)} 点。请先购买点数。`);
+      throw new Error(`追问需要 1 点，当前剩余 ${centsToDisplayPoints(currentCents)} 点。请先购买点数。`);
     }
 
     const nextCents = currentCents - costCents;
@@ -261,7 +261,7 @@ export async function consumeQuestionPoint(userId: string, auditId?: string) {
         deltaCents: -costCents,
         balanceAfterCents: updated.creditBalanceCents,
         type: 'consume',
-        reason: '报告追问消耗 0.5 点',
+        reason: '报告追问消耗 1 点',
         auditId,
       },
     });

@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useSession, signOut } from 'next-auth/react';
+import ThemeSwitcher from './ThemeSwitcher';
 
 export default function Header() {
   const { data: session } = useSession();
@@ -19,8 +20,8 @@ export default function Header() {
   return (
     <header className={`sticky top-0 z-50 border-b py-2.5 backdrop-blur transition-colors duration-200 ${
       isScrolled
-        ? 'border-gray-200 bg-white/95 shadow-sm dark:border-gray-850 dark:bg-gray-950/95'
-        : 'border-gray-150 bg-white/[0.86] dark:border-gray-900 dark:bg-gray-950/[0.86]'
+        ? 'border-[var(--color-border-strong)] bg-[color-mix(in_srgb,var(--color-surface)_94%,transparent)] shadow-sm'
+        : 'border-[var(--color-border)] bg-[color-mix(in_srgb,var(--color-surface)_84%,transparent)]'
     }`}>
       <div className="max-w-6xl mx-auto px-3 sm:px-4 flex flex-wrap items-center justify-between gap-2">
         <Link href="/" className="interactive-lift flex items-center gap-2.5 hover:opacity-95 transition">
@@ -33,21 +34,22 @@ export default function Header() {
             priority
           />
           <div>
-            <h1 className="text-sm font-bold tracking-tight text-gray-950 dark:text-white leading-none">观隅</h1>
-            <span className="hidden text-xxs text-gray-400 dark:text-gray-500 font-semibold tracking-wider mt-0.5 sm:block">看见新闻没有展开的一角</span>
+            <h1 className="text-sm font-bold tracking-tight text-[var(--color-text)] leading-none">观隅</h1>
+            <span className="hidden text-xxs text-[var(--color-text-muted)] font-semibold tracking-wider mt-0.5 sm:block">看见新闻没有展开的一角</span>
           </div>
         </Link>
 
         <nav className="flex max-w-full items-center gap-1 overflow-x-auto whitespace-nowrap sm:gap-2">
-          <Link href="/" className="text-xs font-semibold text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 px-2 py-1.5 rounded transition">
+          <Link href="/" className="text-xs font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-link)] px-2 py-1.5 rounded transition">
             首页
           </Link>
-          <Link href="/my-audits" className="text-xs font-semibold text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 px-2 py-1.5 rounded transition">
+          <Link href="/my-audits" className="text-xs font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-link)] px-2 py-1.5 rounded transition">
             我的审视
           </Link>
-          <Link href="/account" className="text-xs font-semibold text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 px-2 py-1.5 rounded transition">
+          <Link href="/account" className="text-xs font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-link)] px-2 py-1.5 rounded transition">
             账号管理
           </Link>
+          <ThemeSwitcher />
           
           {session ? (
             <>
@@ -60,7 +62,7 @@ export default function Header() {
             </>
           ) : (
             <>
-              <Link href="/login" className="text-xs font-semibold text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 px-2 py-1.5 rounded transition">
+              <Link href="/login" className="text-xs font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-link)] px-2 py-1.5 rounded transition">
                 登录
               </Link>
               <Link

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { AnalysisMode } from '../lib/types';
-import ModeSelector from './ModeSelector';
 
 interface AnalysisFormProps {
   onSubmit: (data: {
@@ -20,7 +19,7 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
   const [source, setSource] = useState('');
   const [content, setContent] = useState('');
   const [focus, setFocus] = useState('');
-  const [mode, setMode] = useState<AnalysisMode>('quick');
+  const mode: AnalysisMode = 'deep';
   const [urlInput, setUrlInput] = useState('');
   const [isParsing, setIsParsing] = useState(false);
   const [parseError, setParseError] = useState('');
@@ -195,10 +194,8 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
           />
         </div>
 
-        <ModeSelector selectedMode={mode} onSelectMode={setMode} />
-
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold leading-relaxed text-amber-800 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-300">
-          每个账号每天 3 次免费审视；免费额度用完后，快速审视消耗 1 点，深度审视消耗 2 点。5 分钟内最多生成 3 份报告。
+        <div className="rounded-lg border border-[var(--color-warning)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs font-semibold leading-relaxed text-[var(--color-text)]">
+          每个账号每天 3 次免费审视；免费额度用完后，每次观隅分析消耗 3 点。5 分钟内最多生成 3 份报告。
         </div>
 
         <button
@@ -213,10 +210,10 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
           {isLoading ? (
             <>
               <span className="h-1.5 w-1.5 rounded-full bg-white/90 step-pulse" />
-              九镜审读中...
+              观隅分析中...
             </>
           ) : (
-            '开始审视'
+            '开始观隅分析'
           )}
         </button>
       </form>

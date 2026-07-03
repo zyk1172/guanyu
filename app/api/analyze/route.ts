@@ -22,8 +22,9 @@ import type {
 export const maxDuration = 300;
 
 const MAX_NEWS_CONTENT_LENGTH = 30000;
-const VALID_ANALYSIS_MODES = new Set(['quick', 'deep']);
 const VALID_THINKING_DEPTHS = new Set(['none', 'low', 'medium', 'high', 'extreme', 'quick', 'standard', 'deep', 'exhaustive']);
+const EMPTY_ONLINE_TITLES = new Set(['相关背景来源', '待核验线索', '来源标题', '未提供', '暂无']);
+const EMPTY_ONLINE_TEXT = new Set(['可作为背景核对方向。', '当前无可靠条目。', '未找到可用于外部核验的可靠来源。']);
 
 function normalizeThinkingDepth(depth?: string | null) {
   if (!depth || !VALID_THINKING_DEPTHS.has(depth)) return 'medium';
@@ -98,6 +99,14 @@ function stringArray(value: unknown, fallback: string[] = []) {
   return items.length ? items : fallback;
 }
 
+function safeHostname(url: string) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return '外部来源';
+  }
+}
+
 function getScores(parsed: any): ReportScores {
   const src = parsed?.scores || parsed?.score_summary || {};
   return {
@@ -135,15 +144,28 @@ function normalizeGap(item: any, fallbackTitle: string, hasExternalResults: bool
 function normalizeOnlineVerification(parsed: any, factCheckSources: Awaited<ReturnType<typeof searchWeb>>) {
   const existing = parsed?.onlineVerification || parsed?.web_verification || {};
   const hasExternalResults = factCheckSources.length > 0;
-  const sourceFromSearch = (source: any) => ({
-    title: String(source?.title || '相关背景来源'),
-    url: String(source?.url || ''),
-    sourceType: String(source?.sourceType || source?.source_type || source?.provider || '相关来源'),
-    relevance: String(source?.relevance || source?.snippet || '可作为背景核对方向。'),
-    verificationStatus: normalizeVerificationStatus(source?.verificationStatus || source?.verification_status || 'partially_supported', true),
-    evidenceGrade: normalizeEvidenceGrade(source?.evidenceGrade || source?.evidence_grade || 'C'),
-    note: String(source?.note || `来自 ${source?.provider || '搜索服务'}；仅作为核对来源，不直接等同于事实结论。`),
-  });
+  const sourceFromSearch = (source: any) => {
+    const title = String(source?.title || '').trim();
+    const url = String(source?.url || '').trim();
+    const relevance = String(source?.relevance || source?.snippet || source?.note || '').trim();
+    const note = String(source?.note || source?.snippet || '').trim();
+    const sourceType = String(source?.sourceType || source?.source_type || source?.provider || '相关来源').trim();
+    if (!url && (!title || EMPTY_ONLINE_TITLES.has(title)) && (!relevance || EMPTY_ONLINE_TEXT.has(relevance))) {
+      return null;
+    }
+    if (EMPTY_ONLINE_TITLES.has(title) && (!relevance || EMPTY_ONLINE_TEXT.has(relevance))) {
+      return null;
+    }
+    return {
+      title: title || safeHostname(url),
+      url,
+      sourceType,
+      relevance,
+      verificationStatus: normalizeVerificationStatus(source?.verificationStatus || source?.verification_status || 'partially_supported', true),
+      evidenceGrade: normalizeEvidenceGrade(source?.evidenceGrade || source?.evidence_grade || 'C'),
+      note,
+    };
+  };
 
   if (!existing?.enabled && !hasExternalResults) {
     return {
@@ -157,21 +179,23 @@ function normalizeOnlineVerification(parsed: any, factCheckSources: Awaited<Retu
   }
 
   const verifiedSources = hasExternalResults
-    ? asArray(existing.verifiedSources || existing.verified_sources).map(sourceFromSearch)
+    ? asArray(existing.verifiedSources || existing.verified_sources).map(sourceFromSearch).filter(Boolean)
     : [];
   const backgroundSources = asArray(existing.backgroundSources || existing.background_sources).length > 0
-    ? asArray(existing.backgroundSources || existing.background_sources).map(sourceFromSearch)
-    : factCheckSources.slice(0, 5).map(sourceFromSearch);
-  const pendingLeads = asArray(existing.pendingLeads || existing.leads_to_verify).map(sourceFromSearch);
-  const unableToConfirm = asArray<string>(existing.unableToConfirm || existing.unconfirmed_items);
+    ? asArray(existing.backgroundSources || existing.background_sources).map(sourceFromSearch).filter(Boolean)
+    : factCheckSources.slice(0, 5).map(sourceFromSearch).filter(Boolean);
+  const pendingLeads = asArray(existing.pendingLeads || existing.leads_to_verify).map(sourceFromSearch).filter(Boolean);
+  const unableToConfirm = asArray<string>(existing.unableToConfirm || existing.unconfirmed_items)
+    .map((item) => String(item || '').trim())
+    .filter((item) => item && !EMPTY_ONLINE_TEXT.has(item) && !EMPTY_ONLINE_TITLES.has(item));
   const hasAnyResult = verifiedSources.length + backgroundSources.length + pendingLeads.length > 0;
 
   return {
     enabled: true,
     status: hasAnyResult ? 'has_results' as const : 'no_reliable_sources' as const,
-    verifiedSources,
-    backgroundSources,
-    pendingLeads,
+    verifiedSources: verifiedSources as any[],
+    backgroundSources: backgroundSources as any[],
+    pendingLeads: pendingLeads as any[],
     unableToConfirm: unableToConfirm.length > 0 ? unableToConfirm : (hasAnyResult ? [] : ['未找到可用于外部核验的可靠来源。']),
   };
 }
@@ -499,7 +523,7 @@ export async function POST(request: Request) {
     ]);
 
     const body = await request.json();
-    const { title, source, content, focus, mode } = body;
+    const { title, source, content, focus } = body;
 
     if (!content || content.trim().length < 50) {
       return NextResponse.json({ error: '新闻正文太短，最少需要 50 个字符。' }, { status: 400 });
@@ -507,8 +531,7 @@ export async function POST(request: Request) {
 
     const truncatedContent = content.slice(0, MAX_NEWS_CONTENT_LENGTH);
     const actualReasoningDepth = normalizeThinkingDepth(userSettings?.defaultReasoningDepth);
-    const requestedMode = mode || userSettings?.defaultAnalysisMode || 'quick';
-    const actualAnalysisMode = (VALID_ANALYSIS_MODES.has(requestedMode) ? requestedMode : 'quick') as AnalysisMode;
+    const actualAnalysisMode = 'deep' as AnalysisMode;
     const actualIsPublic = userSettings?.defaultIsPublic !== undefined ? userSettings.defaultIsPublic : true;
     const usagePlan = await buildUsagePlan(currentUser.id, actualAnalysisMode);
     const searchOptions = buildSearchOptions({ usageSource: usagePlan.source, userSettings, appSetting });

@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
             defaultModelName: process.env.OPENAI_MODEL_DEFAULT || 'gpt-4o',
             llmBaseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
             defaultReasoningDepth: 'medium',
-            defaultAnalysisMode: 'quick',
+            defaultAnalysisMode: 'deep',
             defaultIsPublic: true,
             defaultSaveResult: true,
             defaultEnableCharts: true,

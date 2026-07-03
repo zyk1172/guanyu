@@ -129,94 +129,90 @@ export default function Home() {
           </div>
         </div>
 
-        {/* 表单与分析区 */}
-        <div data-gsap-reveal className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(300px,0.75fr)]">
-          <div className="space-y-4">
-            <AnalysisForm onSubmit={handleAnalyze} isLoading={isLoading} />
-            {isLoading && <LoadingState />}
-            {error && <ErrorMessage message={error} onRetry={handleRetry} />}
-            {result && !isLoading && !error && (
-              <div data-gsap-reveal className="border-t border-gray-100 dark:border-gray-900 pt-5">
-                <div className="text-center mb-5">
-                  <span className="inline-block px-3 py-1 bg-gray-100 dark:bg-gray-900 text-gray-500 dark:text-gray-400 rounded-full text-xs font-semibold tracking-wider uppercase mb-2">
-                    REVIEW REPORT
-                  </span>
-                  <h3 className="text-xl font-bold text-gray-900 dark:text-white">叙事反向审视报告</h3>
+        {/* 表单、结果与热门审视：桌面端统一单列同宽 */}
+        <div data-gsap-reveal className="mx-auto max-w-3xl space-y-4">
+          <AnalysisForm onSubmit={handleAnalyze} isLoading={isLoading} />
+          {isLoading && <LoadingState />}
+          {error && <ErrorMessage message={error} onRetry={handleRetry} />}
+          {result && !isLoading && !error && (
+            <div data-gsap-reveal className="border-t border-gray-100 dark:border-gray-900 pt-5">
+              <div className="text-center mb-5">
+                <span className="inline-block px-3 py-1 bg-gray-100 dark:bg-gray-900 text-gray-500 dark:text-gray-400 rounded-full text-xs font-semibold tracking-wider uppercase mb-2">
+                  REVIEW REPORT
+                </span>
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white">叙事反向审视报告</h3>
+              </div>
+              <AnalysisResultView
+                result={result}
+                originalContent={lastSubmittedData?.content}
+                auditMeta={{
+                  title: lastSubmittedData?.title,
+                  source: lastSubmittedData?.source,
+                  analysisMode: lastSubmittedData?.mode,
+                }}
+              />
+            </div>
+          )}
+
+          <section className="animated-panel rounded-xl border border-gray-100 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-2 dark:border-gray-900">
+              <h2 className="text-sm font-black text-gray-950 dark:text-white">热门审视</h2>
+              <span className="text-xxs font-bold text-gray-400">按点击热度排序</span>
+            </div>
+            <p className="mt-2 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+              展示用户公开分享的历史审视结果，按照点击热度排序。
+            </p>
+            <div className="mt-3 space-y-3">
+              {isLoadingHotAudits ? (
+                <div className="py-8 text-center text-xs font-semibold text-gray-400">正在加载热门审视...</div>
+              ) : hotAudits.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-gray-200 p-5 text-center text-xs text-gray-400 dark:border-gray-800">
+                  暂无公开审视记录。
                 </div>
-                <AnalysisResultView
-                  result={result}
-                  originalContent={lastSubmittedData?.content}
-                  auditMeta={{
-                    title: lastSubmittedData?.title,
-                    source: lastSubmittedData?.source,
-                    analysisMode: lastSubmittedData?.mode,
-                  }}
-                />
-              </div>
-            )}
-          </div>
-
-          <aside className="space-y-3 lg:sticky lg:top-20 lg:self-start">
-            <section className="animated-panel rounded-xl border border-gray-100 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950">
-              <div className="flex items-center justify-between border-b border-gray-100 pb-2 dark:border-gray-900">
-                <h2 className="text-sm font-black text-gray-950 dark:text-white">热门审视</h2>
-                <span className="text-xxs font-bold text-gray-400">按点击热度排序</span>
-              </div>
-              <p className="mt-2 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
-                展示用户公开分享的历史审视结果，按照点击热度排序。
-              </p>
-              <div className="mt-3 space-y-3">
-                {isLoadingHotAudits ? (
-                  <div className="py-8 text-center text-xs font-semibold text-gray-400">正在加载热门审视...</div>
-                ) : hotAudits.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-gray-200 p-5 text-center text-xs text-gray-400 dark:border-gray-800">
-                    暂无公开审视记录。
-                  </div>
-                ) : (
-                  hotAudits.slice(0, 6).map((audit) => (
-                    <article key={audit.id} className="interactive-lift rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900/60">
-                      <div className="flex flex-wrap items-center gap-1.5 text-xxs font-bold text-gray-400">
-                        <span>{audit.source || '未知来源'}</span>
-                        <span>·</span>
-                        <span>{new Date(audit.createdAt).toLocaleDateString()}</span>
-                        <span>·</span>
-                        <span>{audit.viewCount} 次点击</span>
-                      </div>
-                      <h3 className="mt-1 line-clamp-2 text-sm font-bold leading-snug text-gray-950 dark:text-white">{audit.title}</h3>
-                      <p className="mt-1.5 line-clamp-3 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
-                        {audit.newsSummary}
-                      </p>
-                      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xxs font-bold">
-                        <span className="rounded bg-indigo-50 px-2 py-0.5 text-indigo-600 dark:bg-indigo-950/30 dark:text-indigo-300">{audit.modelName}</span>
-                        <span className="rounded bg-gray-100 px-2 py-0.5 text-gray-600 dark:bg-gray-800 dark:text-gray-300">{getDepthLabel(audit.reasoningDepth)}</span>
-                        <span className="rounded bg-emerald-50 px-2 py-0.5 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">可信度 {audit.credibilityScore}</span>
-                        <span className="rounded bg-amber-50 px-2 py-0.5 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">推测不确定性 {audit.speculationRiskScore}</span>
-                      </div>
-                      <div className="mt-3 flex justify-end">
-                        <Link href={`/audits/${audit.id}`} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-indigo-700">
-                          查看详情
-                        </Link>
-                      </div>
-                    </article>
-                  ))
-                )}
-              </div>
-              {hotAudits.length > 0 && (
-                <Link href="/audits" className="mt-3 block rounded-lg border border-gray-200 px-3 py-2 text-center text-xs font-bold text-gray-700 transition hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-900">
-                  展开更多
-                </Link>
+              ) : (
+                hotAudits.slice(0, 6).map((audit) => (
+                  <article key={audit.id} className="interactive-lift rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900/60">
+                    <div className="flex flex-wrap items-center gap-1.5 text-xxs font-bold text-gray-400">
+                      <span>{audit.source || '未知来源'}</span>
+                      <span>·</span>
+                      <span>{new Date(audit.createdAt).toLocaleDateString()}</span>
+                      <span>·</span>
+                      <span>{audit.viewCount} 次点击</span>
+                    </div>
+                    <h3 className="mt-1 line-clamp-2 text-sm font-bold leading-snug text-gray-950 dark:text-white">{audit.title}</h3>
+                    <p className="mt-1.5 line-clamp-3 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+                      {audit.newsSummary}
+                    </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xxs font-bold">
+                      <span className="rounded bg-indigo-50 px-2 py-0.5 text-indigo-600 dark:bg-indigo-950/30 dark:text-indigo-300">{audit.modelName}</span>
+                      <span className="rounded bg-gray-100 px-2 py-0.5 text-gray-600 dark:bg-gray-800 dark:text-gray-300">{getDepthLabel(audit.reasoningDepth)}</span>
+                      <span className="rounded bg-emerald-50 px-2 py-0.5 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">可信度 {audit.credibilityScore}</span>
+                      <span className="rounded bg-amber-50 px-2 py-0.5 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">推测不确定性 {audit.speculationRiskScore}</span>
+                    </div>
+                    <div className="mt-3 flex justify-end">
+                      <Link href={`/audits/${audit.id}`} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-indigo-700">
+                        查看详情
+                      </Link>
+                    </div>
+                  </article>
+                ))
               )}
-            </section>
+            </div>
+            {hotAudits.length > 0 && (
+              <Link href="/audits" className="mt-3 block rounded-lg border border-gray-200 px-3 py-2 text-center text-xs font-bold text-gray-700 transition hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-900">
+                展开更多
+              </Link>
+            )}
+          </section>
 
-            <section className="rounded-xl border border-gray-100 bg-white p-4 text-xs leading-relaxed text-gray-500 shadow-sm dark:border-gray-800 dark:bg-gray-950 dark:text-gray-400">
-              <h2 className="text-sm font-black text-gray-950 dark:text-white">高频使用说明</h2>
-              <ul className="mt-2 space-y-1.5">
-                <li>1. 默认大模型、思考深度和公开偏好在账号管理中设置。</li>
-                <li>2. 每次审视会保存新闻总结、评分、图表数据和完整 JSON。</li>
-                <li>3. 公开记录会进入热门审视；私有记录仅自己可见。</li>
-              </ul>
-            </section>
-          </aside>
+          <section className="rounded-xl border border-gray-100 bg-white p-4 text-xs leading-relaxed text-gray-500 shadow-sm dark:border-gray-800 dark:bg-gray-950 dark:text-gray-400">
+            <h2 className="text-sm font-black text-gray-950 dark:text-white">高频使用说明</h2>
+            <ul className="mt-2 space-y-1.5">
+              <li>1. 默认大模型、思考深度和公开偏好在账号管理中设置。</li>
+              <li>2. 每次审视会保存新闻总结、评分、图表数据和完整 JSON。</li>
+              <li>3. 公开记录会进入热门审视；私有记录仅自己可见。</li>
+            </ul>
+          </section>
         </div>
       </GsapReveal>
 
