@@ -3,6 +3,8 @@ import { getCurrentUser } from '@/lib/auth';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { createAnalyzeJob, runAnalyzeJob } from '@/lib/analyze-job';
 
+export const maxDuration = 300;
+
 export async function POST(request: Request) {
   await ensureRuntimeSchema();
   const user = await getCurrentUser(request);

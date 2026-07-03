@@ -5,6 +5,8 @@ import { createAnalyzeJob, runAnalyzeJob } from '@/lib/analyze-job';
 const MAX_TEXT_LENGTH = 30_000;
 const MAX_SELECTED_LENGTH = 20_000;
 
+export const maxDuration = 300;
+
 function cleanText(value: string, maxLength: number) {
   return value
     .replace(/\r/g, '\n')
