@@ -645,7 +645,8 @@ export async function POST(request: Request) {
 
     const scores = normalizedResult.scores;
     const newsSummaryText = normalizedResult.newsSummary || '当前材料不足，无法形成可靠摘要。';
-    const saveResult = userSettings?.defaultSaveResult !== false;
+    const forceSaveResult = request.headers.get('x-guanyu-force-save') === 'true';
+    const saveResult = forceSaveResult || userSettings?.defaultSaveResult !== false;
     let savedAuditId = '';
 
     const normalizedPublishedAt = normalizedResult.meta?.publishedAt || '';

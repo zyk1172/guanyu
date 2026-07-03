@@ -91,6 +91,14 @@ export const authOptions: NextAuthOptions = {
 };
 
 export async function getCurrentUser(request: Request): Promise<CurrentUser | null> {
+  const internalUserId = request.headers.get('x-guanyu-internal-user-id');
+  const internalSecret = request.headers.get('x-guanyu-internal-auth');
+  const expectedInternalSecret = process.env.INTERNAL_API_SECRET || process.env.NEXTAUTH_SECRET;
+
+  if (internalUserId && internalSecret && expectedInternalSecret && internalSecret === expectedInternalSecret) {
+    return { id: internalUserId };
+  }
+
   const token = await getToken({
     req: request as NextRequest,
     secret: process.env.NEXTAUTH_SECRET,
