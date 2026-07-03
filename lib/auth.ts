@@ -58,6 +58,10 @@ export const authOptions: NextAuthOptions = {
           return { id: newUser.id, email: newUser.email };
         }
 
+        if (user.isBanned) {
+          throw new Error('账号已被管理员暂停使用，请联系管理员。');
+        }
+
         const hashedInput = hashPassword(credentials.password);
         if (user.password !== hashedInput) {
           throw new Error('密码错误');
@@ -96,7 +100,12 @@ export async function getCurrentUser(request: Request): Promise<CurrentUser | nu
   const expectedInternalSecret = process.env.INTERNAL_API_SECRET || process.env.NEXTAUTH_SECRET;
 
   if (internalUserId && internalSecret && expectedInternalSecret && internalSecret === expectedInternalSecret) {
-    return { id: internalUserId };
+    const account = await prisma.user.findUnique({
+      where: { id: internalUserId },
+      select: { id: true, email: true, isBanned: true },
+    });
+    if (!account || account.isBanned) return null;
+    return { id: account.id, email: account.email };
   }
 
   const token = await getToken({
@@ -108,8 +117,14 @@ export async function getCurrentUser(request: Request): Promise<CurrentUser | nu
     return null;
   }
 
+  const account = await prisma.user.findUnique({
+    where: { id: String(token.id) },
+    select: { id: true, email: true, isBanned: true },
+  });
+  if (!account || account.isBanned) return null;
+
   return {
-    id: String(token.id),
-    email: token.email,
+    id: account.id,
+    email: account.email,
   };
 }

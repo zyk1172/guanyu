@@ -6,12 +6,8 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  AUDIENCE_THEME_DESCRIPTIONS,
-  AUDIENCE_THEME_LABELS,
-  AudienceTheme,
   THINKING_DEPTH_OPTIONS,
   getThinkingDepthLabel,
-  normalizeAudienceThemeValue,
   normalizeThinkingDepthValue,
 } from '@/lib/types';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
@@ -34,7 +30,6 @@ export default function AccountPage() {
   const [enableSerperSearch, setEnableSerperSearch] = useState(false);
   const [serperApiKey, setSerperApiKey] = useState('');
   const [hasSerperApiKey, setHasSerperApiKey] = useState(false);
-  const [audienceTheme, setAudienceTheme] = useState<AudienceTheme>('youth');
   const [reasoningDepth, setReasoningDepth] = useState('medium');
   const [isPublic, setIsPublic] = useState(true);
   const [saveResult, setSaveResult] = useState(true);
@@ -51,6 +46,11 @@ export default function AccountPage() {
   const [billingMessage, setBillingMessage] = useState<string | null>(null);
   const [paymentNote, setPaymentNote] = useState('');
   const [adminBilling, setAdminBilling] = useState<any>(null);
+  const [adminUserSearch, setAdminUserSearch] = useState('');
+  const [expandedUserIds, setExpandedUserIds] = useState<Record<string, boolean>>({});
+  const [adminUserMessage, setAdminUserMessage] = useState<string | null>(null);
+  const [adminEmailDraft, setAdminEmailDraft] = useState<Record<string, string>>({});
+  const [adminGrantDraft, setAdminGrantDraft] = useState<Record<string, string>>({});
   const [canUseOwnApi, setCanUseOwnApi] = useState(false);
   const [selectedPackageType, setSelectedPackageType] = useState<'points_30' | 'byok_lifetime'>('points_30');
   const hasByokPlan = billing?.planType === 'byok';
@@ -111,7 +111,6 @@ export default function AccountPage() {
             setTavilySearchDepth(data.tavilySearchDepth || 'basic');
             setEnableSerperSearch(Boolean(data.enableSerperSearch));
             setHasSerperApiKey(Boolean(data.hasSerperApiKey));
-            setAudienceTheme(normalizeAudienceThemeValue(data.defaultAudienceTheme));
             setReasoningDepth(normalizeThinkingDepthValue(data.defaultReasoningDepth));
             setIsPublic(data.defaultIsPublic);
             setSaveResult(data.defaultSaveResult);
@@ -165,7 +164,6 @@ export default function AccountPage() {
           tavilySearchDepth,
           enableSerperSearch,
           serperApiKey: serperApiKey.trim(),
-          defaultAudienceTheme: audienceTheme,
           defaultReasoningDepth: reasoningDepth,
           defaultIsPublic: isPublic,
           defaultSaveResult: saveResult,
@@ -184,10 +182,7 @@ export default function AccountPage() {
         setEnableTavilySearch(Boolean(data.enableTavilySearch));
         setEnableSerperSearch(Boolean(data.enableSerperSearch));
         setTavilySearchDepth(data.tavilySearchDepth || 'basic');
-        setAudienceTheme(normalizeAudienceThemeValue(data.defaultAudienceTheme));
         setCanUseOwnApi(Boolean(data.canUseOwnApi));
-        window.localStorage.setItem('guanyu-audience-theme', normalizeAudienceThemeValue(data.defaultAudienceTheme));
-        window.dispatchEvent(new CustomEvent('guanyu-theme-change', { detail: normalizeAudienceThemeValue(data.defaultAudienceTheme) }));
         setSettingsSettingsMessage('✅ 设置已成功保存并同步！');
         setTimeout(() => setSettingsSettingsMessage(null), 3000);
       } else {
@@ -258,6 +253,56 @@ export default function AccountPage() {
     }
   };
 
+  const handleAdminUserAction = async (action: string, payload: Record<string, any>) => {
+    setAdminUserMessage(null);
+    try {
+      const res = await fetch('/api/billing/admin', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ...payload }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setAdminUserMessage(data.error || '管理员操作失败。');
+        return false;
+      }
+      await fetchAdminBilling();
+      await fetchBilling();
+      setAdminUserMessage('操作已完成。');
+      return true;
+    } catch {
+      setAdminUserMessage('管理员操作失败，请稍后重试。');
+      return false;
+    }
+  };
+
+  const exportUsersCsv = () => {
+    const users = adminBilling?.users || [];
+    const rows: Array<Array<string | number>> = [
+      ['邮箱', '用户ID', '角色', '封禁', '套餐', '点数', '免费已用', '报告数', '订单数', '注册时间'],
+      ...users.map((user: any) => [
+        user.email,
+        user.id,
+        user.role,
+        user.isBanned ? '已封禁' : '正常',
+        user.planType === 'byok' ? '已解锁高级功能' : user.planType,
+        ((user.creditBalanceCents || user.creditBalance * 100 || 0) / 100).toFixed(1),
+        user.freeQuotaUsed,
+        user._count?.audits || 0,
+        user._count?.purchaseOrders || 0,
+        new Date(user.createdAt).toLocaleString(),
+      ]),
+    ];
+    const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `guanyu-users-${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   // 4. 修改单个审视记录公开状态
   const toggleAuditPublic = async (id: string, currentPublic: boolean) => {
     try {
@@ -312,6 +357,13 @@ export default function AccountPage() {
       default: return mode;
     }
   };
+  const adminUsers = (adminBilling?.users || []).filter((user: any) => {
+    const keyword = adminUserSearch.trim().toLowerCase();
+    if (!keyword) return true;
+    return [user.email, user.id, user.name, user.role, user.planType]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(keyword));
+  });
 
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-black font-sans text-gray-900 dark:text-gray-100 selection:bg-indigo-500/20 pb-12">
@@ -381,6 +433,116 @@ export default function AccountPage() {
                 </span>
               </div>
             </div>
+            {isSuperAdmin && adminBilling && (
+              <div className="mt-5 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface-muted)] p-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h4 className="text-sm font-black text-[var(--color-text)]">超级管理员 · 注册用户管理</h4>
+                    <p className="mt-1 text-xxs font-semibold text-[var(--color-text-muted)]">
+                      搜索用户、导出注册信息、查看最近活动、加点、解锁高级功能、封禁、删除账号和发送邮件。
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={exportUsersCsv}
+                    className="rounded-lg bg-[var(--color-primary)] px-3 py-2 text-xxs font-black text-white transition hover:bg-[var(--color-primary-hover)]"
+                  >
+                    导出 CSV
+                  </button>
+                </div>
+                <input
+                  value={adminUserSearch}
+                  onChange={(event) => setAdminUserSearch(event.target.value)}
+                  placeholder="搜索邮箱、用户 ID、套餐或角色..."
+                  className="mt-3 w-full rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] px-3 py-2 text-xs font-semibold text-[var(--color-text)] outline-none focus:border-[var(--color-primary)]"
+                />
+                {adminUserMessage && (
+                  <p className="mt-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-2 text-xs font-bold text-[var(--color-link)]">
+                    {adminUserMessage}
+                  </p>
+                )}
+                <div className="mt-3 max-h-[520px] space-y-3 overflow-y-auto pr-1">
+                  {adminUsers.map((user: any) => {
+                    const credit = ((user.creditBalanceCents || user.creditBalance * 100 || 0) / 100).toFixed(1);
+                    const activities = [
+                      ...(user.audits || []).map((audit: any) => ({ type: '报告', text: audit.title, date: audit.createdAt })),
+                      ...(user.purchaseOrders || []).map((order: any) => ({ type: '订单', text: `${order.packageName} · ${order.status} · ${(order.amountCents / 100).toFixed(2)} 元`, date: order.createdAt })),
+                      ...(user.pointTransactions || []).map((tx: any) => ({ type: '点数', text: `${tx.reason} · ${(tx.deltaCents || tx.delta * 100 || 0) / 100} 点`, date: tx.createdAt })),
+                    ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                    const isExpanded = Boolean(expandedUserIds[user.id]);
+                    const visibleActivities = isExpanded ? activities : activities.slice(0, 3);
+                    return (
+                      <article key={user.id} className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-3 text-xs shadow-[var(--shadow-card)]">
+                        <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-black text-[var(--color-text)]">{user.email}</div>
+                            <div className="mt-1 flex flex-wrap gap-1.5 text-xxs font-bold">
+                              <span className="rounded bg-[var(--color-primary-soft)] px-2 py-0.5 text-[var(--color-link)]">{user.role === 'super_admin' ? '超级管理员' : '普通用户'}</span>
+                              <span className="rounded bg-[var(--color-surface-muted)] px-2 py-0.5 text-[var(--color-text-muted)]">{user.planType === 'byok' ? '已解锁高级功能' : user.planType}</span>
+                              <span className="rounded bg-[var(--color-surface-muted)] px-2 py-0.5 text-[var(--color-text-muted)]">点数 {credit}</span>
+                              <span className="rounded bg-[var(--color-surface-muted)] px-2 py-0.5 text-[var(--color-text-muted)]">报告 {user._count?.audits || 0}</span>
+                              <span className={`rounded px-2 py-0.5 ${user.isBanned ? 'bg-[var(--color-danger)] text-white' : 'bg-[var(--color-success)] text-white'}`}>
+                                {user.isBanned ? '已封禁' : '正常'}
+                              </span>
+                            </div>
+                            <div className="mt-1 break-all font-mono text-xxs text-[var(--color-text-subtle)]">ID: {user.id}</div>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            <input
+                              value={adminGrantDraft[user.id] || ''}
+                              onChange={(event) => setAdminGrantDraft((prev) => ({ ...prev, [user.id]: event.target.value }))}
+                              placeholder="点数"
+                              className="w-16 rounded border border-[var(--color-border)] bg-[var(--color-input-bg)] px-2 py-1 text-xxs text-[var(--color-text)]"
+                            />
+                            <button type="button" onClick={() => handleAdminUserAction('grant', { userId: user.id, points: Number.parseInt(adminGrantDraft[user.id] || '0', 10), reason: '超级管理员手动加点' })} className="rounded bg-[var(--color-primary)] px-2 py-1 text-xxs font-black text-white">加点</button>
+                            <button type="button" onClick={() => handleAdminUserAction('unlockByok', { userId: user.id })} className="rounded border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-2 py-1 text-xxs font-black text-[var(--color-text)]">解锁</button>
+                            <button type="button" onClick={() => handleAdminUserAction('setUserBanned', { userId: user.id, isBanned: !user.isBanned })} className="rounded border border-[var(--color-warning)] bg-[var(--color-surface-muted)] px-2 py-1 text-xxs font-black text-[var(--color-warning)]">{user.isBanned ? '解封' : '封禁'}</button>
+                            <button type="button" onClick={() => window.confirm(`确定删除账号 ${user.email} 吗？`) && handleAdminUserAction('deleteUser', { userId: user.id })} className="rounded border border-[var(--color-danger)] bg-[var(--color-surface-muted)] px-2 py-1 text-xxs font-black text-[var(--color-danger)]">删除</button>
+                          </div>
+                        </div>
+                        <div className="mt-3 grid gap-2 lg:grid-cols-[1fr_1fr]">
+                          <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2">
+                            <div className="font-black text-[var(--color-text)]">最近活动</div>
+                            <ul className="mt-2 space-y-1 text-xxs text-[var(--color-text-muted)]">
+                              {visibleActivities.length ? visibleActivities.map((activity, index) => (
+                                <li key={`${activity.type}-${activity.date}-${index}`} className="rounded bg-[var(--color-surface-muted)] px-2 py-1">
+                                  <span className="font-black text-[var(--color-text)]">{activity.type}</span> · {activity.text} · {new Date(activity.date).toLocaleString()}
+                                </li>
+                              )) : <li>暂无活动。</li>}
+                            </ul>
+                            {activities.length > 3 && (
+                              <button type="button" onClick={() => setExpandedUserIds((prev) => ({ ...prev, [user.id]: !prev[user.id] }))} className="mt-2 text-xxs font-black text-[var(--color-link)]">
+                                {isExpanded ? '收起活动' : `展开全部 ${activities.length} 条活动`}
+                              </button>
+                            )}
+                          </div>
+                          <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2">
+                            <div className="font-black text-[var(--color-text)]">给用户发邮件</div>
+                            <textarea
+                              value={adminEmailDraft[user.id] || ''}
+                              onChange={(event) => setAdminEmailDraft((prev) => ({ ...prev, [user.id]: event.target.value }))}
+                              rows={3}
+                              placeholder="输入通知内容..."
+                              className="mt-2 w-full rounded border border-[var(--color-border)] bg-[var(--color-input-bg)] px-2 py-1 text-xxs text-[var(--color-text)] outline-none focus:border-[var(--color-primary)]"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleAdminUserAction('sendUserEmail', { userId: user.id, subject: '观隅账号通知', message: adminEmailDraft[user.id] || '' })}
+                              className="mt-2 rounded bg-[var(--color-primary)] px-3 py-1.5 text-xxs font-black text-white"
+                            >
+                              发送邮件
+                            </button>
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                  {adminUsers.length === 0 && (
+                    <div className="rounded-lg border border-dashed border-[var(--color-border)] p-4 text-center text-xs text-[var(--color-text-muted)]">没有匹配的注册用户。</div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
           <div className="space-y-4">
             <div className="bg-white dark:bg-gray-950 p-6 rounded-xl border border-gray-150 dark:border-gray-900 shadow-sm space-y-4">
@@ -664,30 +826,6 @@ export default function AccountPage() {
                   />
                   <p className="text-xxs text-gray-400">密钥加密保存；用于补充 Google 搜索来源。</p>
                 </div>
-              </div>
-
-              <div className="space-y-1 md:col-span-2">
-                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  年龄阅读偏好
-                </label>
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
-                  {(Object.keys(AUDIENCE_THEME_LABELS) as AudienceTheme[]).map((theme) => (
-                    <button
-                      key={theme}
-                      type="button"
-                      onClick={() => setAudienceTheme(theme)}
-                      className={`rounded-lg border p-3 text-left transition active:scale-[0.98] ${
-                        audienceTheme === theme
-                          ? 'border-indigo-500 bg-indigo-50 text-indigo-700 shadow-sm shadow-indigo-500/10 dark:border-indigo-700 dark:bg-indigo-950/20 dark:text-indigo-300'
-                          : 'border-gray-200 bg-gray-50 text-gray-600 hover:border-indigo-200 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300'
-                      }`}
-                    >
-                      <div className="text-xs font-black">{AUDIENCE_THEME_LABELS[theme]}</div>
-                      <p className="mt-1 text-xxs leading-relaxed opacity-80">{AUDIENCE_THEME_DESCRIPTIONS[theme]}</p>
-                    </button>
-                  ))}
-                </div>
-                <p className="text-xxs text-gray-400">年龄偏好会影响界面视觉密度、字号、动效强度和报告默认展示复杂度。</p>
               </div>
 
               <div className="space-y-1 md:col-span-2">

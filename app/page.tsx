@@ -38,6 +38,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [lastSubmittedData, setLastSubmittedData] = useState<AuditSubmitData | null>(null);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [hotAudits, setHotAudits] = useState<HotAudit[]>([]);
   const [isLoadingHotAudits, setIsLoadingHotAudits] = useState(true);
 
@@ -66,9 +67,10 @@ export default function Home() {
     setError(null);
     setResult(null);
     setLastSubmittedData(data);
+    setActiveJobId(null);
 
     try {
-      const response = await fetch('/api/analyze', {
+      const response = await fetch('/api/analyze/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -80,12 +82,27 @@ export default function Home() {
         throw new Error(resData.error || `请求失败 (${response.status})`);
       }
 
-      if (resData.auditId) {
-        router.push(`/audits/${resData.auditId}`);
-        return;
+      const jobId = resData.jobId;
+      if (!jobId) throw new Error('服务端未返回审视任务 ID。');
+      setActiveJobId(jobId);
+
+      for (let attempt = 0; attempt < 180; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, attempt < 10 ? 1500 : 3000));
+        const statusResponse = await fetch(`/api/analyze/jobs/${jobId}`, { cache: 'no-store' });
+        const statusData = await statusResponse.json().catch(() => ({}));
+        if (!statusResponse.ok) {
+          throw new Error(statusData.error || '读取审视任务状态失败。');
+        }
+        if (statusData.status === 'completed' && statusData.auditId) {
+          router.push(`/audits/${statusData.auditId}`);
+          return;
+        }
+        if (statusData.status === 'failed') {
+          throw new Error(statusData.error || '审视任务生成失败。');
+        }
       }
 
-      setResult(resData.result);
+      throw new Error('审视仍在后台生成，请稍后到“我的审视”查看。');
     } catch (err: any) {
       console.error(err);
       setError(err?.message || '网络连接或请求处理出错，请重试。');
@@ -113,7 +130,7 @@ export default function Home() {
       <GsapReveal className="relative z-10 max-w-6xl mx-auto px-3 sm:px-4 py-4 md:py-6 space-y-4">
         {/* Slogan */}
         <div data-gsap-reveal className="flex flex-col gap-2 border-b border-gray-100 pb-3 dark:border-gray-900 md:flex-row md:items-end md:justify-between">
-          <div className="max-w-2xl space-y-2">
+          <div className="max-w-4xl space-y-2">
             <h1 className="text-xl md:text-2xl font-extrabold tracking-tight text-gray-900 dark:text-white leading-tight">
               观隅
             </h1>
@@ -121,18 +138,20 @@ export default function Home() {
               看见新闻没有展开的一角
             </p>
             <p className="max-w-3xl text-xs md:text-sm text-gray-500 dark:text-gray-400 leading-relaxed font-normal">
-              本工具用来结构化拆解新闻的表层叙事、语言引导、缺席视角、利益纠葛和证据链盲区。我们不编造阴谋论，我们只帮你寻找值得验证的盲区与合理解释。
+              本工具用来结构化拆解新闻的表层叙事、语言引导、缺席视角、利益纠葛和证据链盲区，帮助你寻找值得验证的盲区与合理解释。
             </p>
-          </div>
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold leading-relaxed text-amber-800 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-300">
-            核验不确定性说明：涉及推断的内容需结合更多来源验证，不应直接视为事实。
           </div>
         </div>
 
         {/* 表单、结果与热门审视：桌面端统一单列同宽 */}
-        <div data-gsap-reveal className="mx-auto max-w-3xl space-y-4">
+        <div data-gsap-reveal className="mx-auto max-w-5xl space-y-4">
           <AnalysisForm onSubmit={handleAnalyze} isLoading={isLoading} />
           {isLoading && <LoadingState />}
+          {isLoading && activeJobId && (
+            <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs font-semibold text-[var(--color-text-muted)]">
+              审视任务已交给服务器后台执行。即使刷新或离开页面，也不会取消生成；稍后可在“我的审视”查看。
+            </div>
+          )}
           {error && <ErrorMessage message={error} onRetry={handleRetry} />}
           {result && !isLoading && !error && (
             <div data-gsap-reveal className="border-t border-gray-100 dark:border-gray-900 pt-5">
@@ -220,7 +239,7 @@ export default function Home() {
       <footer className="relative z-10 border-t border-gray-100 dark:border-gray-900 bg-white dark:bg-gray-950 py-8 mt-16 text-center text-xs text-gray-400 dark:text-gray-500">
         <div className="max-w-6xl mx-auto px-4 space-y-2 font-medium">
           <p>© 2026 观隅. 保留所有权利。</p>
-          <p className="text-xxs">声明：本分析由大语言模型驱动，其输出的替代解释和盲区梳理仅作为批判性思考和事实核查之线索，并不代表本系统立场，亦不代表已核实之事实。</p>
+          <p className="text-xxs">免责声明：本分析由大语言模型驱动，其输出的替代解释、盲区梳理和推测性判断仅作为批判性阅读与事实核查线索，不代表本系统立场，也不代表已核实事实；涉及推断的内容需结合更多来源验证，不应直接视为事实。</p>
         </div>
       </footer>
     </main>

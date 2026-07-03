@@ -13,6 +13,7 @@ model User {
   email             String             @unique
   password          String // 密码
   role              String             @default("user") // user, super_admin
+  isBanned          Boolean            @default(false)
   planType          String             @default("free") // free, points, byok
   creditBalance     Int                @default(0)
   creditBalanceCents Int               @default(0)
@@ -29,6 +30,7 @@ model User {
   rateLimitEvents   RateLimitEvent[]
   extensionSessions ExtensionSession[]
   extensionLinkCodes ExtensionLinkCode[]
+  auditJobs         AuditJob[]
 }
 
 model UserSettings {
@@ -84,6 +86,22 @@ model Audit {
 
   @@index([userId])
   @@index([heatScore])
+  @@index([createdAt])
+}
+
+model AuditJob {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status    String   @default("pending") // pending, running, completed, failed
+  inputJson String
+  auditId   String?
+  error     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
   @@index([createdAt])
 }
 

@@ -118,9 +118,9 @@ export default function ExtensionSettingsPage() {
             </button>
           </div>
           {code && (
-            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-center dark:border-amber-900/40 dark:bg-amber-950/20">
-              <div className="text-2xl font-black tracking-[0.3em] text-amber-800 dark:text-amber-200">{code}</div>
-              <p className="mt-2 text-xxs font-semibold text-amber-700 dark:text-amber-300">只显示一次，请不要公开分享。</p>
+            <div className="mt-4 rounded-xl border-2 border-[var(--color-primary)] bg-[var(--color-primary)] p-4 text-center shadow-[var(--shadow-card)]">
+              <div className="rounded-lg bg-white px-4 py-3 text-3xl font-black tracking-[0.32em] text-gray-950 shadow-inner">{code}</div>
+              <p className="mt-2 text-xs font-black text-white">只显示一次，请不要公开分享。</p>
             </div>
           )}
           {message && <p className="mt-3 text-xs font-semibold text-indigo-600 dark:text-indigo-300">{message}</p>}

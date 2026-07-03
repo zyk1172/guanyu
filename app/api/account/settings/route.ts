@@ -8,7 +8,6 @@ import { getOrCreateAppSetting, isByokPlan } from '@/lib/billing';
 const VALID_ANALYSIS_MODES = new Set(['quick', 'deep']);
 const VALID_THINKING_DEPTHS = new Set(['none', 'low', 'medium', 'high', 'extreme', 'quick', 'standard', 'deep', 'exhaustive']);
 const VALID_TAVILY_DEPTHS = new Set(['basic', 'advanced']);
-const VALID_AUDIENCE_THEMES = new Set(['teen', 'youth', 'mature', 'senior']);
 
 function normalizeThinkingDepth(depth: unknown) {
   if (typeof depth !== 'string') return 'medium';
@@ -149,14 +148,12 @@ export async function PATCH(request: Request) {
       serperApiKey,
       defaultReasoningDepth,
       defaultAnalysisMode,
-      defaultAudienceTheme,
       defaultIsPublic,
       defaultSaveResult,
       defaultEnableCharts,
     } = body;
     const safeAnalysisMode = VALID_ANALYSIS_MODES.has(defaultAnalysisMode) ? defaultAnalysisMode : 'deep';
     const safeReasoningDepth = normalizeThinkingDepth(defaultReasoningDepth);
-    const safeAudienceTheme = VALID_AUDIENCE_THEMES.has(defaultAudienceTheme) ? defaultAudienceTheme : 'youth';
 
     const trimmedApiKey = typeof llmApiKey === 'string' ? llmApiKey.trim() : '';
     const trimmedTavilyApiKey = typeof tavilyApiKey === 'string' ? tavilyApiKey.trim() : '';
@@ -202,7 +199,6 @@ export async function PATCH(request: Request) {
           enableSerperSearch: Boolean(enableSerperSearch),
         } : {}),
         ...serperApiKeyUpdate,
-        defaultAudienceTheme: safeAudienceTheme,
         defaultReasoningDepth: safeReasoningDepth,
         defaultIsPublic,
         defaultSaveResult,
@@ -218,7 +214,6 @@ export async function PATCH(request: Request) {
         tavilySearchDepth: safeTavilyDepth,
         enableSerperSearch: canUseOwnApi ? Boolean(enableSerperSearch) : false,
         serperApiKeyEncrypted: canUseOwnApi && trimmedSerperApiKey ? encryptSecret(trimmedSerperApiKey) : null,
-        defaultAudienceTheme: safeAudienceTheme,
         defaultReasoningDepth: safeReasoningDepth,
         defaultAnalysisMode: safeAnalysisMode,
         defaultIsPublic: defaultIsPublic !== undefined ? defaultIsPublic : true,

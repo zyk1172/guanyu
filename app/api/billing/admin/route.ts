@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { getSuperAdminStatus } from '@/lib/admin';
 import { activateByokPlan, getOrCreateAppSetting, grantPoints } from '@/lib/billing';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
+import { sendEmail } from '@/lib/email';
 import { prisma } from '@/lib/prisma';
 import { encryptSecret } from '@/lib/secret';
 
@@ -44,8 +45,42 @@ export async function GET(request: Request) {
       take: 50,
     }),
     prisma.user.findMany({
-      select: { id: true, email: true, creditBalance: true, role: true, planType: true },
-      orderBy: { email: 'asc' },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        isBanned: true,
+        planType: true,
+        creditBalance: true,
+        creditBalanceCents: true,
+        freeQuotaDate: true,
+        freeQuotaUsed: true,
+        createdAt: true,
+        updatedAt: true,
+        _count: {
+          select: {
+            audits: true,
+            purchaseOrders: true,
+          },
+        },
+        audits: {
+          select: { id: true, title: true, createdAt: true },
+          orderBy: { createdAt: 'desc' },
+          take: 6,
+        },
+        purchaseOrders: {
+          select: { id: true, packageName: true, amountCents: true, status: true, paymentNote: true, createdAt: true },
+          orderBy: { createdAt: 'desc' },
+          take: 6,
+        },
+        pointTransactions: {
+          select: { id: true, delta: true, deltaCents: true, type: true, reason: true, createdAt: true },
+          orderBy: { createdAt: 'desc' },
+          take: 6,
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
       take: 100,
     }),
   ]);
@@ -96,6 +131,57 @@ export async function PATCH(request: NextRequest) {
     const reason = String(body.reason || '管理员手动加点').trim();
     const balance = await grantPoints(userId, points, reason);
     return NextResponse.json({ ok: true, balance });
+  }
+
+  if (action === 'unlockByok') {
+    const userId = String(body.userId || '');
+    if (!userId) return NextResponse.json({ error: '缺少用户 ID。' }, { status: 400 });
+    const planType = await activateByokPlan(userId, '超级管理员手动解锁高级功能');
+    return NextResponse.json({ ok: true, planType });
+  }
+
+  if (action === 'setUserBanned') {
+    const userId = String(body.userId || '');
+    const isBanned = Boolean(body.isBanned);
+    if (!userId) return NextResponse.json({ error: '缺少用户 ID。' }, { status: 400 });
+    if (userId === admin.id && isBanned) {
+      return NextResponse.json({ error: '不能封禁当前超级管理员账号。' }, { status: 400 });
+    }
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: { isBanned },
+      select: { id: true, email: true, isBanned: true },
+    });
+    return NextResponse.json({ ok: true, user: updated });
+  }
+
+  if (action === 'deleteUser') {
+    const userId = String(body.userId || '');
+    if (!userId) return NextResponse.json({ error: '缺少用户 ID。' }, { status: 400 });
+    if (userId === admin.id) {
+      return NextResponse.json({ error: '不能删除当前超级管理员账号。' }, { status: 400 });
+    }
+    await prisma.user.delete({ where: { id: userId } });
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === 'sendUserEmail') {
+    const userId = String(body.userId || '');
+    const subject = String(body.subject || '').trim().slice(0, 120);
+    const message = String(body.message || '').trim().slice(0, 3000);
+    if (!userId || !subject || !message) {
+      return NextResponse.json({ error: '邮件收件人、标题和正文不能为空。' }, { status: 400 });
+    }
+    const target = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+    if (!target?.email) return NextResponse.json({ error: '用户邮箱不存在。' }, { status: 404 });
+
+    await sendEmail({
+      to: target.email,
+      subject,
+      text: message,
+      html: `<div style="font-family:Arial,'PingFang SC','Microsoft YaHei',sans-serif;line-height:1.8;color:#111827;white-space:pre-wrap">${message.replace(/[<>&]/g, (char) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[char] || char))}</div>`,
+    });
+    return NextResponse.json({ ok: true });
   }
 
   if (action === 'confirmOrder') {

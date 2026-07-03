@@ -10,6 +10,10 @@ export function ensureRuntimeSchema() {
         ADD COLUMN IF NOT EXISTS "creditBalanceCents" INTEGER NOT NULL DEFAULT 0;
       `);
       await prisma.$executeRawUnsafe(`
+        ALTER TABLE "User"
+        ADD COLUMN IF NOT EXISTS "isBanned" BOOLEAN NOT NULL DEFAULT false;
+      `);
+      await prisma.$executeRawUnsafe(`
         ALTER TABLE "AppSetting"
         ADD COLUMN IF NOT EXISTS "alipayPointsQrImageUrl" TEXT NOT NULL DEFAULT '/alipay-points.jpg',
         ADD COLUMN IF NOT EXISTS "alipayByokQrImageUrl" TEXT NOT NULL DEFAULT '/alipay-byok.jpg';
@@ -47,6 +51,40 @@ export function ensureRuntimeSchema() {
           ) THEN
             ALTER TABLE "ExtensionLinkCode"
             ADD CONSTRAINT "ExtensionLinkCode_userId_fkey"
+            FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+          END IF;
+        END $$;
+      `);
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "AuditJob" (
+          "id" TEXT NOT NULL,
+          "userId" TEXT NOT NULL,
+          "status" TEXT NOT NULL DEFAULT 'pending',
+          "inputJson" TEXT NOT NULL,
+          "auditId" TEXT,
+          "error" TEXT,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "AuditJob_pkey" PRIMARY KEY ("id")
+        );
+      `);
+      await prisma.$executeRawUnsafe(`
+        CREATE INDEX IF NOT EXISTS "AuditJob_userId_idx" ON "AuditJob"("userId");
+      `);
+      await prisma.$executeRawUnsafe(`
+        CREATE INDEX IF NOT EXISTS "AuditJob_status_idx" ON "AuditJob"("status");
+      `);
+      await prisma.$executeRawUnsafe(`
+        CREATE INDEX IF NOT EXISTS "AuditJob_createdAt_idx" ON "AuditJob"("createdAt");
+      `);
+      await prisma.$executeRawUnsafe(`
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'AuditJob_userId_fkey'
+          ) THEN
+            ALTER TABLE "AuditJob"
+            ADD CONSTRAINT "AuditJob_userId_fkey"
             FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
           END IF;
         END $$;

@@ -76,11 +76,15 @@ export async function buildUsagePlan(userId: string, mode: 'quick' | 'deep'): Pr
       creditBalance: true,
       creditBalanceCents: true,
       planType: true,
+      isBanned: true,
     },
   });
 
   if (!user) {
     throw new Error('账号不存在，请重新登录。');
+  }
+  if (user.isBanned) {
+    throw new Error('账号已被管理员暂停使用，无法生成报告。');
   }
 
   const freeQuotaDate = todayInShanghai();

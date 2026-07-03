@@ -12,7 +12,6 @@ import {
   VerificationStatusCode,
 } from '../lib/types';
 import AuditCharts from './AuditCharts';
-import { useAudienceTheme } from './AudienceThemeProvider';
 import { GsapReveal } from './GsapMotion';
 import InteractiveQA, { ChatMessage } from './InteractiveQA';
 import ReadWorthVerdict from './ReadWorthVerdict';
@@ -401,33 +400,6 @@ function OriginalContentPanel({ originalContent }: { originalContent?: string })
       )}
     </Section>
   );
-}
-
-function AudienceReadingGuide({ theme }: { theme: string }) {
-  if (theme === 'teen') {
-    return (
-      <Section title="青少年阅读提示">
-        <div className="grid grid-cols-1 gap-2 text-xs leading-relaxed text-gray-600 dark:text-gray-300 md:grid-cols-3">
-          <p className="rounded-lg border border-sky-100 bg-sky-50 p-3 dark:border-sky-900/30 dark:bg-sky-950/20">先看“阅读价值”和“新闻简要总结”，判断这篇报道值不值得继续读。</p>
-          <p className="rounded-lg border border-indigo-100 bg-indigo-50 p-3 dark:border-indigo-900/30 dark:bg-indigo-950/20">“证据等级”越靠近 A，越接近原始材料；D/E 更多是待核验线索。</p>
-          <p className="rounded-lg border border-amber-100 bg-amber-50 p-3 dark:border-amber-900/30 dark:bg-amber-950/20">“推测不确定性”不是结论，只提醒你哪些地方需要继续查证。</p>
-        </div>
-      </Section>
-    );
-  }
-
-  if (theme === 'senior') {
-    return (
-      <Section title="长者阅读提示">
-        <div className="space-y-2 text-sm leading-relaxed text-gray-700 dark:text-gray-200">
-          <p>本页面已优先显示每组最重要的 2 条内容，减少长列表造成的阅读负担。</p>
-          <p>建议阅读顺序：阅读价值、新闻简要总结、核心指数、最关键发现、主要信息缺口。完整报告可用 Markdown 导出查看。</p>
-        </div>
-      </Section>
-    );
-  }
-
-  return null;
 }
 
 function limitedItems<T>(items: T[], limit: number) {
@@ -898,12 +870,10 @@ export default function AnalysisResultView({ result: rawResult, auditId, origina
   const result = useNormalizedResult(rawResult, auditMeta);
   const [qaMessages, setQaMessages] = useState<ChatMessage[]>([]);
   const readWorth = result.read_worth || computeReadWorth(result);
-  const { theme, readingLimit, showReadingGuide } = useAudienceTheme();
+  const readingLimit = 12;
 
   return (
     <GsapReveal className="space-y-4 sm:space-y-5" y={18} stagger={0.055}>
-      {showReadingGuide && <AudienceReadingGuide theme={theme} />}
-
       {isQuick(result)
         ? <QuickReportView report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} />
         : <DeepReportView report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} displayLimit={readingLimit} />}

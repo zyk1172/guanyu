@@ -1,6 +1,6 @@
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 import { authenticateExtensionRequest } from '@/lib/extension-auth';
-import { POST as analyzeNews } from '@/app/api/analyze/route';
+import { createAnalyzeJob, runAnalyzeJob } from '@/lib/analyze-job';
 
 const MAX_TEXT_LENGTH = 30_000;
 const MAX_SELECTED_LENGTH = 20_000;
@@ -50,53 +50,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: '页面正文为空或过短，请选中文本后再发送。' }, { status: 400 });
   }
 
-  if (action === 'analyze') {
-    const internalSecret = process.env.INTERNAL_API_SECRET || process.env.NEXTAUTH_SECRET;
-    if (!internalSecret) {
-      return NextResponse.json({ error: '服务端内部审视通道未配置，请联系管理员。' }, { status: 500 });
-    }
-
-    const sourceHost = new URL(url).hostname;
-    const analyzeRequest = new Request(request.url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-guanyu-internal-auth': internalSecret,
-        'x-guanyu-internal-user-id': session.userId,
-        'x-guanyu-force-save': 'true',
-      },
-      body: JSON.stringify({
-        title,
-        source: sourceHost || url,
-        content,
-        focus: `来自浏览器插件。原始链接：${url}`,
-      }),
-    });
-
-    const analyzeResponse = await analyzeNews(analyzeRequest);
-    const analyzeData = await analyzeResponse.json().catch(() => ({}));
-    if (!analyzeResponse.ok) {
-      return NextResponse.json(
-        { error: analyzeData.error || '插件发送后生成审视报告失败，请稍后重试。' },
-        { status: analyzeResponse.status || 500 }
-      );
-    }
-
-    if (!analyzeData.auditId) {
-      return NextResponse.json({ error: '审视已生成但没有保存详情页，请检查账号保存设置或稍后重试。' }, { status: 500 });
-    }
-
-    return NextResponse.json({
-      ok: true,
-      reportId: analyzeData.auditId,
-      reportUrl: `/audits/${analyzeData.auditId}`,
-      message: '已生成观隅审视报告。',
-    });
-  }
+  const sourceHost = new URL(url).hostname;
+  const job = await createAnalyzeJob(session.userId, {
+    title,
+    source: sourceHost || url,
+    content,
+    focus: `来自浏览器插件。原始链接：${url}`,
+  });
+  after(() => runAnalyzeJob(job.id));
 
   return NextResponse.json({
     ok: true,
-    savedUrl: `/my-audits?importTitle=${encodeURIComponent(title)}&sourceUrl=${encodeURIComponent(url)}`,
-    message: '内容已通过插件读取。当前版本请打开观隅后粘贴正文创建审视。',
+    jobId: job.id,
+    jobUrl: `/my-audits?jobId=${encodeURIComponent(job.id)}`,
+    message: action === 'save'
+      ? '已发送到观隅，服务器正在后台生成审视报告。'
+      : '已开始生成观隅审视报告。',
   });
 }

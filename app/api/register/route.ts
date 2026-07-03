@@ -4,6 +4,7 @@ import { hashPassword } from '@/lib/auth';
 import { setSessionCookie } from '@/lib/session-cookie';
 import { isSuperAdminIdentity } from '@/lib/admin-core.mjs';
 import { verifyEmailCode } from '@/lib/captcha';
+import { sendWelcomeEmail } from '@/lib/email';
 
 async function readRegistration(request: NextRequest) {
   const contentType = request.headers.get('content-type') || '';
@@ -90,6 +91,9 @@ export async function POST(request: NextRequest) {
       ? NextResponse.json({ ok: true, url: '/account' })
       : NextResponse.redirect(new URL('/account', process.env.NEXTAUTH_URL || 'http://localhost:3000'), 303);
     await setSessionCookie(response, user);
+    sendWelcomeEmail(user.email).catch((error) => {
+      console.error('Send welcome email failed:', error);
+    });
     return response;
   } catch {
     return NextResponse.json({ error: '注册失败，请稍后重试。' }, { status: 500 });

@@ -45,6 +45,10 @@ export async function POST(request: NextRequest) {
       return errorResponse('账号不存在，请先注册。', wantsJson, 401);
     }
 
+    if (user.isBanned) {
+      return errorResponse('账号已被管理员暂停使用，请联系管理员。', wantsJson, 403);
+    }
+
     if (user.password !== hashPassword(password)) {
       return errorResponse('密码错误', wantsJson, 401);
     }
@@ -58,4 +62,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: '登录失败，请稍后重试。' }, { status: 500 });
   }
 }
-

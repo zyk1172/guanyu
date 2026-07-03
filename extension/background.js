@@ -48,8 +48,9 @@ async function sendToGuanyu(tab, action) {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || '发送到观隅失败。');
-  if (data.reportUrl || data.savedUrl) {
-    await chrome.tabs.create({ url: new URL(data.reportUrl || data.savedUrl, guanyuBaseUrl).toString() });
+  const nextUrl = data.reportUrl || data.jobUrl || data.savedUrl;
+  if (nextUrl) {
+    await chrome.tabs.create({ url: new URL(nextUrl, guanyuBaseUrl).toString() });
   }
   return data;
 }

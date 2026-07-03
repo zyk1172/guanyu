@@ -4,7 +4,6 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useSession, signOut } from 'next-auth/react';
-import ThemeSwitcher from './ThemeSwitcher';
 
 export default function Header() {
   const { data: session } = useSession();
@@ -49,8 +48,7 @@ export default function Header() {
           <Link href="/account" className="text-xs font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-link)] px-2 py-1.5 rounded transition">
             账号管理
           </Link>
-          <ThemeSwitcher />
-          
+
           {session ? (
             <>
               <button
