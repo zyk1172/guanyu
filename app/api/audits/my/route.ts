@@ -36,9 +36,35 @@ export async function GET(request: Request) {
       whereClause.isPublic = isPublicParam === 'true';
     }
 
+    // 列表页不需要 originalContent / auditResultJson 两个大字段，避免返回超大响应
     const myAudits = await prisma.audit.findMany({
       where: whereClause,
       orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        userId: true,
+        title: true,
+        source: true,
+        publishedAt: true,
+        publishedAtSource: true,
+        publishedAtConfidence: true,
+        reportType: true,
+        readingValue: true,
+        focus: true,
+        analysisMode: true,
+        reasoningDepth: true,
+        modelName: true,
+        newsSummary: true,
+        credibilityScore: true,
+        informationCompletenessScore: true,
+        narrativeBiasScore: true,
+        evidenceStrengthScore: true,
+        speculationRiskScore: true,
+        isPublic: true,
+        viewCount: true,
+        heatScore: true,
+        createdAt: true,
+      },
     });
 
     return NextResponse.json(myAudits);

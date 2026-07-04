@@ -157,21 +157,33 @@ ${recentHistory.map((h: any) => `${h.role === 'user' ? '用户' : 'AI'}: ${Strin
     }
 
     // 5. 请求大模型
-    const response = await fetch(`${baseURL}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: modelName,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userMessageContent },
-        ],
-        temperature: 0.3, // 稍微允许一定推理性，但保持客观
-      }),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${baseURL}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: modelName,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userMessageContent },
+          ],
+          temperature: 0.3, // 稍微允许一定推理性，但保持客观
+        }),
+        // maxDuration 为 120 秒，超时前主动断开并返回友好错误
+        signal: AbortSignal.timeout(100_000),
+      });
+    } catch (fetchError: any) {
+      const isTimeout = fetchError?.name === 'TimeoutError' || fetchError?.name === 'AbortError';
+      console.error('Q&A LLM fetch failed:', fetchError);
+      return NextResponse.json(
+        { error: isTimeout ? '模型响应超时，请稍后重试。' : '大模型交互失败' },
+        { status: isTimeout ? 504 : 500 }
+      );
+    }
 
     if (!response.ok) {
       const errorText = await response.text();

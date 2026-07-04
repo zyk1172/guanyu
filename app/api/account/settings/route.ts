@@ -4,6 +4,7 @@ import { getSuperAdminStatus } from '@/lib/admin';
 import { prisma } from '@/lib/prisma';
 import { encryptSecret } from '@/lib/secret';
 import { getOrCreateAppSetting, isByokPlan } from '@/lib/billing';
+import { cacheDel, CACHE_KEYS } from '@/lib/cache';
 
 const VALID_ANALYSIS_MODES = new Set(['quick', 'deep']);
 const VALID_THINKING_DEPTHS = new Set(['none', 'low', 'medium', 'high', 'extreme', 'quick', 'standard', 'deep', 'exhaustive']);
@@ -238,6 +239,7 @@ export async function PATCH(request: Request) {
         update: appSettingUpdate,
         create: { id: 'global', ...appSettingUpdate },
       });
+      await cacheDel(CACHE_KEYS.appSetting);
     }
 
     return NextResponse.json({ ...withSafeModelFields(updatedSettings), canUseOwnApi });

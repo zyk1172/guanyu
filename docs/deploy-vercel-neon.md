@@ -27,6 +27,15 @@ NEXTAUTH_URL=
 SUPER_ADMIN_EMAILS=zykhs@icloud.com
 ```
 
+可选但推荐（Upstash Redis 缓存，加速热门榜、审视详情、全局设置读取，并承担分析限流计数）：
+
+```dotenv
+UPSTASH_REDIS_REST_URL=
+UPSTASH_REDIS_REST_TOKEN=
+```
+
+两个值都在 Upstash 控制台数据库 Details 页的 REST 区域复制。不配置或 Redis 故障时，应用自动回退为直连数据库，功能不受影响。
+
 模型与搜索有两种配置方式：
 
 - 推荐：部署后用超级管理员账号在“账号管理”里设置全局大模型和 Tavily / Serper。

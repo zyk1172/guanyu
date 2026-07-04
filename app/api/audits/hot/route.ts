@@ -1,11 +1,19 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { cacheGet, cacheSet, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const requestedLimit = Number.parseInt(searchParams.get('limit') || '20', 10);
     const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 60) : 20;
+
+    const cacheKey = CACHE_KEYS.hotAudits(limit);
+    const cached = await cacheGet<unknown[]>(cacheKey);
+    if (cached) {
+      return NextResponse.json(cached);
+    }
+
     const hotAudits = await prisma.audit.findMany({
       where: {
         isPublic: true,
@@ -31,6 +39,7 @@ export async function GET(request: Request) {
       },
     });
 
+    await cacheSet(cacheKey, hotAudits, CACHE_TTL.hotAudits);
     return NextResponse.json(hotAudits);
   } catch (error: any) {
     console.error('GET hot audits error:', error);

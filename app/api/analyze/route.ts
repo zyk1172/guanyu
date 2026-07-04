@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
+import { cacheDelByPrefix, CACHE_KEYS } from '@/lib/cache';
 import { prisma } from '@/lib/prisma';
 import { buildCompactFallbackPrompt, buildPrompt } from '@/lib/prompts';
 import { computeReadWorth } from '@/lib/readWorth';
@@ -439,23 +440,37 @@ async function callChatCompletions(params: {
   modelName: string;
   system: string;
   userPrompt: string;
+  timeoutMs?: number;
 }) {
-  const response = await fetch(`${params.baseURL}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${params.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: params.modelName,
-      messages: [
-        { role: 'system', content: params.system },
-        { role: 'user', content: params.userPrompt },
-      ],
-      temperature: 0.1,
-      response_format: { type: 'json_object' },
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${params.baseURL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${params.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: params.modelName,
+        messages: [
+          { role: 'system', content: params.system },
+          { role: 'user', content: params.userPrompt },
+        ],
+        temperature: 0.1,
+        response_format: { type: 'json_object' },
+      }),
+      // 上游挂起时主动断开，避免函数吃满 maxDuration 后被平台硬杀
+      signal: AbortSignal.timeout(params.timeoutMs ?? 210_000),
+    });
+  } catch (error: any) {
+    const isTimeout = error?.name === 'TimeoutError' || error?.name === 'AbortError';
+    return {
+      ok: false as const,
+      status: isTimeout ? 504 : 502,
+      text: String(error?.message || error),
+      message: '',
+    };
+  }
 
   const text = await response.text();
   if (!response.ok) {
@@ -583,6 +598,7 @@ export async function POST(request: Request) {
         modelName: modelConfig.modelName,
         system: fallbackPrompt.system,
         userPrompt: fallbackPrompt.user,
+        timeoutMs: 60_000,
       });
     }
 
@@ -602,12 +618,13 @@ export async function POST(request: Request) {
       console.error('JSON Parse error:', parseError, 'Raw response:', llmResult.message);
       if (!usedFallbackPrompt) {
         const fallbackPrompt = buildCompactFallbackPrompt(promptInput);
-          const fallbackResult = await callChatCompletions({
+        const fallbackResult = await callChatCompletions({
           baseURL: modelConfig.baseURL,
           apiKey: modelConfig.apiKey,
           modelName: modelConfig.modelName,
           system: fallbackPrompt.system,
           userPrompt: fallbackPrompt.user,
+          timeoutMs: 60_000,
         });
         if (fallbackResult.ok && fallbackResult.message) {
           parsedJSON = parseAssistantJSON(fallbackResult.message);
@@ -683,6 +700,10 @@ export async function POST(request: Request) {
       savedAuditId = dbRecord.id;
       await commitUsage(usagePlan, dbRecord.id);
       await recordAnalyzeEvent(currentUser.id);
+      if (actualIsPublic) {
+        // 新公开审视应尽快出现在热门榜，主动失效热榜缓存
+        after(() => cacheDelByPrefix(CACHE_KEYS.hotAuditsPrefix));
+      }
     }
 
     return NextResponse.json({

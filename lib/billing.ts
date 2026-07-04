@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
+import { cacheGet, cacheSet, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
 
 export const DAILY_FREE_REPORT_LIMIT = 3;
 export const POINT_PACKAGE_POINTS = 30;
@@ -52,8 +53,9 @@ export function effectiveCreditCents(user: { creditBalance: number; creditBalanc
     : pointsToCents(user.creditBalance);
 }
 
-export async function getOrCreateAppSetting() {
-  await ensureRuntimeSchema();
+type AppSettingRecord = Awaited<ReturnType<typeof upsertAppSetting>>;
+
+function upsertAppSetting() {
   return prisma.appSetting.upsert({
     where: { id: 'global' },
     update: {},
@@ -63,6 +65,16 @@ export async function getOrCreateAppSetting() {
       adminLlmBaseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
     },
   });
+}
+
+export async function getOrCreateAppSetting() {
+  const cached = await cacheGet<AppSettingRecord>(CACHE_KEYS.appSetting);
+  if (cached) return cached;
+
+  await ensureRuntimeSchema();
+  const setting = await upsertAppSetting();
+  await cacheSet(CACHE_KEYS.appSetting, setting, CACHE_TTL.appSetting);
+  return setting;
 }
 
 export async function buildUsagePlan(userId: string, mode: 'quick' | 'deep'): Promise<UsagePlan> {

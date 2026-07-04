@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { getSuperAdminStatus } from '@/lib/admin';
 import { activateByokPlan, getOrCreateAppSetting, grantPoints } from '@/lib/billing';
+import { cacheDel, CACHE_KEYS } from '@/lib/cache';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { sendEmail } from '@/lib/email';
 import { prisma } from '@/lib/prisma';
@@ -122,6 +123,7 @@ export async function PATCH(request: NextRequest) {
       update,
       create: { id: 'global', ...update },
     });
+    await cacheDel(CACHE_KEYS.appSetting);
     return NextResponse.json({ setting: safeAppSetting(setting) });
   }
 
