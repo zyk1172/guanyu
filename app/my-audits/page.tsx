@@ -6,10 +6,12 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { THINKING_DEPTH_OPTIONS, getReportLanguageLabel, getThinkingDepthLabel } from '@/lib/types';
+import { useUiLanguage } from '@/components/LanguageProvider';
 
 export default function MyAuditsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const { language, t } = useUiLanguage();
 
   const [myAudits, setMyAudits] = useState<any[]>([]);
   const [isFetchingAudits, setIsFetchingAudits] = useState(false);
@@ -81,7 +83,7 @@ export default function MyAuditsPage() {
 
   // 4. 删除审视
   const handleDeleteAudit = async (id: string) => {
-    if (!window.confirm('确定要永久删除此条审视记录吗？')) return;
+    if (!window.confirm(t('myAudits.deleteConfirm'))) return;
 
     try {
       const res = await fetch(`/api/audits/${id}`, {
@@ -98,17 +100,17 @@ export default function MyAuditsPage() {
   if (status === 'loading') {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-black flex items-center justify-center">
-        <div className="text-sm font-semibold text-gray-500 animate-pulse">正在检测登录状态...</div>
+        <div className="text-sm font-semibold text-gray-500 animate-pulse">{t('myAudits.loading')}</div>
       </div>
     );
   }
 
-  const getDepthLabel = getThinkingDepthLabel;
+  const getDepthLabel = (depth: string) => getThinkingDepthLabel(depth, language);
 
   const getModeLabel = (mode: string) => {
     switch (mode) {
-      case 'quick': return '历史快速分析';
-      case 'deep': return '观隅分析';
+      case 'quick': return t('myAudits.historyQuick');
+      case 'deep': return t('myAudits.analysis');
       default: return mode;
     }
   };
@@ -119,8 +121,8 @@ export default function MyAuditsPage() {
 
       <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
         <div>
-          <h2 className="text-lg font-black text-gray-950 dark:text-white leading-tight">🕵️‍♂️ 我的审视记录 (私有管理面板)</h2>
-          <p className="text-xs text-gray-500 dark:text-gray-400">仅展示您名下生成的审视记录。您可以在此管理它们的公开状态，或对其进行永久清除。</p>
+          <h2 className="text-lg font-black text-gray-950 dark:text-white leading-tight">{t('myAudits.title')}</h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{t('myAudits.description')}</p>
         </div>
 
         {/* 紧凑型筛选工具栏 */}
@@ -130,56 +132,56 @@ export default function MyAuditsPage() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="按审视标题关键字搜索..."
+              placeholder={t('myAudits.searchPlaceholder')}
               className="flex-1 px-3 py-1.5 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white"
             />
             <button
               type="submit"
               className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-xs shadow-sm transition"
             >
-              检索
+              {t('myAudits.search')}
             </button>
           </form>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 text-xs">
             <div className="space-y-1">
-              <label className="block text-xxs font-bold text-gray-500 uppercase">报告类型</label>
+              <label className="block text-xxs font-bold text-gray-500 uppercase">{t('myAudits.type')}</label>
               <select
                 value={modeFilter}
                 onChange={(e) => setModeFilter(e.target.value)}
                 className="w-full px-2 py-1.5 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 focus:outline-none"
               >
-                <option value="">全部模式</option>
-                <option value="quick">历史快速分析</option>
-                <option value="deep">观隅分析</option>
+                <option value="">{t('myAudits.allModes')}</option>
+                <option value="quick">{t('myAudits.historyQuick')}</option>
+                <option value="deep">{t('myAudits.analysis')}</option>
               </select>
             </div>
 
             <div className="space-y-1">
-              <label className="block text-xxs font-bold text-gray-500 uppercase">思考深度</label>
+              <label className="block text-xxs font-bold text-gray-500 uppercase">{t('myAudits.thinkingDepth')}</label>
               <select
                 value={depthFilter}
                 onChange={(e) => setDepthFilter(e.target.value)}
                 className="w-full px-2 py-1.5 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 focus:outline-none"
               >
-                <option value="">全部强度</option>
-                <option value="quick">快速</option>
+                <option value="">{t('myAudits.allDepths')}</option>
+                <option value="quick">{language === 'en-US' ? 'Quick' : '快速'}</option>
                 {THINKING_DEPTH_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
+                  <option key={option.value} value={option.value}>{t(`thinking.${option.value}`)}</option>
                 ))}
               </select>
             </div>
 
             <div className="space-y-1">
-              <label className="block text-xxs font-bold text-gray-500 uppercase">公开偏好</label>
+              <label className="block text-xxs font-bold text-gray-500 uppercase">{t('myAudits.visibility')}</label>
               <select
                 value={publicFilter}
                 onChange={(e) => setPublicFilter(e.target.value)}
                 className="w-full px-2 py-1.5 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 focus:outline-none"
               >
-                <option value="">全部状态</option>
-                <option value="true">公开展示</option>
-                <option value="false">仅自己可见</option>
+                <option value="">{t('myAudits.allVisibility')}</option>
+                <option value="true">{t('common.public')}</option>
+                <option value="false">{t('common.private')}</option>
               </select>
             </div>
           </div>
@@ -187,10 +189,10 @@ export default function MyAuditsPage() {
 
         {/* 审视历史列表 */}
         {isFetchingAudits ? (
-          <div className="text-center py-16 text-sm text-gray-400 animate-pulse font-semibold">正在同步您的审视记录历史...</div>
+          <div className="text-center py-16 text-sm text-gray-400 animate-pulse font-semibold">{t('myAudits.loadingHistory')}</div>
         ) : myAudits.length === 0 ? (
           <div className="bg-white dark:bg-gray-950 p-12 text-center text-xs text-gray-400 dark:text-gray-500 rounded-xl border border-dashed border-gray-200 dark:border-gray-800">
-            未发现匹配您当前过滤条件的审视记录。
+            {t('myAudits.empty')}
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3.5">
@@ -202,15 +204,15 @@ export default function MyAuditsPage() {
                 <div className="space-y-1 md:max-w-2xl">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xxs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">
-                      思考强度 {getDepthLabel(audit.reasoningDepth)}
+                      {t('myAudits.thinking', undefined, { depth: getDepthLabel(audit.reasoningDepth) })}
                     </span>
                     <span className="text-xxs font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded">
                       {getModeLabel(audit.analysisMode)}
                     </span>
                     <span className="text-xxs font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded dark:bg-sky-950/30 dark:text-sky-300">
-                      {getReportLanguageLabel(audit.reportLanguage)}
+                      {getReportLanguageLabel(audit.reportLanguage, language)}
                     </span>
-                    <span className="text-xxs text-gray-400 font-semibold">{new Date(audit.createdAt).toLocaleDateString()}</span>
+                    <span className="text-xxs text-gray-400 font-semibold">{new Date(audit.createdAt).toLocaleDateString(language)}</span>
                   </div>
                   <h4 className="text-sm font-bold text-gray-900 dark:text-white">{audit.title}</h4>
                   <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1">{audit.newsSummary}</p>
@@ -225,21 +227,21 @@ export default function MyAuditsPage() {
                         : 'bg-gray-50 border-gray-200 text-gray-500'
                     }`}
                   >
-                    {audit.isPublic ? '公开展示' : '仅自己可见'}
+                    {audit.isPublic ? t('common.public') : t('common.private')}
                   </button>
 
                   <Link
                     href={`/audits/${audit.id}`}
                     className="px-2.5 py-1 bg-indigo-550 hover:bg-indigo-600 text-white rounded text-xxs flex items-center transition"
                   >
-                    详情
+                    {t('common.viewDetails')}
                   </Link>
 
                   <button
                     onClick={() => handleDeleteAudit(audit.id)}
                     className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 rounded text-xxs flex items-center transition"
                   >
-                    删除
+                    {t('common.delete')}
                   </button>
                 </div>
               </div>

@@ -8,11 +8,13 @@ import Header from '@/components/Header';
 import AnalysisResultView from '@/components/AnalysisResult';
 import ErrorMessage from '@/components/ErrorMessage';
 import { getReportLanguageLabel, getThinkingDepthLabel } from '@/lib/types';
+import { useUiLanguage } from '@/components/LanguageProvider';
 
 export default function AuditDetailsPage() {
   const params = useParams();
   const auditId = typeof params?.id === 'string' ? params.id : null;
   const { data: session } = useSession();
+  const { language, t } = useUiLanguage();
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -24,7 +26,7 @@ export default function AuditDetailsPage() {
     setError(null);
     try {
       if (!auditId) {
-        setError('审视记录 ID 无效。');
+        setError(t('audit.invalidId'));
         return;
       }
 
@@ -33,11 +35,11 @@ export default function AuditDetailsPage() {
 
       if (!res.ok) {
         if (res.status === 403) {
-          setError('你没有权限查看这条审视记录。');
+          setError(t('audit.noPermission'));
         } else if (res.status === 404) {
-          setError('未找到该审视记录。');
+          setError(t('audit.notFound'));
         } else {
-          setError(data.error || '获取审视详情失败。');
+          setError(data.error || t('audit.fetchFailed'));
         }
         return;
       }
@@ -50,7 +52,7 @@ export default function AuditDetailsPage() {
       }
     } catch (err) {
       console.error(err);
-      setError('无法连接到服务器，请重试。');
+      setError(t('audit.networkError'));
     } finally {
       setIsLoading(false);
     }
@@ -60,7 +62,7 @@ export default function AuditDetailsPage() {
     if (auditId) {
       fetchAuditDetails();
     }
-  }, [auditId, session]);
+  }, [auditId, session, t]);
 
   const togglePublic = async () => {
     if (!auditRecord) return;
@@ -78,12 +80,12 @@ export default function AuditDetailsPage() {
     }
   };
 
-  const getDepthLabel = getThinkingDepthLabel;
+  const getDepthLabel = (depth: string) => getThinkingDepthLabel(depth, language);
 
   const getModeLabel = (mode: string) => {
     switch (mode) {
-      case 'quick': return '历史快速分析';
-      case 'deep': return '观隅分析';
+      case 'quick': return language === 'en-US' ? 'Legacy quick analysis' : '历史快速分析';
+      case 'deep': return language === 'en-US' ? 'Guanyu analysis' : '观隅分析';
       default: return mode;
     }
   };
@@ -94,7 +96,7 @@ export default function AuditDetailsPage() {
         <Header />
         <div className="max-w-4xl mx-auto px-3 sm:px-4 py-16 text-center space-y-3">
           <div className="animate-spin h-6 w-6 text-indigo-600 mx-auto border-2 border-indigo-600 border-t-transparent rounded-full" />
-          <p className="text-xs font-semibold text-gray-400">正在获取结构化审视报告，并更新历史热度权重...</p>
+          <p className="text-xs font-semibold text-gray-400">{t('audit.loading')}</p>
         </div>
       </main>
     );
@@ -108,7 +110,7 @@ export default function AuditDetailsPage() {
           <ErrorMessage message={error} />
           <div className="text-center pt-4">
             <Link href="/" className="text-xs font-bold text-indigo-600 hover:underline">
-              ← 返回系统首页公开热门审视
+              ← {t('audit.backHome')}
             </Link>
           </div>
         </div>
@@ -134,16 +136,16 @@ export default function AuditDetailsPage() {
           <div className="min-w-0 space-y-1">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xxs font-bold bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded tracking-wide uppercase">
-                思考强度 {getDepthLabel(auditRecord.reasoningDepth)}
+                {t('audit.thinking', undefined, { depth: getDepthLabel(auditRecord.reasoningDepth) })}
               </span>
               <span className="text-xxs font-bold bg-gray-150 dark:bg-gray-900 text-gray-600 dark:text-gray-400 px-2 py-0.5 rounded tracking-wide uppercase">
                 {getModeLabel(auditRecord.analysisMode)}
               </span>
               <span className="text-xxs font-bold bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300 px-2 py-0.5 rounded tracking-wide">
-                {getReportLanguageLabel(auditRecord.reportLanguage)}
+                {getReportLanguageLabel(auditRecord.reportLanguage, language)}
               </span>
               <span className="text-xxs text-gray-400 dark:text-gray-500 font-semibold">
-                信源: {auditRecord.source} · {new Date(auditRecord.createdAt).toLocaleString()}
+                {t('audit.source')}: {auditRecord.source} · {new Date(auditRecord.createdAt).toLocaleString(language)}
               </span>
             </div>
             <h2 className="break-words text-sm md:text-base font-bold text-gray-950 dark:text-white leading-snug">
@@ -161,11 +163,11 @@ export default function AuditDetailsPage() {
                     : 'bg-gray-50 dark:bg-gray-900 border-gray-200 text-gray-500'
                 }`}
               >
-                {auditRecord.isPublic ? '🟢 公开展示中' : '🔒 仅自己可见'}
+                {auditRecord.isPublic ? `🟢 ${t('audit.public')}` : `🔒 ${t('audit.private')}`}
               </button>
             )}
             <span className="text-xxs text-gray-400 font-semibold bg-gray-50 dark:bg-gray-900 border border-gray-150 dark:border-gray-800 px-2 py-1.5 rounded-lg">
-              🔥 {auditRecord.viewCount} 次浏览
+              🔥 {t('audit.views', undefined, { count: auditRecord.viewCount })}
             </span>
           </div>
         </div>
@@ -206,14 +208,14 @@ export default function AuditDetailsPage() {
             href="/"
             className="px-4 py-2 border border-gray-200 dark:border-gray-850 hover:bg-gray-100 dark:hover:bg-gray-900 text-gray-600 dark:text-gray-400 rounded-lg text-xs font-bold transition flex items-center gap-1"
           >
-            ← 返回系统首页公开热门审视
+            ← {t('audit.backHome')}
           </Link>
           {isAuthor && (
             <Link
               href="/my-audits"
               className="px-4 py-2 bg-indigo-550 hover:bg-indigo-600 text-white rounded-lg text-xs font-bold shadow-sm transition"
             >
-              管理我的全部记录
+              {t('audit.manageRecords')}
             </Link>
           )}
         </div>

@@ -7,6 +7,7 @@ import { isSuperAdminIdentity } from '../lib/admin-core.mjs';
 import { AUDIENCE_THEME_OPTIONS, getAudienceThemeConfig, normalizeAudienceTheme } from '../lib/audience-theme-core.mjs';
 import { buildTavilySearchRequest, normalizeTavilySearchResponse } from '../lib/tavily-core.mjs';
 import { buildSerperSearchRequest, normalizeSerperSearchResponse } from '../lib/serper-core.mjs';
+import { getUiText, normalizeUiLanguage, UI_LANGUAGE_OPTIONS } from '../lib/ui-language-core.mjs';
 
 test('extracts People Daily body date before unrelated old dates', () => {
   const html = `
@@ -168,4 +169,13 @@ test('senior audience theme reduces visible report complexity', () => {
   assert.equal(senior.readingGuide, true);
   assert.equal(senior.detailLimit < youth.detailLimit, true);
   assert.equal(senior.motion, 'reduced');
+});
+
+test('UI language preferences expose a persistent English interface option', () => {
+  assert.deepEqual(UI_LANGUAGE_OPTIONS.map((item) => item.value), ['zh-CN', 'en-US']);
+  assert.equal(normalizeUiLanguage('en-US'), 'en-US');
+  assert.equal(normalizeUiLanguage('unsupported'), 'zh-CN');
+  assert.equal(getUiText('en-US', 'nav.home'), 'Home');
+  assert.equal(getUiText('en-US', 'language.interfaceLanguage'), 'Interface language');
+  assert.equal(getUiText('zh-CN', 'nav.home'), '首页');
 });

@@ -16,8 +16,9 @@ export function normalizeReportLanguage(value: string | null | undefined): Repor
   return value === 'en-US' || value === 'en' || value === 'english' ? 'en-US' : 'zh-CN';
 }
 
-export function getReportLanguageLabel(value: string | null | undefined): string {
-  return normalizeReportLanguage(value) === 'en-US' ? 'English' : '中文';
+export function getReportLanguageLabel(value: string | null | undefined, uiLanguage?: string | null): string {
+  if (normalizeReportLanguage(value) === 'en-US') return 'English';
+  return normalizeReportLanguage(uiLanguage) === 'en-US' ? 'Chinese' : '中文';
 }
 
 export function getReadWorthDisplayLabel(label: ReadWorthLabel, language: string | null | undefined): string {
@@ -69,7 +70,21 @@ export const THINKING_DEPTH_OPTIONS: Array<{
   { value: 'extreme', label: '极高', description: '最严格多维审视，成本和耗时最高。' },
 ];
 
-export function getThinkingDepthLabel(depth: string): string {
+export function getThinkingDepthLabel(depth: string, uiLanguage?: string | null): string {
+  if (normalizeReportLanguage(uiLanguage) === 'en-US') {
+    const labels: Record<string, string> = {
+      none: 'None',
+      low: 'Low',
+      medium: 'Medium',
+      high: 'High',
+      extreme: 'Very high',
+      quick: 'Low',
+      standard: 'Medium',
+      deep: 'High',
+      exhaustive: 'Very high',
+    };
+    return labels[depth] || depth;
+  }
   const labels: Record<string, string> = {
     ...THINKING_DEPTH_LABELS,
     quick: '低',

@@ -2,14 +2,16 @@
 
 import React, { useEffect, useState } from 'react';
 import { GsapReveal } from './GsapMotion';
+import { useUiLanguage } from './LanguageProvider';
 
 export default function LoadingState() {
+  const { t } = useUiLanguage();
   const steps = [
-    '正在提取新闻主张',
-    '正在识别叙事框架',
-    '正在分析缺席视角',
-    '正在评估证据强度',
-    '正在生成审视结果'
+    t('loading.claims'),
+    t('loading.narrative'),
+    t('loading.perspectives'),
+    t('loading.evidence'),
+    t('loading.result'),
   ];
   const [activeStep, setActiveStep] = useState(0);
 
@@ -24,14 +26,14 @@ export default function LoadingState() {
     <GsapReveal className="my-6" y={12} stagger={0.045}>
       <div data-gsap-reveal className="bg-white dark:bg-gray-950 border border-gray-100 dark:border-gray-800 rounded-xl p-5 shadow-sm space-y-5 max-w-2xl mx-auto">
       <div data-gsap-reveal className="space-y-2">
-        <h3 className="text-base font-bold text-gray-900 dark:text-white">观隅九镜审读中</h3>
+        <h3 className="text-base font-bold text-gray-900 dark:text-white">{t('loading.title')}</h3>
         <p className="text-xs text-gray-500 dark:text-gray-400 max-w-md leading-relaxed">
-          系统正在按固定方法论拆解主张、叙事、语言、证据和验证路径。
+          {t('loading.description')}
         </p>
       </div>
 
       <div data-gsap-reveal className="border-t border-gray-100 dark:border-gray-900 pt-4 text-left">
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">分析步骤流转</p>
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">{t('loading.steps')}</p>
         <div className="space-y-2">
           {steps.map((step, index) => (
             <div

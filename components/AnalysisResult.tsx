@@ -18,6 +18,7 @@ import { GsapReveal } from './GsapMotion';
 import InteractiveQA, { ChatMessage } from './InteractiveQA';
 import ReadWorthVerdict from './ReadWorthVerdict';
 import { computeReadWorth } from '../lib/readWorth';
+import { useUiLanguage } from './LanguageProvider';
 
 interface AnalysisResultProps {
   result: AnalysisResult;
@@ -719,6 +720,7 @@ function markdownFor(report: QuickAnalysisResult | DeepAnalysisResult, originalC
 }
 
 function DownloadButton({ report, originalContent, qaMessages }: { report: QuickAnalysisResult | DeepAnalysisResult; originalContent?: string; qaMessages: ChatMessage[] }) {
+  const { t } = useUiLanguage();
   const download = () => {
     const blob = new Blob([markdownFor(report, originalContent, qaMessages)], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -734,7 +736,7 @@ function DownloadButton({ report, originalContent, qaMessages }: { report: Quick
   return (
     <div data-gsap-reveal className="flex flex-wrap justify-end gap-2">
       <button onClick={download} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100 active:scale-[0.98] dark:border-indigo-900/40 dark:bg-indigo-950/20 dark:text-indigo-300">
-        导出完整 Markdown
+        {t('report.exportMarkdown')}
       </button>
     </div>
   );
@@ -773,6 +775,7 @@ function QuickReportView({ report, originalContent, qaMessages }: { report: Quic
 }
 
 function DeepReportView({ report, originalContent, qaMessages, displayLimit }: { report: DeepAnalysisResult; originalContent?: string; qaMessages: ChatMessage[]; displayLimit: number }) {
+  const { t } = useUiLanguage();
   const keyFindings = limitedItems(report.keyFindings, displayLimit);
   const supportingEvidence = limitedItems(report.supportingEvidence, displayLimit);
   const informationGaps = limitedItems(report.informationGaps, displayLimit);
@@ -782,30 +785,30 @@ function DeepReportView({ report, originalContent, qaMessages, displayLimit }: {
   const questions = limitedItems(report.questionsToAsk, displayLimit);
   return (
     <>
-      <Section title="1. 原文解读">
+      <Section title={t('report.sourceInterpretation')}>
         <div className="grid gap-3 text-xs md:grid-cols-2">
           <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900 md:col-span-2">
-            <div className="font-black text-gray-950 dark:text-white">原文在讲什么</div>
+            <div className="font-black text-gray-950 dark:text-white">{t('report.whatItSays')}</div>
             <p className="mt-1 leading-relaxed text-gray-600 dark:text-gray-300">{report.sourceInterpretation.whatItSays || report.newsSummary}</p>
           </div>
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><div className="font-black">核心主张</div><ul className="mt-1 space-y-1">{report.sourceInterpretation.coreClaims.map((item, index) => <li key={`${item}-${index}`}>- {item}</li>)}</ul></div>
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><div className="font-black">主要主体</div><ul className="mt-1 space-y-1">{report.sourceInterpretation.mainActors.map((item, index) => <li key={`${item}-${index}`}>- {item}</li>)}</ul></div>
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><div className="font-black">原文关键证据</div><ul className="mt-1 space-y-1">{report.sourceInterpretation.keyEvidence.map((item, index) => <li key={`${item}-${index}`}>- {item}</li>)}</ul></div>
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><div className="font-black">叙事方式</div><p className="mt-1 leading-relaxed">{report.sourceInterpretation.narrativeStyle}</p></div>
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900 md:col-span-2"><div className="font-black">读者最可能带走的印象</div><p className="mt-1 leading-relaxed">{report.sourceInterpretation.likelyReaderImpression}</p></div>
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><div className="font-black">{t('report.coreClaim')}</div><ul className="mt-1 space-y-1">{report.sourceInterpretation.coreClaims.map((item, index) => <li key={`${item}-${index}`}>- {item}</li>)}</ul></div>
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><div className="font-black">{t('report.mainActors')}</div><ul className="mt-1 space-y-1">{report.sourceInterpretation.mainActors.map((item, index) => <li key={`${item}-${index}`}>- {item}</li>)}</ul></div>
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><div className="font-black">{t('report.keyEvidence')}</div><ul className="mt-1 space-y-1">{report.sourceInterpretation.keyEvidence.map((item, index) => <li key={`${item}-${index}`}>- {item}</li>)}</ul></div>
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><div className="font-black">{t('report.narrativeStyle')}</div><p className="mt-1 leading-relaxed">{report.sourceInterpretation.narrativeStyle}</p></div>
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900 md:col-span-2"><div className="font-black">{t('report.readerImpression')}</div><p className="mt-1 leading-relaxed">{report.sourceInterpretation.likelyReaderImpression}</p></div>
         </div>
       </Section>
       <ReadingValueSection label={report.readingValue} reason={report.readingValueReason} reportLanguage={report.meta.reportLanguage} />
-      <Section title="3. 给普通读者的读法"><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{report.normalReaderGuide}</p></Section>
-      <Section title="4. 一句话观隅审视"><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.oneSentenceConclusion}</p></Section>
+      <Section title={t('report.readerGuide')}><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{report.normalReaderGuide}</p></Section>
+      <Section title={t('report.oneSentence')}><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.oneSentenceConclusion}</p></Section>
       <ScoresSection report={report} />
       <AuditCharts {...chartProps(report)} />
-      <Section title="6. 结论分层">
+      <Section title={t('report.conclusionLayers')}>
         <div className="grid gap-2 md:grid-cols-3">
           {[
-            ['可以确认', report.conclusionLayers.confirmed],
-            ['可以合理怀疑', report.conclusionLayers.reasonableDoubts],
-            ['暂不能判断', report.conclusionLayers.cannotJudgeYet],
+            [t('report.confirmed'), report.conclusionLayers.confirmed],
+            [t('report.reasonableDoubts'), report.conclusionLayers.reasonableDoubts],
+            [t('report.cannotJudge'), report.conclusionLayers.cannotJudgeYet],
           ].map(([title, items]) => (
             <div key={String(title)} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs dark:border-gray-850 dark:bg-gray-900">
               <div className="font-black text-gray-950 dark:text-white">{String(title)}</div>
@@ -814,20 +817,20 @@ function DeepReportView({ report, originalContent, qaMessages, displayLimit }: {
           ))}
         </div>
       </Section>
-      <Section title="7. 最关键的 3 个发现" aside={compactAside(report.keyFindings.length, displayLimit)}><div className="grid grid-cols-1 gap-3 lg:grid-cols-3">{keyFindings.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} />)}</div></Section>
-      <Section title="8. 支持原文叙事的证据" aside={compactAside(report.supportingEvidence.length, displayLimit) || <span className="text-xxs font-semibold text-gray-400">避免只唱反调</span>}>
+      <Section title={t('report.findings')} aside={compactAside(report.keyFindings.length, displayLimit)}><div className="grid grid-cols-1 gap-3 lg:grid-cols-3">{keyFindings.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} />)}</div></Section>
+      <Section title={t('report.supportingEvidence')} aside={compactAside(report.supportingEvidence.length, displayLimit) || <span className="text-xxs font-semibold text-gray-400">{t('report.supportingEvidence')}</span>}>
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2">{supportingEvidence.map((item, index) => <JudgmentCard key={`${item.content}-${index}`} item={{ title: item.supportsNarrative, content: item.content, evidenceGrade: item.evidenceGrade, verificationStatus: item.verificationStatus, nextVerification: item.limitation }} />)}</div>
       </Section>
-      <Section title="9. 主要信息缺口" aside={compactAside(report.informationGaps.length, displayLimit)}><div className="grid grid-cols-1 gap-2 md:grid-cols-2">{informationGaps.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} />)}</div></Section>
-      <Section title="10. 关键利益关系" aside={compactAside(report.stakeholderRelations.length, displayLimit)}>
+      <Section title={t('report.informationGaps')} aside={compactAside(report.informationGaps.length, displayLimit)}><div className="grid grid-cols-1 gap-2 md:grid-cols-2">{informationGaps.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} />)}</div></Section>
+      <Section title={t('report.interests')} aside={compactAside(report.stakeholderRelations.length, displayLimit)}>
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
           {stakeholderRelations.map((item, index) => <JudgmentCard key={`${item.role}-${index}`} item={{ title: item.role, content: `可能利益：${item.possibleBenefit || '原文未披露，需进一步核验。'}；可能代价：${item.possibleCost || '原文未披露，需进一步核验。'}`, judgmentType: item.judgmentType, speculationRisk: item.speculationRisk, nextVerification: item.pendingVerification, verificationStatus: 'pending_verification', evidenceGrade: 'D' }} />)}
         </div>
       </Section>
-      <Section title="11. 替代解释对照" aside={compactAside(report.alternativeExplanations.length, displayLimit)}>
+      <Section title={t('report.alternatives')} aside={compactAside(report.alternativeExplanations.length, displayLimit)}>
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2">{alternativeExplanations.map((item, index) => <JudgmentCard key={`${item.explanation}-${index}`} item={{ title: item.explanation, content: `合理性：${item.reasonableness}；当前证据：${item.currentEvidenceStatus}`, speculationRisk: item.speculationRisk, nextVerification: item.neededVerification, verificationStatus: 'pending_verification', evidenceGrade: item.speculationRisk === '高' ? 'E' : 'D' }} />)}</div>
       </Section>
-      <Section title="12. 证据与核验状态">
+      <Section title={t('report.evidenceStatus')}>
         <div className="grid grid-cols-1 gap-2 text-xs md:grid-cols-2">
           <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><span className="font-bold">最强证据：</span>{report.evidenceVerificationSummary.strongestEvidence}</div>
           <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><span className="font-bold">最弱证据：</span>{report.evidenceVerificationSummary.weakestEvidence}</div>
@@ -844,14 +847,14 @@ function DeepReportView({ report, originalContent, qaMessages, displayLimit }: {
           ))}
         </div>
       </Section>
-      <Section title="13. 验证路线图" aside={compactAside(report.verificationRoadmap.length, displayLimit)}>
+      <Section title={t('report.roadmap')} aside={compactAside(report.verificationRoadmap.length, displayLimit)}>
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2">{verificationRoadmap.map((item, index) => <article key={`${item.question}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs dark:border-gray-850 dark:bg-gray-900"><div className="font-bold text-gray-950 dark:text-white">{item.question}</div><p className="mt-1 text-gray-600 dark:text-gray-300">{item.whyItMatters}</p><div className="mt-2 flex gap-1.5"><Badge className="border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-900/30 dark:bg-indigo-950/20 dark:text-indigo-300">{item.materialType}</Badge><Badge className={riskClass(item.priority)}>优先级 {item.priority}</Badge></div></article>)}</div>
       </Section>
-      <Section title="联网核验结果"><WebVerificationView report={report} /></Section>
-      <Section title="14. 继续追问清单" aside={compactAside(report.questionsToAsk.length, displayLimit)}><ul className="grid grid-cols-1 gap-2 md:grid-cols-2">{questions.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs font-semibold leading-relaxed text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300">{item}</li>)}</ul></Section>
-      <Section title="15. 目前不能直接得出的结论"><ul className="space-y-2 text-xs leading-relaxed text-gray-700 dark:text-gray-300">{report.cannotConclude.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">- {item}</li>)}</ul></Section>
-      <Section title="16. 风险提示"><p className="text-xs leading-relaxed text-gray-600 dark:text-gray-300">{report.riskNotice}</p></Section>
-      <Section title="17. 报告元信息">
+      <Section title={t('report.webVerification')}><WebVerificationView report={report} /></Section>
+      <Section title={t('report.questions')} aside={compactAside(report.questionsToAsk.length, displayLimit)}><ul className="grid grid-cols-1 gap-2 md:grid-cols-2">{questions.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs font-semibold leading-relaxed text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300">{item}</li>)}</ul></Section>
+      <Section title={t('report.notConcluded')}><ul className="space-y-2 text-xs leading-relaxed text-gray-700 dark:text-gray-300">{report.cannotConclude.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">- {item}</li>)}</ul></Section>
+      <Section title={t('report.riskNotice')}><p className="text-xs leading-relaxed text-gray-600 dark:text-gray-300">{report.riskNotice}</p></Section>
+      <Section title={t('report.meta')}>
         <div className="grid gap-2 text-xs md:grid-cols-2">
           {[
             ['新闻标题', report.meta.title],

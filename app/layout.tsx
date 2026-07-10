@@ -19,8 +19,14 @@ const themeScript = `
     var theme = localStorage.getItem('guanyu-theme') || 'newspaper';
     if (!/^(newspaper|night|kids)$/.test(theme)) theme = 'newspaper';
     document.documentElement.dataset.theme = theme;
+    var language = localStorage.getItem('guanyu-ui-language') || 'zh-CN';
+    if (!/^(zh-CN|en-US)$/.test(language)) language = 'zh-CN';
+    document.documentElement.dataset.uiLanguage = language;
+    document.documentElement.lang = language;
   } catch (error) {
     document.documentElement.dataset.theme = 'newspaper';
+    document.documentElement.dataset.uiLanguage = 'zh-CN';
+    document.documentElement.lang = 'zh-CN';
   }
 })();
 `;
@@ -31,7 +37,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN" data-theme="newspaper" suppressHydrationWarning>
+    <html lang="zh-CN" data-theme="newspaper" data-ui-language="zh-CN" suppressHydrationWarning>
       <body className="antialiased">
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <Providers>

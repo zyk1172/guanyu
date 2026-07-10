@@ -11,6 +11,7 @@ import {
   YAxis,
 } from 'recharts';
 import { EvidenceGrade, MissingPerspectiveMatrixItem, InterestCostMapItem } from '../lib/types';
+import { useUiLanguage } from './LanguageProvider';
 
 interface AuditChartsProps {
   credibilityScore: number;
@@ -26,14 +27,6 @@ interface AuditChartsProps {
   missingPerspectiveStatuses?: MissingPerspectiveMatrixItem['status'][];
   interestCostItems?: InterestCostMapItem[];
 }
-
-const METRIC_HELPERS: Record<string, string> = {
-  可信度: '越高表示越可信',
-  信息完整度: '越高表示信息越完整',
-  叙事倾向性: '越高表示引导性越强',
-  证据强度: '越高表示证据越充分',
-  推测不确定性: '越高表示越需要补充核验',
-};
 
 const COLORS = {
   default: 'var(--color-chart-default)',
@@ -71,19 +64,20 @@ export default function AuditCharts({
   missingPerspectiveStatuses = [],
   interestCostItems = [],
 }: AuditChartsProps) {
+  const { t } = useUiLanguage();
   const auditMetrics = [
-    { name: '可信度', value: credibilityScore, fill: COLORS.default },
-    { name: '信息完整度', value: completenessScore, fill: COLORS.default },
-    { name: '证据强度', value: evidenceScore, fill: COLORS.default },
-    { name: '叙事倾向性', value: biasScore, fill: COLORS.warning },
-    { name: '推测不确定性', value: riskScore, fill: COLORS.risk },
+    { name: t('chart.credibility'), value: credibilityScore, fill: COLORS.default },
+    { name: t('chart.completeness'), value: completenessScore, fill: COLORS.default },
+    { name: t('chart.evidence'), value: evidenceScore, fill: COLORS.default },
+    { name: t('chart.bias'), value: biasScore, fill: COLORS.warning },
+    { name: t('chart.risk'), value: riskScore, fill: COLORS.risk },
   ];
 
   const rawCountsData = [
-    { name: '受益者', value: beneficiariesCount },
-    { name: '代价方', value: costBearersCount },
-    { name: '缺席视角', value: missingPerspectivesCount },
-    { name: '替代解释', value: alternativeExplanationsCount },
+    { name: t('chart.beneficiaries'), value: beneficiariesCount },
+    { name: t('chart.costBearers'), value: costBearersCount },
+    { name: t('chart.missingPerspectives'), value: missingPerspectivesCount },
+    { name: t('chart.alternatives'), value: alternativeExplanationsCount },
   ];
   const maxCount = Math.max(...rawCountsData.map((item) => item.value));
   const shouldHighlightCount = rawCountsData.filter((item) => item.value === maxCount).length === 1 && maxCount > 0;
@@ -98,23 +92,33 @@ export default function AuditCharts({
     fill: EVIDENCE_COLORS[grade],
   }));
 
-  const statusData = (['已呈现', '弱呈现', '缺席'] as MissingPerspectiveMatrixItem['status'][]).map((status) => ({
-    name: status,
-    value: missingPerspectiveStatuses.filter((item) => item === status).length,
-    fill: status === '已呈现' ? COLORS.positive : status === '弱呈现' ? COLORS.warning : COLORS.risk,
+  const statusData = ([
+    { value: '已呈现', label: t('chart.present') },
+    { value: '弱呈现', label: t('chart.weak') },
+    { value: '缺席', label: t('chart.missing') },
+  ] as const).map(({ value, label }) => ({
+    name: label,
+    value: missingPerspectiveStatuses.filter((item) => item === value).length,
+    fill: value === '已呈现' ? COLORS.positive : value === '弱呈现' ? COLORS.warning : COLORS.risk,
   }));
 
-  const roleData = (['决策者', '受益者', '成本承担者', '沉默者', '中介者'] as InterestCostMapItem['role'][]).map((role) => ({
-    role,
-    count: interestCostItems.filter((item) => item.role === role).length,
-    actors: interestCostItems.filter((item) => item.role === role).slice(0, 3).map((item) => item.actor),
+  const roleData = ([
+    { value: '决策者', label: t('chart.decisionMaker') },
+    { value: '受益者', label: t('chart.beneficiaries') },
+    { value: '成本承担者', label: t('chart.costBearers') },
+    { value: '沉默者', label: t('chart.silentParty') },
+    { value: '中介者', label: t('chart.intermediary') },
+  ] as const).map(({ value, label }) => ({
+    role: label,
+    count: interestCostItems.filter((item) => item.role === value).length,
+    actors: interestCostItems.filter((item) => item.role === value).slice(0, 3).map((item) => item.actor),
   }));
 
   return (
     <div data-gsap-reveal className="grid grid-cols-1 gap-3 md:grid-cols-2">
       <ChartCard
-        title="核心指数"
-        note="结构评分，不等同于新闻真假"
+        title={t('chart.coreMetrics')}
+        note={t('chart.structureScore')}
       >
         <div className="h-56 w-full">
           <ResponsiveContainer width="100%" height="100%">
@@ -132,10 +136,10 @@ export default function AuditCharts({
             </BarChart>
           </ResponsiveContainer>
         </div>
-        <p className="text-xxs font-semibold text-gray-400">分数用于衡量报道结构与证据状态，不等同于新闻真假。</p>
+        <p className="text-xxs font-semibold text-gray-400">{t('chart.scoreNote')}</p>
       </ChartCard>
 
-      <ChartCard title="审视要素数量" note="结构化条目覆盖">
+      <ChartCard title={t('chart.elementCounts')} note={t('chart.coverage')}>
         <div className="h-56 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={countsData} margin={{ top: 14, right: 12, left: -18, bottom: 4 }}>
@@ -154,7 +158,7 @@ export default function AuditCharts({
         </div>
       </ChartCard>
 
-      <ChartCard title="证据等级分布" note="A 强，E 弱">
+      <ChartCard title={t('chart.evidenceDistribution')} note={t('chart.evidenceNote')}>
         <div className="h-48 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={evidenceData} margin={{ top: 12, right: 12, left: -18, bottom: 4 }}>
@@ -173,7 +177,7 @@ export default function AuditCharts({
         </div>
       </ChartCard>
 
-      <ChartCard title="缺席视角状态" note="覆盖程度">
+      <ChartCard title={t('chart.missingStatus')} note={t('chart.coverageLevel')}>
         <div className="grid grid-cols-3 gap-2">
           {statusData.map((item) => (
             <div key={item.name} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-center dark:border-gray-850 dark:bg-gray-900">
@@ -187,8 +191,8 @@ export default function AuditCharts({
 
       <div className="rounded-xl border border-gray-150 bg-white p-4 shadow-sm dark:border-gray-900 dark:bg-gray-950 md:col-span-2">
         <div className="mb-3 flex flex-col gap-1 border-b border-gray-100 pb-2 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
-          <h4 className="text-xs font-black uppercase tracking-wide text-gray-800 dark:text-gray-200">利益—代价关系</h4>
-          <span className="text-xxs font-semibold text-gray-400">关系卡片只展示待核验结构，不代表确定事实</span>
+          <h4 className="text-xs font-black uppercase tracking-wide text-gray-800 dark:text-gray-200">{t('chart.interestCost')}</h4>
+          <span className="text-xxs font-semibold text-gray-400">{t('chart.interestCostNote')}</span>
         </div>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
           {roleData.map((item) => (
@@ -198,7 +202,7 @@ export default function AuditCharts({
                 <span className="rounded bg-white px-2 py-0.5 text-xxs font-bold text-gray-600 dark:bg-gray-950 dark:text-gray-300">{item.count}</span>
               </div>
               <p className="mt-2 line-clamp-3 text-xxs leading-relaxed text-gray-500 dark:text-gray-400">
-                {item.actors.length > 0 ? item.actors.join('、') : '暂无结构化条目'}
+                {item.actors.length > 0 ? item.actors.join('、') : t('chart.noItems')}
               </p>
             </div>
           ))}
@@ -221,22 +225,33 @@ function ChartCard({ title, note, children }: { title: string; note: string; chi
 }
 
 function MetricTooltip({ active, payload, label }: any) {
+  const { t } = useUiLanguage();
   if (!active || !payload?.length) return null;
+  const helper = label === t('chart.credibility')
+    ? (t('chart.credibility') === 'Credibility' ? 'Higher means more credible.' : '越高表示越可信')
+    : label === t('chart.completeness')
+      ? (t('chart.completeness') === 'Information completeness' ? 'Higher means more complete information.' : '越高表示信息越完整')
+      : label === t('chart.evidence')
+        ? (t('chart.evidence') === 'Evidence strength' ? 'Higher means stronger evidence.' : '越高表示证据越充分')
+        : label === t('chart.bias')
+          ? (t('chart.bias') === 'Narrative direction' ? 'Higher means stronger framing.' : '越高表示引导性越强')
+          : (t('chart.risk') === 'Uncertainty' ? 'Higher means more verification is needed.' : '越高表示越需要补充核验');
   return (
     <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-xs text-[var(--color-text)] shadow-sm">
       <div className="font-bold">{label}</div>
-      <div className="mt-1 text-[var(--color-text-muted)]">分值：{payload[0].value}</div>
-      <div className="mt-1 max-w-48 text-xxs text-[var(--color-text-muted)]">{METRIC_HELPERS[label] || '用于辅助阅读报告结构。'}</div>
+      <div className="mt-1 text-[var(--color-text-muted)]">{t('chart.score', undefined, { score: payload[0].value })}</div>
+      <div className="mt-1 max-w-48 text-xxs text-[var(--color-text-muted)]">{helper}</div>
     </div>
   );
 }
 
 function CountTooltip({ active, payload, label }: any) {
+  const { t } = useUiLanguage();
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-xs text-[var(--color-text)] shadow-sm">
       <div className="font-bold">{label}</div>
-      <div className="mt-1 text-[var(--color-text-muted)]">数量：{payload[0].value}</div>
+      <div className="mt-1 text-[var(--color-text-muted)]">{t('chart.count', undefined, { count: payload[0].value })}</div>
     </div>
   );
 }

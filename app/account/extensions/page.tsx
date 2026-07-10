@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Header from '@/components/Header';
+import { useUiLanguage } from '@/components/LanguageProvider';
 
 interface ExtensionSession {
   id: string;
@@ -15,6 +16,7 @@ interface ExtensionSession {
 }
 
 export default function ExtensionSettingsPage() {
+  const { language, t } = useUiLanguage();
   const [sessions, setSessions] = useState<ExtensionSession[]>([]);
   const [code, setCode] = useState('');
   const [message, setMessage] = useState('');
@@ -70,22 +72,22 @@ export default function ExtensionSettingsPage() {
       <section className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6">
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-xl font-black sm:text-2xl">浏览器插件授权</h1>
+            <h1 className="text-xl font-black sm:text-2xl">{t('extension.title')}</h1>
             <p className="mt-1 text-xs font-semibold text-gray-500 dark:text-gray-400">
-              插件只绑定账号，不保存密码、模型 API Key 或搜索 API Key。
+              {t('extension.description')}
             </p>
           </div>
           <Link href="/account" className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-bold text-gray-700 transition hover:bg-white dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-900">
-            返回账号管理
+            {t('extension.backAccount')}
           </Link>
         </div>
 
         <div className="mb-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 shadow-[var(--shadow-card)]">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h2 className="text-sm font-black text-[var(--color-text)]">插件下载地址</h2>
+              <h2 className="text-sm font-black text-[var(--color-text)]">{t('extension.downloadTitle')}</h2>
               <p className="mt-1 text-xs font-semibold text-[var(--color-text-muted)]">
-                下载后在 Chrome / Edge 扩展管理中选择“加载已解压的扩展程序”，再回到本页生成连接码绑定账号。
+                {t('extension.downloadDescription')}
               </p>
               <code className="mt-3 block break-all rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xxs font-semibold text-[var(--color-text)]">
                 {extensionDownloadUrl}
@@ -96,7 +98,7 @@ export default function ExtensionSettingsPage() {
               download
               className="inline-flex shrink-0 items-center justify-center rounded-[var(--radius-button)] bg-[var(--color-primary)] px-4 py-2 text-xs font-black text-white transition hover:bg-[var(--color-primary-hover)] active:scale-[0.98]"
             >
-              下载插件
+              {t('extension.download')}
             </a>
           </div>
         </div>
@@ -104,9 +106,9 @@ export default function ExtensionSettingsPage() {
         <div className="rounded-xl border border-gray-150 bg-white p-4 shadow-sm dark:border-gray-850 dark:bg-gray-950">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-sm font-black">生成插件连接码</h2>
+              <h2 className="text-sm font-black">{t('extension.codeTitle')}</h2>
               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                在插件弹窗输入连接码后，插件会换取专用 token。连接码 10 分钟过期。
+                {t('extension.codeDescription')}
               </p>
             </div>
             <button
@@ -114,7 +116,7 @@ export default function ExtensionSettingsPage() {
               disabled={loading}
               className="rounded-lg bg-gray-950 px-4 py-2 text-xs font-bold text-white transition hover:bg-gray-800 disabled:opacity-50 dark:bg-white dark:text-gray-950"
             >
-              {loading ? '生成中...' : '生成插件连接码'}
+              {loading ? t('extension.creatingCode') : t('extension.createCode')}
             </button>
           </div>
           {code && (
@@ -127,11 +129,11 @@ export default function ExtensionSettingsPage() {
         </div>
 
         <div className="mt-4 rounded-xl border border-gray-150 bg-white p-4 shadow-sm dark:border-gray-850 dark:bg-gray-950">
-          <h2 className="text-sm font-black">已连接插件设备</h2>
+          <h2 className="text-sm font-black">{t('extension.sessionsTitle')}</h2>
           <div className="mt-3 space-y-2">
             {sessions.length === 0 ? (
               <div className="rounded-lg border border-dashed border-gray-200 p-6 text-center text-xs text-gray-400 dark:border-gray-800">
-                暂无插件授权。
+                {t('extension.noSessions')}
               </div>
             ) : (
               sessions.map((session) => (
@@ -139,15 +141,15 @@ export default function ExtensionSettingsPage() {
                   <div>
                     <div className="font-black text-gray-950 dark:text-white">{session.name}</div>
                     <div className="mt-1 text-xxs text-gray-500">
-                      {session.browser || '未知浏览器'} · 创建 {new Date(session.createdAt).toLocaleString()}
-                      {session.lastUsedAt ? ` · 最近使用 ${new Date(session.lastUsedAt).toLocaleString()}` : ''}
+                      {session.browser || t('common.unknown')} · {new Date(session.createdAt).toLocaleString(language)}
+                      {session.lastUsedAt ? ` · ${new Date(session.lastUsedAt).toLocaleString(language)}` : ''}
                     </div>
                   </div>
                   {session.revokedAt ? (
-                    <span className="rounded bg-gray-100 px-2 py-1 text-xxs font-bold text-gray-500 dark:bg-gray-900">已撤销</span>
+                    <span className="rounded bg-gray-100 px-2 py-1 text-xxs font-bold text-gray-500 dark:bg-gray-900">{t('extension.revoked')}</span>
                   ) : (
                     <button onClick={() => revoke(session.id)} className="rounded bg-red-50 px-3 py-1.5 text-xxs font-bold text-red-600 transition hover:bg-red-100">
-                      撤销授权
+                      {t('extension.revoke')}
                     </button>
                   )}
                 </div>

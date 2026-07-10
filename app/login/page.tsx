@@ -3,8 +3,10 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { useUiLanguage } from '@/components/LanguageProvider';
 
 export default function LoginPage() {
+  const { t } = useUiLanguage();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -52,10 +54,10 @@ export default function LoginPage() {
             priority
           />
           <h2 className="text-2xl font-extrabold text-gray-900 dark:text-white tracking-tight">
-            登录观隅
+            {t('auth.signInTitle')}
           </h2>
           <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-            登录后可以创建新闻审视、保存历史记录，并管理默认大模型和思考深度。
+            {t('auth.signInDescription')}
           </p>
         </div>
 
@@ -76,7 +78,7 @@ export default function LoginPage() {
 
           <div className="space-y-1">
             <label htmlFor="email" className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-              邮箱地址
+              {t('auth.email')}
             </label>
             <input
               id="email"
@@ -92,7 +94,7 @@ export default function LoginPage() {
 
           <div className="space-y-1">
             <label htmlFor="password" className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-              密码
+              {t('auth.password')}
             </label>
             <input
               id="password"
@@ -101,7 +103,7 @@ export default function LoginPage() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="请输入密码"
+              placeholder={t('auth.passwordPlaceholder')}
               className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white"
             />
           </div>
@@ -111,17 +113,17 @@ export default function LoginPage() {
             disabled={isLoading}
             className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold text-sm shadow-sm transition flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-300 dark:disabled:bg-gray-800 disabled:cursor-not-allowed mt-6"
           >
-            {isLoading ? '正在处理中...' : '进入审视系统'}
+            {isLoading ? t('auth.processing') : t('auth.enter')}
           </button>
         </form>
 
         <div className="text-center mt-6">
           <div className="flex items-center justify-between text-xs">
             <Link href="/" className="text-gray-500 hover:text-indigo-600 font-medium">
-              返回首页
+              {t('common.backHome')}
             </Link>
             <Link href="/register" className="text-indigo-500 hover:text-indigo-600 font-bold">
-              创建新账号
+              {t('auth.createAccount')}
             </Link>
           </div>
         </div>

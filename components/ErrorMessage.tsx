@@ -1,4 +1,7 @@
+'use client';
+
 import React from 'react';
+import { useUiLanguage } from './LanguageProvider';
 
 interface ErrorMessageProps {
   message: string;
@@ -6,6 +9,7 @@ interface ErrorMessageProps {
 }
 
 export default function ErrorMessage({ message, onRetry }: ErrorMessageProps) {
+  const { t } = useUiLanguage();
   return (
     <div className="animate-fade-up bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/30 rounded-xl p-6 max-w-2xl mx-auto my-8 space-y-4">
       <div className="flex items-start gap-3">
@@ -15,9 +19,9 @@ export default function ErrorMessage({ message, onRetry }: ErrorMessageProps) {
           </svg>
         </div>
         <div className="space-y-1">
-          <h4 className="text-sm font-bold text-red-900 dark:text-red-300">分析失败</h4>
+          <h4 className="text-sm font-bold text-red-900 dark:text-red-300">{t('error.title')}</h4>
           <p className="text-xs text-red-700 dark:text-red-400 leading-relaxed">
-            {message || '系统在处理新闻或解析大模型返回数据时遇到了一个错误。请检查您的网络连接并重试。'}
+            {message || t('error.default')}
           </p>
         </div>
       </div>
@@ -28,7 +32,7 @@ export default function ErrorMessage({ message, onRetry }: ErrorMessageProps) {
             onClick={onRetry}
             className="interactive-lift px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold shadow-sm transition"
           >
-            重新尝试分析
+            {t('error.retry')}
           </button>
         </div>
       )}

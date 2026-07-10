@@ -15,10 +15,13 @@ import {
   normalizeReportLanguage,
 } from '@/lib/types';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
+import LanguageSwitcher from '@/components/LanguageSwitcher';
+import { useUiLanguage } from '@/components/LanguageProvider';
 
 export default function AccountPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const { language, t } = useUiLanguage();
 
   const [activeTab, setActiveTab] = useState<'info' | 'settings' | 'history'>('info');
 
@@ -349,7 +352,7 @@ export default function AccountPage() {
   if (status === 'loading') {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-black flex items-center justify-center">
-        <div className="text-sm font-semibold text-gray-500 animate-pulse">正在检测登录状态...</div>
+        <div className="text-sm font-semibold text-gray-500 animate-pulse">{t('account.loading')}</div>
       </div>
     );
   }
@@ -379,8 +382,8 @@ export default function AccountPage() {
       <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-150 dark:border-gray-900 pb-4">
           <div>
-            <h2 className="text-lg font-black text-gray-950 dark:text-white leading-tight">账号管理</h2>
-            <p className="text-xs text-gray-500 dark:text-gray-400">管理基本信息、模型设置、审视偏好和历史生成记录。</p>
+            <h2 className="text-lg font-black text-gray-950 dark:text-white leading-tight">{t('account.title')}</h2>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{t('account.description')}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
           <div className="flex bg-gray-100 dark:bg-gray-900 p-0.5 rounded-lg border border-gray-150 dark:border-gray-800">
@@ -388,23 +391,23 @@ export default function AccountPage() {
               onClick={() => setActiveTab('info')}
               className={`px-3 py-1.5 rounded-md text-xs font-bold transition ${activeTab === 'info' ? 'bg-white dark:bg-gray-800 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
             >
-              基本信息
+              {t('account.infoTab')}
             </button>
             <button
               onClick={() => setActiveTab('settings')}
               className={`px-3 py-1.5 rounded-md text-xs font-bold transition ${activeTab === 'settings' ? 'bg-white dark:bg-gray-800 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
             >
-              模型设置 / 审视偏好
+              {t('account.settingsTab')}
             </button>
             <button
               onClick={() => setActiveTab('history')}
               className={`px-3 py-1.5 rounded-md text-xs font-bold transition ${activeTab === 'history' ? 'bg-white dark:bg-gray-800 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
             >
-              我的审视记录
+              {t('account.historyTab')}
             </button>
           </div>
           <Link href="/account/extensions" className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-bold text-gray-600 transition hover:bg-white dark:border-gray-800 dark:text-gray-300 dark:hover:bg-gray-900">
-            插件授权
+            {t('account.extensions')}
           </Link>
           </div>
         </div>
@@ -414,29 +417,29 @@ export default function AccountPage() {
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)]">
           <div className="bg-white dark:bg-gray-950 p-6 rounded-xl border border-gray-150 dark:border-gray-900 shadow-sm space-y-4">
             <h3 className="text-sm font-bold text-gray-900 dark:text-white border-b border-gray-100 dark:border-gray-900 pb-2 flex items-center gap-1.5">
-              <span>基本信息</span>
+              <span>{t('account.infoTab')}</span>
             </h3>
             <div className="space-y-3.5 text-xs">
               <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-900 p-2.5 rounded">
-                <span className="text-gray-500 dark:text-gray-400 font-semibold">账户邮箱</span>
+                <span className="text-gray-500 dark:text-gray-400 font-semibold">{t('account.email')}</span>
                 <span className="font-bold text-gray-900 dark:text-white">{session?.user?.email}</span>
               </div>
               <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-900 p-2.5 rounded">
-                <span className="text-gray-500 dark:text-gray-400 font-semibold">用户 ID</span>
-                <span className="font-mono text-gray-600 dark:text-gray-300">{session?.user ? (session.user as any).id : '未知'}</span>
+                <span className="text-gray-500 dark:text-gray-400 font-semibold">{t('account.userId')}</span>
+                <span className="font-mono text-gray-600 dark:text-gray-300">{session?.user ? (session.user as any).id : t('common.unknown')}</span>
               </div>
               <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-900 p-2.5 rounded">
-                <span className="text-gray-500 dark:text-gray-400 font-semibold">注册时间</span>
-                <span className="font-bold text-gray-900 dark:text-white">{accountCreatedAt ? new Date(accountCreatedAt).toLocaleString() : '未知'}</span>
+                <span className="text-gray-500 dark:text-gray-400 font-semibold">{t('account.joined')}</span>
+                <span className="font-bold text-gray-900 dark:text-white">{accountCreatedAt ? new Date(accountCreatedAt).toLocaleString(language) : t('common.unknown')}</span>
               </div>
               <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-900 p-2.5 rounded">
-                <span className="text-gray-500 dark:text-gray-400 font-semibold">登录状态</span>
-                <span className="font-bold text-emerald-600 flex items-center gap-1">🟢 在线中</span>
+                <span className="text-gray-500 dark:text-gray-400 font-semibold">{t('account.status')}</span>
+                <span className="font-bold text-emerald-600 flex items-center gap-1">🟢 {t('account.online')}</span>
               </div>
               <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-900 p-2.5 rounded">
-                <span className="text-gray-500 dark:text-gray-400 font-semibold">账号角色</span>
+                <span className="text-gray-500 dark:text-gray-400 font-semibold">{t('account.role')}</span>
                 <span className={isSuperAdmin ? 'font-bold text-amber-600 dark:text-amber-300' : 'font-bold text-gray-600 dark:text-gray-300'}>
-                  {isSuperAdmin ? '超级管理员' : '普通用户'}
+                  {isSuperAdmin ? t('account.superAdmin') : t('account.user')}
                 </span>
               </div>
             </div>
@@ -554,32 +557,32 @@ export default function AccountPage() {
           <div className="space-y-4">
             <div className="bg-white dark:bg-gray-950 p-6 rounded-xl border border-gray-150 dark:border-gray-900 shadow-sm space-y-4">
               <h3 className="text-sm font-bold text-gray-900 dark:text-white border-b border-gray-100 dark:border-gray-900 pb-2">
-                额度与点数
+                {t('account.billing')}
               </h3>
               <div className="grid grid-cols-2 gap-2 text-center text-xs sm:grid-cols-4">
                 <div className="rounded-lg bg-emerald-50 p-3 dark:bg-emerald-950/20">
                   <div className="text-sm font-black text-emerald-700 dark:text-emerald-300">
-                    {billing?.planType === 'byok' ? '买断' : billing?.planType === 'points' ? '点数' : '免费'}
+                    {billing?.planType === 'byok' ? t('account.byok') : billing?.planType === 'points' ? t('account.points') : t('account.free')}
                   </div>
-                  <div className="mt-1 font-semibold text-gray-500">账号套餐</div>
+                  <div className="mt-1 font-semibold text-gray-500">{t('account.plan')}</div>
                 </div>
                 <div className="rounded-lg bg-indigo-50 p-3 dark:bg-indigo-950/20">
                   <div className="text-lg font-black text-indigo-700 dark:text-indigo-300">{billing?.freeQuotaRemaining ?? '-'}</div>
-                  <div className="mt-1 font-semibold text-gray-500">今日免费剩余</div>
+                  <div className="mt-1 font-semibold text-gray-500">{t('account.freeRemaining')}</div>
                 </div>
                 <div className="rounded-lg bg-gray-50 p-3 dark:bg-gray-900">
                   <div className="text-lg font-black text-gray-900 dark:text-white">{billing?.freeQuotaUsed ?? '-'}</div>
-                  <div className="mt-1 font-semibold text-gray-500">今日已用</div>
+                  <div className="mt-1 font-semibold text-gray-500">{t('account.freeUsed')}</div>
                 </div>
                 <div className="rounded-lg bg-amber-50 p-3 dark:bg-amber-950/20">
                   <div className="text-lg font-black text-amber-700 dark:text-amber-300">{billing?.creditBalance ?? '-'}</div>
-                  <div className="mt-1 font-semibold text-gray-500">当前点数</div>
+                  <div className="mt-1 font-semibold text-gray-500">{t('account.credits')}</div>
                 </div>
               </div>
               <div className="rounded-lg border border-dashed border-gray-200 p-3 text-xs dark:border-gray-800">
-                <div className="font-black text-gray-950 dark:text-white">购买额度</div>
+                <div className="font-black text-gray-950 dark:text-white">{t('account.buyCredits')}</div>
                 <p className="mt-1 leading-relaxed text-gray-500 dark:text-gray-400">
-                  6 元购买 30 点，每次观隅分析消耗 3 点，报告追问消耗 1 点；30 元买断后可填写自己的大模型和搜索 API。
+                  {t('account.buyDescription')}
                 </p>
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <button
@@ -591,8 +594,8 @@ export default function AccountPage() {
                         : 'border-gray-200 bg-white text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300'
                     }`}
                   >
-                    <div className="font-black">6 元 / 30 点</div>
-                    <div className="mt-0.5 text-xxs opacity-75">用管理员模型和搜索</div>
+                    <div className="font-black">{t('account.pointsPackage')}</div>
+                    <div className="mt-0.5 text-xxs opacity-75">{t('account.useAdminServices')}</div>
                   </button>
 	                  <button
 	                    type="button"
@@ -608,8 +611,8 @@ export default function AccountPage() {
 	                        : 'border-gray-200 bg-white text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300'
 	                    }`}
 	                  >
-	                    <div className="font-black">{hasByokPlan ? '已买断' : '30 元买断'}</div>
-	                    <div className="mt-0.5 text-xxs opacity-75">{hasByokPlan ? '已解锁高级功能' : '可自备模型和搜索 API'}</div>
+	                    <div className="font-black">{hasByokPlan ? t('account.byokUnlocked') : t('account.byokPackage')}</div>
+	                    <div className="mt-0.5 text-xxs opacity-75">{hasByokPlan ? t('account.byokUnlocked') : t('account.useOwnServices')}</div>
 	                  </button>
                 </div>
                 <div className="mt-4 flex justify-center">
@@ -622,22 +625,22 @@ export default function AccountPage() {
                     />
                   ) : (
                     <div className="flex h-48 w-48 items-center justify-center rounded-xl border bg-gray-50 text-center text-xs font-bold text-gray-400 dark:border-gray-800 dark:bg-gray-900">
-                      支付宝二维码占位
+                      {t('account.paymentPlaceholder')}
                     </div>
                   )}
                 </div>
-                <p className="mt-2 text-xxs text-gray-400">{billing?.alipayQrNote || '付款后提交备注，等待管理员确认。'}</p>
+                <p className="mt-2 text-xxs text-gray-400">{billing?.alipayQrNote || t('account.paymentHint')}</p>
                 <input
                   value={paymentNote}
                   onChange={(e) => setPaymentNote(e.target.value)}
-                  placeholder="付款备注：账号邮箱、支付宝昵称或转账时间"
+                  placeholder={t('account.paymentNote')}
                   className="mt-3 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-gray-800 dark:bg-gray-900 dark:text-white"
                 />
                 <button
                   onClick={handleCreateOrder}
                   className="mt-2 w-full rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700 active:scale-[0.98]"
                 >
-                  我已付款，创建{selectedPackageType === 'byok_lifetime' ? '买断' : '30 点'}订单
+                  {t('account.createOrder', undefined, { package: selectedPackageType === 'byok_lifetime' ? t('account.byokPackage') : t('account.pointsPackage') })}
                 </button>
                 {billingMessage && <p className="mt-2 text-xs font-semibold text-indigo-600 dark:text-indigo-300">{billingMessage}</p>}
               </div>
@@ -685,12 +688,12 @@ export default function AccountPage() {
         {activeTab === 'settings' && (
           <form onSubmit={handleSaveSettings} className="bg-white dark:bg-gray-950 p-6 rounded-xl border border-gray-150 dark:border-gray-900 shadow-sm space-y-6 max-w-2xl mx-auto">
             <h3 className="text-sm font-bold text-gray-900 dark:text-white border-b border-gray-100 dark:border-gray-900 pb-2">
-              模型设置
+              {t('account.modelSettings')}
             </h3>
 
             {apiSettingsLocked && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold leading-relaxed text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
-                当前账号使用管理员统一模型与联网搜索。购买 30 元买断后，可在这里填写自己的大模型 API 和搜索 API。
+                {t('account.modelLocked')}
               </div>
             )}
 
@@ -703,7 +706,7 @@ export default function AccountPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1">
                 <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  默认大模型
+                  {t('account.defaultModel')}
                 </label>
                 <input
                   type="text"
@@ -711,15 +714,15 @@ export default function AccountPage() {
                   value={modelName}
                   disabled={apiSettingsLocked}
                   onChange={(e) => setModelName(e.target.value)}
-                  placeholder="例: gpt-4o 或 deepseek-chat"
+                  placeholder={t('account.modelPlaceholder')}
                   className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white font-mono disabled:cursor-not-allowed disabled:opacity-60"
                 />
-                <p className="text-xxs text-gray-400">输入您的兼容 API 大模型名称，支持自定义模型输入。</p>
+                <p className="text-xxs text-gray-400">{t('account.modelHint')}</p>
               </div>
 
               <div className="space-y-1">
                 <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  大模型接口地址
+                  {t('account.baseUrl')}
                 </label>
                 <input
                   type="url"
@@ -735,27 +738,27 @@ export default function AccountPage() {
 
               <div className="space-y-1 md:col-span-2">
                 <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  大模型 API Key
+                  {t('account.apiKey')}
                 </label>
                 <input
                   type="password"
                   value={llmApiKey}
                   disabled={apiSettingsLocked}
                   onChange={(e) => setLlmApiKey(e.target.value)}
-                  placeholder={hasLlmApiKey ? '已保存密钥；留空表示不修改' : '请输入 API Key'}
+                  placeholder={hasLlmApiKey ? t('account.apiKeySaved') : t('account.apiKeyPlaceholder')}
                   className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white font-mono disabled:cursor-not-allowed disabled:opacity-60"
                 />
                 <p className="text-xxs text-gray-400">
-                  {hasLlmApiKey ? '数据库中已保存加密密钥；再次输入会覆盖旧密钥。' : '密钥会加密保存到数据库，前端不会回显明文。'}
+                  {hasLlmApiKey ? t('account.apiKeyOverwriteHint') : t('account.apiKeyHint')}
                 </p>
               </div>
 
               <div className="space-y-3 rounded-xl border border-sky-100 bg-sky-50/60 p-3 dark:border-sky-900/30 dark:bg-sky-950/10 md:col-span-2">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <h4 className="text-xs font-black text-gray-950 dark:text-white">Tavily 联网核验</h4>
+                    <h4 className="text-xs font-black text-gray-950 dark:text-white">{t('account.tavilyTitle')}</h4>
                     <p className="mt-1 text-xxs leading-relaxed text-gray-500 dark:text-gray-400">
-                      按账号保存 Tavily Key。默认 basic 搜索更适合免费额度；关闭后报告只基于原文和模型判断。
+                      {t('account.tavilyDescription')}
                     </p>
                   </div>
                   <input
@@ -777,16 +780,16 @@ export default function AccountPage() {
                       value={tavilyApiKey}
                       disabled={apiSettingsLocked}
                       onChange={(e) => setTavilyApiKey(e.target.value)}
-                      placeholder={hasTavilyApiKey ? '已保存 Tavily Key；留空表示不修改' : '请输入 Tavily API Key'}
+                    placeholder={hasTavilyApiKey ? t('account.tavilySaved') : t('account.tavilyPlaceholder')}
                       className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 font-mono text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/20 dark:border-gray-800 dark:bg-gray-900 dark:text-white disabled:cursor-not-allowed disabled:opacity-60"
                     />
                     <p className="text-xxs text-gray-400">
-                      密钥加密保存；Tavily 免费额度通常适合 basic 搜索，不建议默认 advanced。
+                      {t('account.tavilyHint')}
                     </p>
                   </div>
                   <div className="space-y-1">
                     <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                      搜索深度
+                      {t('account.searchDepth')}
                     </label>
                     <select
                       value={tavilySearchDepth}
@@ -794,10 +797,10 @@ export default function AccountPage() {
                       onChange={(e) => setTavilySearchDepth(e.target.value)}
                       className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/20 dark:border-gray-800 dark:bg-gray-900 dark:text-white disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      <option value="basic">basic - 节省额度</option>
-                      <option value="advanced">advanced - 更多检索</option>
+                      <option value="basic">{t('account.basicSearch')}</option>
+                      <option value="advanced">{t('account.advancedSearch')}</option>
                     </select>
-                    <p className="text-xxs text-gray-400">advanced 可能消耗更多搜索额度。</p>
+                    <p className="text-xxs text-gray-400">{t('account.advancedHint')}</p>
                   </div>
                 </div>
               </div>
@@ -805,9 +808,9 @@ export default function AccountPage() {
               <div className="space-y-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 dark:border-emerald-900/30 dark:bg-emerald-950/10 md:col-span-2">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <h4 className="text-xs font-black text-gray-950 dark:text-white">Serper.dev 联网核验</h4>
+                    <h4 className="text-xs font-black text-gray-950 dark:text-white">{t('account.serperTitle')}</h4>
                     <p className="mt-1 text-xxs leading-relaxed text-gray-500 dark:text-gray-400">
-                      可与 Tavily 同时启用。两个搜索都配置时，系统会合并去重后交给报告使用。
+                      {t('account.serperDescription')}
                     </p>
                   </div>
                   <input
@@ -828,24 +831,32 @@ export default function AccountPage() {
                     value={serperApiKey}
                     disabled={apiSettingsLocked}
                     onChange={(e) => setSerperApiKey(e.target.value)}
-                    placeholder={hasSerperApiKey ? '已保存 Serper Key；留空表示不修改' : '请输入 Serper.dev API Key'}
+                    placeholder={hasSerperApiKey ? t('account.serperSaved') : t('account.serperPlaceholder')}
                     className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 font-mono text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-gray-800 dark:bg-gray-900 dark:text-white disabled:cursor-not-allowed disabled:opacity-60"
                   />
-                  <p className="text-xxs text-gray-400">密钥加密保存；用于补充 Google 搜索来源。</p>
+                  <p className="text-xxs text-gray-400">{t('account.serperHint')}</p>
                 </div>
               </div>
 
               <div className="space-y-1 md:col-span-2">
                 <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  全局界面主题
+                  {t('account.theme')}
                 </label>
                 <ThemeSwitcher variant="cards" />
-                <p className="text-xxs text-gray-400">主题保存在本机浏览器，刷新后保持；会同步影响首页、登录注册、账号页、列表、报告详情、图表和 Markdown 区域。</p>
+                <p className="text-xxs text-gray-400">{t('account.themeHint')}</p>
+              </div>
+
+              <div className="space-y-1 md:col-span-2">
+                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  {t('language.interfaceLanguage')}
+                </label>
+                <LanguageSwitcher variant="cards" />
+                <p className="text-xxs text-gray-400">{t('language.savedLocally')}</p>
               </div>
 
               <div className="space-y-1">
                 <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  默认报告语言
+                  {t('report.outputLanguage', '默认报告语言')}
                 </label>
                 <select
                   value={reportLanguage}
@@ -854,16 +865,16 @@ export default function AccountPage() {
                 >
                   {REPORT_LANGUAGE_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
-                      {option.label} - {option.description}
+                      {option.value === 'en-US' ? t('report.englishOption') : t('report.chineseOption')}
                     </option>
                   ))}
                 </select>
-                <p className="text-xxs text-gray-400">首页可临时覆盖本次输出语言；模型报告和后续追问会跟随此设置。</p>
+                <p className="text-xxs text-gray-400">{t('account.reportHint')}</p>
               </div>
 
               <div className="space-y-1">
                 <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  大模型思考深度
+                  {t('account.thinkingDepth')}
                 </label>
                 <select
                   value={reasoningDepth}
@@ -872,19 +883,19 @@ export default function AccountPage() {
                 >
                   {THINKING_DEPTH_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
-                      {option.label} - {option.description}
+                      {t(`thinking.${option.value}`)}
                     </option>
                   ))}
                 </select>
-                <p className="text-xxs text-gray-400">控制大模型推敲强度，不要求模型输出隐藏推理过程。</p>
+                <p className="text-xxs text-gray-400">{t('account.thinkingDepthHint')}</p>
               </div>
             </div>
 
             <div className="border-t border-gray-100 dark:border-gray-900 pt-4 space-y-4 text-xs font-medium">
               <div className="flex items-center justify-between">
                 <div>
-                  <span className="text-gray-900 dark:text-white font-semibold">默认公开展示</span>
-                  <p className="text-xxs text-gray-400">新生成的审视结果默认进入首页热门审视列表中（需公开）。</p>
+                  <span className="text-gray-900 dark:text-white font-semibold">{t('account.publicDefault')}</span>
+                  <p className="text-xxs text-gray-400">{t('account.publicDefaultHint')}</p>
                 </div>
                 <input
                   type="checkbox"
@@ -896,8 +907,8 @@ export default function AccountPage() {
 
               <div className="flex items-center justify-between border-t border-gray-100 dark:border-gray-900 pt-3">
                 <div>
-                  <span className="text-gray-900 dark:text-white font-semibold">默认持久化结果</span>
-                  <p className="text-xxs text-gray-400">每次审视完毕后，默认永久留存记录在您的历史列表中。</p>
+                  <span className="text-gray-900 dark:text-white font-semibold">{t('account.saveDefault')}</span>
+                  <p className="text-xxs text-gray-400">{t('account.saveDefaultHint')}</p>
                 </div>
                 <input
                   type="checkbox"
@@ -909,8 +920,8 @@ export default function AccountPage() {
 
               <div className="flex items-center justify-between border-t border-gray-100 dark:border-gray-900 pt-3">
                 <div>
-                  <span className="text-gray-900 dark:text-white font-semibold">默认生成图形化展示</span>
-                  <p className="text-xxs text-gray-400">开启此项后将使用 Recharts 高效渲染图形指标对比图。</p>
+                  <span className="text-gray-900 dark:text-white font-semibold">{t('account.chartsDefault')}</span>
+                  <p className="text-xxs text-gray-400">{t('account.chartsDefaultHint')}</p>
                 </div>
                 <input
                   type="checkbox"
@@ -927,7 +938,7 @@ export default function AccountPage() {
                 disabled={isSavingSettings}
                 className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-xs shadow-sm transition disabled:bg-gray-300"
               >
-                {isSavingSettings ? '正在保存设置...' : '应用并保存账户预设'}
+                {isSavingSettings ? t('account.saving') : t('account.saveSettings')}
               </button>
             </div>
           </form>
@@ -966,10 +977,10 @@ export default function AccountPage() {
             </div>
 
             {isFetchingAudits ? (
-              <div className="text-center py-12 text-sm text-gray-400 animate-pulse font-semibold">正在载入您的历史生成记录...</div>
+              <div className="text-center py-12 text-sm text-gray-400 animate-pulse font-semibold">{t('account.historyLoading')}</div>
             ) : myAudits.length === 0 ? (
               <div className="bg-white dark:bg-gray-950 p-12 text-center text-xs text-gray-400 dark:text-gray-500 rounded-xl border border-dashed border-gray-200 dark:border-gray-800">
-                您还没有创建过审视记录。
+                {t('account.noHistory')}
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-3.5">

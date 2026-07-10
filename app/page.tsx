@@ -9,6 +9,7 @@ import LoadingState from '../components/LoadingState';
 import ErrorMessage from '../components/ErrorMessage';
 import Header from '../components/Header';
 import { GsapReveal } from '../components/GsapMotion';
+import { useUiLanguage } from '../components/LanguageProvider';
 import { AnalysisResult, AnalysisMode, ReportLanguage, getReportLanguageLabel, getThinkingDepthLabel } from '../lib/types';
 
 interface HotAudit {
@@ -36,6 +37,7 @@ interface AuditSubmitData {
 
 export default function Home() {
   const router = useRouter();
+  const { language, t } = useUiLanguage();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -119,7 +121,7 @@ export default function Home() {
     }
   };
 
-  const getDepthLabel = getThinkingDepthLabel;
+  const getDepthLabel = (depth: string) => getThinkingDepthLabel(depth, language);
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-gray-50 dark:bg-black font-sans leading-normal tracking-normal text-gray-900 dark:text-gray-100 selection:bg-indigo-500/20">
@@ -137,10 +139,10 @@ export default function Home() {
               观隅
             </h1>
             <p className="text-sm font-bold text-gray-700 dark:text-gray-200">
-              看见新闻没有展开的一角
+              {t('brand.tagline')}
             </p>
             <p className="max-w-3xl text-xs md:text-sm text-gray-500 dark:text-gray-400 leading-relaxed font-normal">
-              本工具用来结构化拆解新闻的表层叙事、语言引导、缺席视角、利益纠葛和证据链盲区，帮助你寻找值得验证的盲区与合理解释。
+              {t('home.description')}
             </p>
           </div>
         </div>
@@ -151,7 +153,7 @@ export default function Home() {
           {isLoading && <LoadingState />}
           {isLoading && activeJobId && (
             <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs font-semibold text-[var(--color-text-muted)]">
-              审视任务已交给服务器后台执行。即使刷新或离开页面，也不会取消生成；稍后可在“我的审视”查看。
+              {t('home.backgroundJob')}
             </div>
           )}
           {error && <ErrorMessage message={error} onRetry={handleRetry} />}
@@ -161,7 +163,7 @@ export default function Home() {
                 <span className="inline-block px-3 py-1 bg-gray-100 dark:bg-gray-900 text-gray-500 dark:text-gray-400 rounded-full text-xs font-semibold tracking-wider uppercase mb-2">
                   REVIEW REPORT
                 </span>
-                <h3 className="text-xl font-bold text-gray-900 dark:text-white">叙事反向审视报告</h3>
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white">{t('home.reportTitle')}</h3>
               </div>
               <AnalysisResultView
                 result={result}
@@ -177,28 +179,28 @@ export default function Home() {
 
           <section className="animated-panel rounded-xl border border-gray-100 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950">
             <div className="flex items-center justify-between border-b border-gray-100 pb-2 dark:border-gray-900">
-              <h2 className="text-sm font-black text-gray-950 dark:text-white">热门审视</h2>
-              <span className="text-xxs font-bold text-gray-400">按点击热度排序</span>
+              <h2 className="text-sm font-black text-gray-950 dark:text-white">{t('home.hotTitle')}</h2>
+              <span className="text-xxs font-bold text-gray-400">{t('home.hotOrder')}</span>
             </div>
             <p className="mt-2 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
-              展示用户公开分享的历史审视结果，按照点击热度排序。
+              {t('home.hotDescription')}
             </p>
             <div className="mt-3 space-y-3">
               {isLoadingHotAudits ? (
-                <div className="py-8 text-center text-xs font-semibold text-gray-400">正在加载热门审视...</div>
+                <div className="py-8 text-center text-xs font-semibold text-gray-400">{t('home.loadingHot')}</div>
               ) : hotAudits.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-gray-200 p-5 text-center text-xs text-gray-400 dark:border-gray-800">
-                  暂无公开审视记录。
+                  {t('home.noHot')}
                 </div>
               ) : (
                 hotAudits.slice(0, 6).map((audit) => (
                   <article key={audit.id} className="interactive-lift rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900/60">
                     <div className="flex flex-wrap items-center gap-1.5 text-xxs font-bold text-gray-400">
-                      <span>{audit.source || '未知来源'}</span>
+                      <span>{audit.source || t('home.unknownSource')}</span>
                       <span>·</span>
-                      <span>{new Date(audit.createdAt).toLocaleDateString()}</span>
+                      <span>{new Date(audit.createdAt).toLocaleDateString(language)}</span>
                       <span>·</span>
-                      <span>{audit.viewCount} 次点击</span>
+                      <span>{t('home.views', undefined, { count: audit.viewCount })}</span>
                     </div>
                     <h3 className="mt-1 line-clamp-2 text-sm font-bold leading-snug text-gray-950 dark:text-white">{audit.title}</h3>
                     <p className="mt-1.5 line-clamp-3 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
@@ -207,13 +209,13 @@ export default function Home() {
                     <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xxs font-bold">
                       <span className="rounded bg-indigo-50 px-2 py-0.5 text-indigo-600 dark:bg-indigo-950/30 dark:text-indigo-300">{audit.modelName}</span>
                       <span className="rounded bg-gray-100 px-2 py-0.5 text-gray-600 dark:bg-gray-800 dark:text-gray-300">{getDepthLabel(audit.reasoningDepth)}</span>
-                      <span className="rounded bg-sky-50 px-2 py-0.5 text-sky-700 dark:bg-sky-950/30 dark:text-sky-300">{getReportLanguageLabel(audit.reportLanguage)}</span>
-                      <span className="rounded bg-emerald-50 px-2 py-0.5 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">可信度 {audit.credibilityScore}</span>
-                      <span className="rounded bg-amber-50 px-2 py-0.5 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">推测不确定性 {audit.speculationRiskScore}</span>
+                      <span className="rounded bg-sky-50 px-2 py-0.5 text-sky-700 dark:bg-sky-950/30 dark:text-sky-300">{getReportLanguageLabel(audit.reportLanguage, language)}</span>
+                      <span className="rounded bg-emerald-50 px-2 py-0.5 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">{t('home.credibility', undefined, { score: audit.credibilityScore })}</span>
+                      <span className="rounded bg-amber-50 px-2 py-0.5 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">{t('home.risk', undefined, { score: audit.speculationRiskScore })}</span>
                     </div>
                     <div className="mt-3 flex justify-end">
                       <Link href={`/audits/${audit.id}`} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-indigo-700">
-                        查看详情
+                        {t('common.viewDetails')}
                       </Link>
                     </div>
                   </article>
@@ -222,17 +224,17 @@ export default function Home() {
             </div>
             {hotAudits.length > 0 && (
               <Link href="/audits" className="mt-3 block rounded-lg border border-gray-200 px-3 py-2 text-center text-xs font-bold text-gray-700 transition hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-900">
-                展开更多
+                {t('home.more')}
               </Link>
             )}
           </section>
 
           <section className="rounded-xl border border-gray-100 bg-white p-4 text-xs leading-relaxed text-gray-500 shadow-sm dark:border-gray-800 dark:bg-gray-950 dark:text-gray-400">
-            <h2 className="text-sm font-black text-gray-950 dark:text-white">高频使用说明</h2>
+            <h2 className="text-sm font-black text-gray-950 dark:text-white">{t('home.usageTitle')}</h2>
             <ul className="mt-2 space-y-1.5">
-              <li>1. 默认大模型、思考深度和公开偏好在账号管理中设置。</li>
-              <li>2. 每次审视会保存新闻总结、评分、图表数据和完整 JSON。</li>
-              <li>3. 公开记录会进入热门审视；私有记录仅自己可见。</li>
+              <li>{t('home.usageOne')}</li>
+              <li>{t('home.usageTwo')}</li>
+              <li>{t('home.usageThree')}</li>
             </ul>
           </section>
         </div>
@@ -242,7 +244,7 @@ export default function Home() {
       <footer className="relative z-10 border-t border-gray-100 dark:border-gray-900 bg-white dark:bg-gray-950 py-8 mt-16 text-center text-xs text-gray-400 dark:text-gray-500">
         <div className="max-w-6xl mx-auto px-4 space-y-2 font-medium">
           <p>© 2026 观隅. 保留所有权利。</p>
-          <p className="text-xxs">免责声明：本分析由大语言模型驱动，其输出的替代解释、盲区梳理和推测性判断仅作为批判性阅读与事实核查线索，不代表本系统立场，也不代表已核实事实；涉及推断的内容需结合更多来源验证，不应直接视为事实。</p>
+          <p className="text-xxs">{t('home.disclaimer')}</p>
         </div>
       </footer>
     </main>

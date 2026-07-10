@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useUiLanguage } from './LanguageProvider';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -14,6 +15,7 @@ interface InteractiveQAProps {
 }
 
 export default function InteractiveQA({ auditId, messages: controlledMessages, onMessagesChange }: InteractiveQAProps) {
+  const { t } = useUiLanguage();
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isSending, setIsSaving] = useState(false);
@@ -68,10 +70,10 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
     <div className="bg-white dark:bg-gray-950 p-5 rounded-xl border border-gray-150 dark:border-gray-900 shadow-sm space-y-4">
       <div className="border-b border-gray-100 dark:border-gray-900 pb-2.5 flex justify-between items-center">
         <h3 className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
-          <span>💬 对本篇报告进行交互式深入追问</span>
+          <span>💬 {t('qa.title')}</span>
         </h3>
         <span className="text-xxs font-bold bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded">
-          多轮推敲
+          {t('qa.badge')}
         </span>
       </div>
 
@@ -79,9 +81,7 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
       <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
         {messages.length === 0 ? (
           <div className="text-center py-6 text-xxs text-gray-400 dark:text-gray-500 font-medium border border-dashed border-gray-100 dark:border-gray-900 rounded-lg">
-            对替代解释有疑问？想追问证据链？
-            <br />
-            在下方输入框直接提问，AI 助手将基于原文、审视报告和联网线索为您解答。
+            {t('qa.empty').split('\n').map((line, index) => <React.Fragment key={line}>{index > 0 && <br />}{line}</React.Fragment>)}
           </div>
         ) : (
           <div className="space-y-3 text-xs leading-relaxed">
@@ -95,7 +95,7 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
                 }`}
               >
                 <span className="text-xxs font-bold uppercase tracking-wider text-gray-400">
-                  {m.role === 'user' ? '👤 我的问题' : '🤖 审视助手解答'}
+                  {m.role === 'user' ? `👤 ${t('qa.user')}` : `🤖 ${t('qa.assistant')}`}
                 </span>
                 <p className="text-gray-700 dark:text-gray-300 font-normal whitespace-pre-wrap">{m.content}</p>
               </div>
@@ -106,7 +106,7 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
         {isSending && (
           <div className="text-xxs font-bold text-gray-400 flex items-center gap-2 pl-2">
             <span className="animate-pulse h-1.5 w-1.5 bg-indigo-500 rounded-full" />
-            <span>AI 正在研判博弈事实、核对关联线索并撰写深度答复中...</span>
+            <span>{t('qa.loading')}</span>
           </div>
         )}
 
@@ -124,7 +124,7 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
           required
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="例：为什么这个替代解释只有 45% 置信度？原文里哪些信息支持或削弱它？"
+          placeholder={t('qa.placeholder')}
           className="flex-1 px-3 py-2 border border-gray-250 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 dark:text-white"
         />
         <button
@@ -132,7 +132,7 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
           disabled={isSending || !input.trim()}
           className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-200 dark:disabled:bg-gray-850 text-white rounded-lg font-bold text-xs shadow-sm transition flex-shrink-0"
         >
-          追问
+          {t('qa.ask')}
         </button>
       </form>
     </div>

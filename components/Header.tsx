@@ -4,9 +4,12 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useSession, signOut } from 'next-auth/react';
+import LanguageSwitcher from './LanguageSwitcher';
+import { useUiLanguage } from './LanguageProvider';
 
 export default function Header() {
   const { data: session } = useSession();
+  const { t } = useUiLanguage();
   const [isScrolled, setIsScrolled] = useState(false);
 
   useEffect(() => {
@@ -34,20 +37,22 @@ export default function Header() {
           />
           <div>
             <h1 className="text-sm font-bold tracking-tight text-[var(--color-text)] leading-none">观隅</h1>
-            <span className="hidden text-xxs text-[var(--color-text-muted)] font-semibold tracking-wider mt-0.5 sm:block">看见新闻没有展开的一角</span>
+            <span className="hidden text-xxs text-[var(--color-text-muted)] font-semibold tracking-wider mt-0.5 sm:block">{t('brand.tagline')}</span>
           </div>
         </Link>
 
         <nav className="flex max-w-full items-center gap-1 overflow-x-auto whitespace-nowrap sm:gap-2">
           <Link href="/" className="text-xs font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-link)] px-2 py-1.5 rounded transition">
-            首页
+            {t('nav.home')}
           </Link>
           <Link href="/my-audits" className="text-xs font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-link)] px-2 py-1.5 rounded transition">
-            我的审视
+            {t('nav.myAudits')}
           </Link>
           <Link href="/account" className="text-xs font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-link)] px-2 py-1.5 rounded transition">
-            账号管理
+            {t('nav.account')}
           </Link>
+
+          <LanguageSwitcher />
 
           {session ? (
             <>
@@ -55,19 +60,19 @@ export default function Header() {
                 onClick={() => signOut({ callbackUrl: '/' })}
                 className="text-xs font-semibold text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 px-2 py-1.5 rounded transition"
               >
-                退出
+                {t('nav.signOut')}
               </button>
             </>
           ) : (
             <>
               <Link href="/login" className="text-xs font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-link)] px-2 py-1.5 rounded transition">
-                登录
+                {t('nav.signIn')}
               </Link>
               <Link
                 href="/register"
                 className="text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg shadow-sm transition"
               >
-                注册
+                {t('nav.signUp')}
               </Link>
             </>
           )}
