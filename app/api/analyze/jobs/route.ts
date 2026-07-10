@@ -20,6 +20,7 @@ export async function POST(request: Request) {
       source: body.source,
       content: body.content,
       focus: body.focus,
+      reportLanguage: body.reportLanguage,
     });
   } catch {
     return NextResponse.json({ error: '新闻正文太短，最少需要 50 个字符。' }, { status: 400 });

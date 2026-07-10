@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { AnalysisMode } from '../lib/types';
+import { AnalysisMode, REPORT_LANGUAGE_OPTIONS, ReportLanguage, normalizeReportLanguage } from '../lib/types';
 
 interface AnalysisFormProps {
   onSubmit: (data: {
@@ -9,6 +9,7 @@ interface AnalysisFormProps {
     content: string;
     focus: string;
     mode: AnalysisMode;
+    reportLanguage: ReportLanguage;
   }) => void;
   isLoading: boolean;
 }
@@ -19,10 +20,23 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
   const [source, setSource] = useState('');
   const [content, setContent] = useState('');
   const [focus, setFocus] = useState('');
+  const [reportLanguage, setReportLanguage] = useState<ReportLanguage>('zh-CN');
   const mode: AnalysisMode = 'deep';
   const [urlInput, setUrlInput] = useState('');
   const [isParsing, setIsParsing] = useState(false);
   const [parseError, setParseError] = useState('');
+
+  useEffect(() => {
+    if (status !== 'authenticated') return;
+    fetch('/api/account/settings')
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => {
+        if (data?.defaultReportLanguage) {
+          setReportLanguage(normalizeReportLanguage(data.defaultReportLanguage));
+        }
+      })
+      .catch(() => undefined);
+  }, [status]);
 
   const handleParseUrl = async () => {
     const trimmed = urlInput.trim();
@@ -70,7 +84,7 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!content.trim() || content.trim().length < 50) return;
-    onSubmit({ title, source, content, focus, mode });
+    onSubmit({ title, source, content, focus, mode, reportLanguage });
   };
 
   const isFormValid = content.trim().length >= 50;
@@ -192,6 +206,25 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
             placeholder="例：分析背后的地缘政治动机 / 利益输送嫌疑 / 科学数据是否有偏倚"
             className="interactive-lift w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white"
           />
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div className="space-y-1">
+            <label htmlFor="report-language" className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              报告输出语言
+            </label>
+            <select
+              id="report-language"
+              value={reportLanguage}
+              onChange={(e) => setReportLanguage(normalizeReportLanguage(e.target.value))}
+              className="interactive-lift w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white"
+            >
+              {REPORT_LANGUAGE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            <p className="text-xxs text-gray-400">影响本次报告、摘要、核验说明和后续追问；不会改变原始新闻正文。</p>
+          </div>
         </div>
 
         <div className="rounded-lg border border-[var(--color-warning)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs font-semibold leading-relaxed text-[var(--color-text)]">

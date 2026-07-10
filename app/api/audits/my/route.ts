@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 
 export async function GET(request: Request) {
   try {
+    await ensureRuntimeSchema();
     const user = await getCurrentUser(request);
     if (!user) {
       return NextResponse.json({ error: '未授权，请先登录' }, { status: 401 });
@@ -53,6 +55,7 @@ export async function GET(request: Request) {
         focus: true,
         analysisMode: true,
         reasoningDepth: true,
+        reportLanguage: true,
         modelName: true,
         newsSummary: true,
         credibilityScore: true,

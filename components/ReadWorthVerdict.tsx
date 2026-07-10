@@ -9,6 +9,7 @@ gsap.registerPlugin(useGSAP);
 
 interface ReadWorthVerdictProps {
   label: ReadWorthLabel;
+  displayLabel?: string;
 }
 
 const PALETTE: Record<ReadWorthLabel, {
@@ -43,7 +44,7 @@ const PALETTE: Record<ReadWorthLabel, {
   },
 };
 
-export default function ReadWorthVerdict({ label }: ReadWorthVerdictProps) {
+export default function ReadWorthVerdict({ label, displayLabel }: ReadWorthVerdictProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const haloRef = useRef<HTMLDivElement | null>(null);
   const sweepRef = useRef<HTMLDivElement | null>(null);
@@ -127,13 +128,13 @@ export default function ReadWorthVerdict({ label }: ReadWorthVerdictProps) {
     <div
       ref={rootRef}
       data-gsap-hover
-      aria-label={`阅读价值判断：${label}`}
+      aria-label={`阅读价值判断：${displayLabel || label}`}
       className={`relative isolate mx-auto w-full max-w-xl overflow-hidden rounded-2xl border px-5 py-6 text-center shadow-2xl ${palette.frame}`}
     >
       <div ref={haloRef} className={`pointer-events-none absolute inset-[-20%] -z-10 rounded-full blur-3xl ${palette.halo}`} />
       <div ref={sweepRef} className={`pointer-events-none absolute inset-y-0 left-0 w-1/2 -skew-x-12 bg-gradient-to-r ${palette.sweep}`} />
       <div className={`relative text-4xl font-black leading-none tracking-[0.12em] sm:text-6xl ${palette.text}`}>
-        {label.split('').map((char, index) => (
+        {(displayLabel || label).split('').map((char, index) => (
           <span
             key={`${char}-${index}`}
             ref={(node) => {

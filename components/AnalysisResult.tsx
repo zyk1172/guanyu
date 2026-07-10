@@ -7,6 +7,8 @@ import {
   EvidenceGrade,
   QuickAnalysisResult,
   ReadWorthLabel,
+  getReadWorthDisplayLabel,
+  normalizeReportLanguage,
   SpeculationRisk,
   VerificationStatus,
   VerificationStatusCode,
@@ -30,6 +32,7 @@ interface AnalysisResultProps {
     modelName?: string;
     reasoningDepth?: string;
     analysisMode?: string;
+    reportLanguage?: string;
     createdAt?: string;
     viewCount?: number;
     isPublic?: boolean;
@@ -218,6 +221,7 @@ function convertLegacyResult(result: any, auditMeta?: AnalysisResultProps['audit
       modelName: auditMeta?.modelName || '',
       reasoningDepth: auditMeta?.reasoningDepth || '',
       analysisMode: 'deep',
+      reportLanguage: normalizeReportLanguage(auditMeta?.reportLanguage),
       createdAt: auditMeta?.createdAt || '',
       viewCount: auditMeta?.viewCount,
       isPublic: auditMeta?.isPublic,
@@ -411,11 +415,11 @@ function compactAside(total: number, limit: number) {
   return <span className="text-xxs font-semibold text-gray-400">已优先显示 {limit}/{total} 条，完整内容见 Markdown</span>;
 }
 
-function ReadingValueSection({ label, reason }: { label: ReadWorthLabel; reason?: string }) {
+function ReadingValueSection({ label, reason, reportLanguage }: { label: ReadWorthLabel; reason?: string; reportLanguage?: string }) {
   return (
     <Section title="阅读价值判断">
       <div className="grid gap-3 md:grid-cols-[220px_minmax(0,1fr)]">
-        <ReadWorthVerdict label={label} />
+        <ReadWorthVerdict label={label} displayLabel={getReadWorthDisplayLabel(label, reportLanguage)} />
         <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm leading-relaxed text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300">
           {line(reason, '该判断综合信息完整度、证据强度、叙事倾向性和待核验问题得出。')}
         </div>
@@ -698,6 +702,7 @@ function markdownFor(report: QuickAnalysisResult | DeepAnalysisResult, originalC
       ['发布时间可信度', CONFIDENCE_LABELS[meta.publishedAtConfidence] || meta.publishedAtConfidence],
       ['使用模型', line(meta.modelName, '未填写')],
       ['思考强度', line(meta.reasoningDepth, '未填写')],
+      ['报告语言', meta.reportLanguage === 'en-US' ? 'English' : '中文'],
       ['分析模式', line(meta.analysisMode, '未填写')],
       ['报告生成时间', line(meta.createdAt, '未填写')],
       ['方法论', report.methodology],
@@ -741,7 +746,7 @@ function QuickReportView({ report, originalContent, qaMessages }: { report: Quic
     <>
       <Section title="1. 原文速读"><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{report.originalReading || report.newsSummary}</p></Section>
       <Section title="2. 核心主张"><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.coreClaim}</p></Section>
-      <ReadingValueSection label={report.readingValue} reason={report.readingValueReason} />
+      <ReadingValueSection label={report.readingValue} reason={report.readingValueReason} reportLanguage={report.meta.reportLanguage} />
       <Section title="4. 一句话观隅审视"><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.oneSentenceJudgment}</p></Section>
       <Section title="5. 三个关键信号">
         <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
@@ -790,7 +795,7 @@ function DeepReportView({ report, originalContent, qaMessages, displayLimit }: {
           <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900 md:col-span-2"><div className="font-black">读者最可能带走的印象</div><p className="mt-1 leading-relaxed">{report.sourceInterpretation.likelyReaderImpression}</p></div>
         </div>
       </Section>
-      <ReadingValueSection label={report.readingValue} reason={report.readingValueReason} />
+      <ReadingValueSection label={report.readingValue} reason={report.readingValueReason} reportLanguage={report.meta.reportLanguage} />
       <Section title="3. 给普通读者的读法"><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{report.normalReaderGuide}</p></Section>
       <Section title="4. 一句话观隅审视"><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.oneSentenceConclusion}</p></Section>
       <ScoresSection report={report} />
@@ -854,6 +859,7 @@ function DeepReportView({ report, originalContent, qaMessages, displayLimit }: {
             ['发布时间', report.meta.publishedAt || '未能可靠识别发布时间'],
             ['使用模型', report.meta.modelName],
             ['思考强度', report.meta.reasoningDepth],
+            ['报告语言', report.meta.reportLanguage === 'en-US' ? 'English' : '中文'],
             ['分析模式', report.meta.analysisMode],
             ['生成时间', report.meta.createdAt],
             ['方法论', report.methodology],

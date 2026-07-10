@@ -46,6 +46,7 @@ model UserSettings {
   enableSerperSearch    Boolean  @default(false)
   serperApiKeyEncrypted String?
   defaultAudienceTheme  String   @default("youth") // teen, youth, mature, senior
+  defaultReportLanguage String   @default("zh-CN") // zh-CN, en-US
   defaultReasoningDepth String   @default("medium") // none, low, medium, high, extreme
   defaultAnalysisMode   String   @default("quick") // quick, deep
   defaultIsPublic       Boolean  @default(true)
@@ -69,6 +70,7 @@ model Audit {
   originalContent              String
   focus                        String?
   analysisMode                 String // quick, deep
+  reportLanguage               String   @default("zh-CN") // zh-CN, en-US
   reasoningDepth               String // none, low, medium, high, extreme
   modelName                    String
   newsSummary                  String

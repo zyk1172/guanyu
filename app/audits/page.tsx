@@ -1,11 +1,13 @@
 import Link from 'next/link';
 import Header from '@/components/Header';
 import { prisma } from '@/lib/prisma';
-import { getThinkingDepthLabel } from '@/lib/types';
+import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
+import { getReportLanguageLabel, getThinkingDepthLabel } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
 export default async function PublicAuditsPage() {
+  await ensureRuntimeSchema();
   const audits = await prisma.audit.findMany({
     where: { isPublic: true },
     orderBy: [
@@ -20,6 +22,7 @@ export default async function PublicAuditsPage() {
       newsSummary: true,
       modelName: true,
       reasoningDepth: true,
+      reportLanguage: true,
       credibilityScore: true,
       speculationRiskScore: true,
       viewCount: true,
@@ -67,6 +70,7 @@ export default async function PublicAuditsPage() {
                 <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xxs font-bold">
                   <span className="rounded bg-blue-50 px-2 py-0.5 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">{audit.modelName}</span>
                   <span className="rounded bg-gray-100 px-2 py-0.5 text-gray-600 dark:bg-gray-850 dark:text-gray-300">{getThinkingDepthLabel(audit.reasoningDepth)}</span>
+                  <span className="rounded bg-sky-50 px-2 py-0.5 text-sky-700 dark:bg-sky-950/30 dark:text-sky-300">{getReportLanguageLabel(audit.reportLanguage)}</span>
                   <span className="rounded bg-slate-100 px-2 py-0.5 text-slate-700 dark:bg-slate-900 dark:text-slate-300">可信度 {audit.credibilityScore}</span>
                   <span className="rounded bg-red-50 px-2 py-0.5 text-red-700 dark:bg-red-950/30 dark:text-red-300">不确定性 {audit.speculationRiskScore}</span>
                 </div>

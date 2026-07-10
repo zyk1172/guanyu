@@ -7,8 +7,12 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   THINKING_DEPTH_OPTIONS,
+  getReportLanguageLabel,
   getThinkingDepthLabel,
   normalizeThinkingDepthValue,
+  REPORT_LANGUAGE_OPTIONS,
+  ReportLanguage,
+  normalizeReportLanguage,
 } from '@/lib/types';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
 
@@ -31,6 +35,7 @@ export default function AccountPage() {
   const [serperApiKey, setSerperApiKey] = useState('');
   const [hasSerperApiKey, setHasSerperApiKey] = useState(false);
   const [reasoningDepth, setReasoningDepth] = useState('medium');
+  const [reportLanguage, setReportLanguage] = useState<ReportLanguage>('zh-CN');
   const [isPublic, setIsPublic] = useState(true);
   const [saveResult, setSaveResult] = useState(true);
   const [enableCharts, setEnableCharts] = useState(true);
@@ -112,6 +117,7 @@ export default function AccountPage() {
             setEnableSerperSearch(Boolean(data.enableSerperSearch));
             setHasSerperApiKey(Boolean(data.hasSerperApiKey));
             setReasoningDepth(normalizeThinkingDepthValue(data.defaultReasoningDepth));
+            setReportLanguage(normalizeReportLanguage(data.defaultReportLanguage));
             setIsPublic(data.defaultIsPublic);
             setSaveResult(data.defaultSaveResult);
             setEnableCharts(data.defaultEnableCharts);
@@ -165,6 +171,7 @@ export default function AccountPage() {
           enableSerperSearch,
           serperApiKey: serperApiKey.trim(),
           defaultReasoningDepth: reasoningDepth,
+          defaultReportLanguage: reportLanguage,
           defaultIsPublic: isPublic,
           defaultSaveResult: saveResult,
           defaultEnableCharts: enableCharts,
@@ -838,6 +845,24 @@ export default function AccountPage() {
 
               <div className="space-y-1">
                 <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  默认报告语言
+                </label>
+                <select
+                  value={reportLanguage}
+                  onChange={(e) => setReportLanguage(normalizeReportLanguage(e.target.value))}
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white"
+                >
+                  {REPORT_LANGUAGE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label} - {option.description}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xxs text-gray-400">首页可临时覆盖本次输出语言；模型报告和后续追问会跟随此设置。</p>
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   大模型思考深度
                 </label>
                 <select
@@ -960,6 +985,9 @@ export default function AccountPage() {
                         </span>
                         <span className="text-xxs font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded">
                           {getModeLabel(audit.analysisMode)}
+                        </span>
+                        <span className="text-xxs font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded dark:bg-sky-950/30 dark:text-sky-300">
+                          {getReportLanguageLabel(audit.reportLanguage)}
                         </span>
                         <span className="text-xxs text-gray-400 font-semibold">{new Date(audit.createdAt).toLocaleDateString()}</span>
                         {showAllAudits && audit.user?.email && (

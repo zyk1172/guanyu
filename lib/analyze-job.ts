@@ -1,6 +1,7 @@
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { prisma } from '@/lib/prisma';
 import { POST as analyzeNews } from '@/app/api/analyze/route';
+import { normalizeReportLanguage, type ReportLanguage } from '@/lib/types';
 
 const MAX_NEWS_CONTENT_LENGTH = 30_000;
 
@@ -9,6 +10,7 @@ export type AnalyzeJobInput = {
   source: string;
   content: string;
   focus?: string;
+  reportLanguage?: ReportLanguage;
 };
 
 export function normalizeAnalyzeJobInput(input: Partial<AnalyzeJobInput>) {
@@ -17,6 +19,9 @@ export function normalizeAnalyzeJobInput(input: Partial<AnalyzeJobInput>) {
     source: String(input.source || '').trim().slice(0, 180),
     content: String(input.content || '').trim().slice(0, MAX_NEWS_CONTENT_LENGTH),
     focus: String(input.focus || '').trim().slice(0, 1000),
+    ...(typeof input.reportLanguage === 'string'
+      ? { reportLanguage: normalizeReportLanguage(input.reportLanguage) }
+      : {}),
     mode: 'deep',
   };
 }

@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { cacheGet, cacheSet, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
+import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 
 export async function GET(request: Request) {
   try {
+    await ensureRuntimeSchema();
     const { searchParams } = new URL(request.url);
     const requestedLimit = Number.parseInt(searchParams.get('limit') || '20', 10);
     const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 60) : 20;
@@ -31,6 +33,7 @@ export async function GET(request: Request) {
         newsSummary: true,
         modelName: true,
         reasoningDepth: true,
+        reportLanguage: true,
         analysisMode: true,
         credibilityScore: true,
         speculationRiskScore: true,

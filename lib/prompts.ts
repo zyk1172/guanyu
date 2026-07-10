@@ -1,4 +1,4 @@
-import { AnalysisMode } from './types';
+import { AnalysisMode, ReportLanguage, normalizeReportLanguage } from './types';
 
 export const GUANYU_SYSTEM_PROMPT = `你是「观隅」新闻叙事审视助手。以下规则为最高优先级，只约束分析过程，不得复制进报告正文。
 
@@ -65,6 +65,18 @@ reasoningDepth 只影响审视严格度，不得暴露隐藏推理过程：
 none 简洁直接；low 轻量核对；medium 标准审视；high 强化证据、利益结构和替代解释；extreme 最严格多维审视，强化证据缺口、风险标注和验证路径。`;
 
 export const GUANYU_SUPREME_RULE = GUANYU_SYSTEM_PROMPT;
+
+function reportLanguageInstruction(language: ReportLanguage) {
+  if (language === 'en-US') {
+    return `【Report output language】English
+All human-readable report content must be written in clear, neutral English. This includes the summary, conclusions, explanations, findings, evidence notes, verification paths, questions, online-verification notes, and risk notice. Do not mix Chinese prose into these fields.
+
+JSON field names and fixed parser values must remain exactly as specified in the schema. In particular, keep evidenceGrade as A/B/C/D/E; verificationStatus as its English code; and use the schema's canonical Chinese values only for fixed enum fields such as judgmentType, speculationRisk, reasonableness, priority, and readingValue. These fixed values are rendered by the app and are not report prose.`;
+  }
+
+  return `【报告输出语言】中文
+所有面向读者的报告内容必须使用清晰、克制的中文输出，包括摘要、结论、解释、发现、证据说明、验证路径、追问、联网核验说明和风险提示。JSON 字段名及固定枚举值必须严格保持 Schema 规定。`;
+}
 
 const DEEP_SCHEMA = `{
   "reportType": "deep",
@@ -202,8 +214,10 @@ export function buildPrompt(newsInfo: {
   focus?: string;
   mode: AnalysisMode;
   reasoningDepth: string;
+  reportLanguage: ReportLanguage;
   webSearchContext?: string;
 }): { system: string; user: string } {
+  const reportLanguage = normalizeReportLanguage(newsInfo.reportLanguage);
   const hasWeb = Boolean(newsInfo.webSearchContext?.trim());
   const webSearchStatus = hasWeb
     ? '已提供联网线索。只有被具体来源标题、链接和依据摘录直接支撑的判断才能使用 externally_verified；否则必须标为 partially_supported、pending_verification 或 unable_to_verify。'
@@ -213,6 +227,7 @@ export function buildPrompt(newsInfo: {
 【新闻来源】${newsInfo.source}
 【发布时间判断要求】请根据新闻正文、标题、版面和来源文本中的日期痕迹判断。无法可靠判断时 timeAssessment.publishedAt 留空；不要把报告生成时间、抓取时间或提交时间当作新闻发布时间。
 【大模型思考强度/reasoningDepth】${newsInfo.reasoningDepth}
+${reportLanguageInstruction(reportLanguage)}
 【联网核验状态】${webSearchStatus}
 ${newsInfo.focus ? `【用户关注点】${newsInfo.focus}` : '【用户关注点】无'}
 ${hasWeb ? `\n【联网搜索线索】\n${newsInfo.webSearchContext}\n\n请把联网材料重构为已核验来源、相关背景来源、待核验线索、暂无法确认的信息；每条已核验来源必须写明支持了什么判断、依据来自哪一个链接和摘录。不要输出搜索 query 或搜索摘要残留。` : ''}
@@ -235,6 +250,7 @@ export function buildCompactFallbackPrompt(newsInfo: {
   focus?: string;
   mode: AnalysisMode;
   reasoningDepth: string;
+  reportLanguage: ReportLanguage;
   webSearchContext?: string;
 }) {
   return buildPrompt({

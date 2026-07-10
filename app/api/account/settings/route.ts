@@ -5,10 +5,12 @@ import { prisma } from '@/lib/prisma';
 import { encryptSecret } from '@/lib/secret';
 import { getOrCreateAppSetting, isByokPlan } from '@/lib/billing';
 import { cacheDel, CACHE_KEYS } from '@/lib/cache';
+import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 
 const VALID_ANALYSIS_MODES = new Set(['quick', 'deep']);
 const VALID_THINKING_DEPTHS = new Set(['none', 'low', 'medium', 'high', 'extreme', 'quick', 'standard', 'deep', 'exhaustive']);
 const VALID_TAVILY_DEPTHS = new Set(['basic', 'advanced']);
+const VALID_REPORT_LANGUAGES = new Set(['zh-CN', 'en-US']);
 
 function normalizeThinkingDepth(depth: unknown) {
   if (typeof depth !== 'string') return 'medium';
@@ -34,6 +36,7 @@ function withSafeModelFields<T extends { llmApiKeyEncrypted?: string | null; tav
 
 export async function GET(request: Request) {
   try {
+    await ensureRuntimeSchema();
     const user = await getCurrentUser(request);
     if (!user) {
       return NextResponse.json({ error: '请登录后再操作。' }, { status: 401 });
@@ -73,6 +76,7 @@ export async function GET(request: Request) {
             llmBaseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
             defaultReasoningDepth: 'medium',
             defaultAnalysisMode: 'deep',
+            defaultReportLanguage: 'zh-CN',
             defaultIsPublic: true,
           defaultSaveResult: true,
           defaultEnableCharts: true,
@@ -122,6 +126,7 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
+    await ensureRuntimeSchema();
     const user = await getCurrentUser(request);
     if (!user) {
       return NextResponse.json({ error: '请登录后再操作。' }, { status: 401 });
@@ -148,6 +153,7 @@ export async function PATCH(request: Request) {
       enableSerperSearch,
       serperApiKey,
       defaultReasoningDepth,
+      defaultReportLanguage,
       defaultAnalysisMode,
       defaultIsPublic,
       defaultSaveResult,
@@ -155,6 +161,7 @@ export async function PATCH(request: Request) {
     } = body;
     const safeAnalysisMode = VALID_ANALYSIS_MODES.has(defaultAnalysisMode) ? defaultAnalysisMode : 'deep';
     const safeReasoningDepth = normalizeThinkingDepth(defaultReasoningDepth);
+    const safeReportLanguage = VALID_REPORT_LANGUAGES.has(defaultReportLanguage) ? defaultReportLanguage : 'zh-CN';
 
     const trimmedApiKey = typeof llmApiKey === 'string' ? llmApiKey.trim() : '';
     const trimmedTavilyApiKey = typeof tavilyApiKey === 'string' ? tavilyApiKey.trim() : '';
@@ -201,6 +208,7 @@ export async function PATCH(request: Request) {
         } : {}),
         ...serperApiKeyUpdate,
         defaultReasoningDepth: safeReasoningDepth,
+        defaultReportLanguage: safeReportLanguage,
         defaultIsPublic,
         defaultSaveResult,
         defaultEnableCharts,
@@ -216,6 +224,7 @@ export async function PATCH(request: Request) {
         enableSerperSearch: canUseOwnApi ? Boolean(enableSerperSearch) : false,
         serperApiKeyEncrypted: canUseOwnApi && trimmedSerperApiKey ? encryptSecret(trimmedSerperApiKey) : null,
         defaultReasoningDepth: safeReasoningDepth,
+        defaultReportLanguage: safeReportLanguage,
         defaultAnalysisMode: safeAnalysisMode,
         defaultIsPublic: defaultIsPublic !== undefined ? defaultIsPublic : true,
         defaultSaveResult: defaultSaveResult !== undefined ? defaultSaveResult : true,

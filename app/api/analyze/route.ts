@@ -7,7 +7,9 @@ import { computeReadWorth } from '@/lib/readWorth';
 import { searchWeb, WebSearchOptions } from '@/lib/search';
 import { decryptSecret } from '@/lib/secret';
 import { assertAnalyzeRateLimit, recordAnalyzeEvent } from '@/lib/rate-limit';
+import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { buildUsagePlan, commitUsage, getOrCreateAppSetting } from '@/lib/billing';
+import { normalizeReportLanguage } from '@/lib/types';
 import type { UsageSource } from '@/lib/billing';
 import type {
   AnalysisMode,
@@ -18,6 +20,7 @@ import type {
   SpeculationRisk,
   VerificationStatusCode,
   JudgmentType,
+  ReportLanguage,
 } from '@/lib/types';
 
 export const maxDuration = 300;
@@ -225,6 +228,7 @@ function normalizeReport(params: {
     modelName: meta.modelName,
     reasoningDepth: meta.reasoningDepth,
     analysisMode: mode,
+    reportLanguage: normalizeReportLanguage(meta.reportLanguage),
     createdAt: meta.createdAt,
     viewCount: meta.viewCount,
     isPublic: meta.isPublic,
@@ -355,6 +359,7 @@ function buildSearchOptions(params: {
   usageSource: UsageSource;
   userSettings: any;
   appSetting: any;
+  reportLanguage: ReportLanguage;
 }): WebSearchOptions {
   const useOwnApi = params.usageSource === 'byok';
   const adminTavilyKey = params.appSetting?.adminTavilyApiKeyEncrypted
@@ -383,6 +388,7 @@ function buildSearchOptions(params: {
       tavilyApiKey,
       serperApiKey,
       tavilySearchDepth,
+      locale: params.reportLanguage,
     };
   }
   if (tavilyApiKey) {
@@ -390,10 +396,11 @@ function buildSearchOptions(params: {
       provider: 'tavily',
       tavilyApiKey,
       tavilySearchDepth,
+      locale: params.reportLanguage,
     };
   }
   if (serperApiKey) {
-    return { provider: 'serper', serperApiKey };
+    return { provider: 'serper', serperApiKey, locale: params.reportLanguage };
   }
   return { provider: 'none' };
 }
@@ -422,14 +429,20 @@ function chooseModelConfig(params: {
   };
 }
 
-async function buildDeepSearchGroups(base: { title?: string; source?: string; content: string }, searchOptions: WebSearchOptions) {
+async function buildDeepSearchGroups(base: { title?: string; source?: string; content: string; reportLanguage: ReportLanguage }, searchOptions: WebSearchOptions) {
   const core = [base.title, base.source].filter(Boolean).join(' ');
   const contentHint = base.content.slice(0, 180).replace(/\s+/g, ' ');
-  const queries = [
-    `${core} 原始材料 官方数据 政策 原文 ${contentHint}`,
-    `${core} 多方报道 背景 数据 争议 ${contentHint}`,
-    `${core} 相关主体 责任 利益 成本 ${contentHint}`,
-  ];
+  const queries = base.reportLanguage === 'en-US'
+    ? [
+        `${core} primary sources official data policy documents ${contentHint}`,
+        `${core} independent reporting background data context ${contentHint}`,
+        `${core} stakeholders accountability benefits costs ${contentHint}`,
+      ]
+    : [
+        `${core} 原始材料 官方数据 政策 原文 ${contentHint}`,
+        `${core} 多方报道 背景 数据 争议 ${contentHint}`,
+        `${core} 相关主体 责任 利益 成本 ${contentHint}`,
+      ];
 
   return Promise.all(queries.map(async (query) => searchWeb(query.slice(0, 260), 3, searchOptions)));
 }
@@ -524,6 +537,7 @@ function parseAssistantJSON(assistantMessage: string) {
 
 export async function POST(request: Request) {
   try {
+    await ensureRuntimeSchema();
     const currentUser = await getCurrentUser(request);
     if (!currentUser) {
       return NextResponse.json({ error: '请登录后再创建新闻审视。' }, { status: 401 });
@@ -538,7 +552,7 @@ export async function POST(request: Request) {
     ]);
 
     const body = await request.json();
-    const { title, source, content, focus } = body;
+    const { title, source, content, focus, reportLanguage } = body;
 
     if (!content || content.trim().length < 50) {
       return NextResponse.json({ error: '新闻正文太短，最少需要 50 个字符。' }, { status: 400 });
@@ -547,14 +561,15 @@ export async function POST(request: Request) {
     const truncatedContent = content.slice(0, MAX_NEWS_CONTENT_LENGTH);
     const actualReasoningDepth = normalizeThinkingDepth(userSettings?.defaultReasoningDepth);
     const actualAnalysisMode = 'deep' as AnalysisMode;
+    const actualReportLanguage = normalizeReportLanguage(reportLanguage || userSettings?.defaultReportLanguage);
     const actualIsPublic = userSettings?.defaultIsPublic !== undefined ? userSettings.defaultIsPublic : true;
     const usagePlan = await buildUsagePlan(currentUser.id, actualAnalysisMode);
-    const searchOptions = buildSearchOptions({ usageSource: usagePlan.source, userSettings, appSetting });
+    const searchOptions = buildSearchOptions({ usageSource: usagePlan.source, userSettings, appSetting, reportLanguage: actualReportLanguage });
 
     const searchQuery = [title, source, truncatedContent.slice(0, 120)].filter(Boolean).join(' ').slice(0, 240);
     const factCheckSources = searchQuery ? await searchWeb(searchQuery, 5, searchOptions) : [];
     const deepSources = actualAnalysisMode === 'deep'
-      ? (await buildDeepSearchGroups({ title, source, content: truncatedContent }, searchOptions)).flat()
+      ? (await buildDeepSearchGroups({ title, source, content: truncatedContent, reportLanguage: actualReportLanguage }, searchOptions)).flat()
       : [];
     const webSearchContext = buildSearchContext([...factCheckSources, ...deepSources]);
 
@@ -565,6 +580,7 @@ export async function POST(request: Request) {
       focus,
       mode: actualAnalysisMode,
       reasoningDepth: actualReasoningDepth,
+      reportLanguage: actualReportLanguage,
       webSearchContext,
     };
     const { system, user: userPrompt } = buildPrompt(promptInput);
@@ -646,6 +662,7 @@ export async function POST(request: Request) {
         source: source || '未知来源',
         modelName: modelConfig.modelName,
         reasoningDepth: actualReasoningDepth,
+        reportLanguage: actualReportLanguage,
         createdAt,
         viewCount: 0,
         isPublic: actualIsPublic,
@@ -658,6 +675,7 @@ export async function POST(request: Request) {
       searchProvider: searchOptions.provider || 'none',
       usageSource: usagePlan.source,
       pointCost: usagePlan.costPoints,
+      reportLanguage: actualReportLanguage,
     };
 
     const scores = normalizedResult.scores;
@@ -683,6 +701,7 @@ export async function POST(request: Request) {
           originalContent: truncatedContent,
           focus: focus || '',
           analysisMode: actualAnalysisMode,
+          reportLanguage: actualReportLanguage,
           reasoningDepth: actualReasoningDepth,
           modelName: modelConfig.modelName,
           newsSummary: newsSummaryText,

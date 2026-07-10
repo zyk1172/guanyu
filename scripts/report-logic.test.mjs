@@ -108,6 +108,15 @@ test('serper request and response normalize google-style results', () => {
   ]);
 });
 
+test('serper uses English locale for English report searches', () => {
+  assert.deepEqual(buildSerperSearchRequest('news verification', 5, 'en-US'), {
+    q: 'news verification',
+    num: 5,
+    gl: 'us',
+    hl: 'en',
+  });
+});
+
 test('super admin identity supports role and scoped env allow-list', () => {
   assert.equal(isSuperAdminIdentity({ id: 'u1', email: 'owner@example.com', role: 'super_admin' }, {}), true);
   assert.equal(isSuperAdminIdentity({ id: 'u2', email: 'Root@Example.com' }, { SUPER_ADMIN_EMAILS: 'root@example.com, admin@example.com' }), true);

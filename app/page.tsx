@@ -9,7 +9,7 @@ import LoadingState from '../components/LoadingState';
 import ErrorMessage from '../components/ErrorMessage';
 import Header from '../components/Header';
 import { GsapReveal } from '../components/GsapMotion';
-import { AnalysisResult, AnalysisMode, getThinkingDepthLabel } from '../lib/types';
+import { AnalysisResult, AnalysisMode, ReportLanguage, getReportLanguageLabel, getThinkingDepthLabel } from '../lib/types';
 
 interface HotAudit {
   id: string;
@@ -18,6 +18,7 @@ interface HotAudit {
   newsSummary: string;
   modelName: string;
   reasoningDepth: string;
+  reportLanguage: string;
   credibilityScore: number;
   speculationRiskScore: number;
   viewCount: number;
@@ -30,6 +31,7 @@ interface AuditSubmitData {
   content: string;
   focus: string;
   mode: AnalysisMode;
+  reportLanguage: ReportLanguage;
 }
 
 export default function Home() {
@@ -205,6 +207,7 @@ export default function Home() {
                     <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xxs font-bold">
                       <span className="rounded bg-indigo-50 px-2 py-0.5 text-indigo-600 dark:bg-indigo-950/30 dark:text-indigo-300">{audit.modelName}</span>
                       <span className="rounded bg-gray-100 px-2 py-0.5 text-gray-600 dark:bg-gray-800 dark:text-gray-300">{getDepthLabel(audit.reasoningDepth)}</span>
+                      <span className="rounded bg-sky-50 px-2 py-0.5 text-sky-700 dark:bg-sky-950/30 dark:text-sky-300">{getReportLanguageLabel(audit.reportLanguage)}</span>
                       <span className="rounded bg-emerald-50 px-2 py-0.5 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">可信度 {audit.credibilityScore}</span>
                       <span className="rounded bg-amber-50 px-2 py-0.5 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">推测不确定性 {audit.speculationRiskScore}</span>
                     </div>

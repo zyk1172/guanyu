@@ -5,7 +5,7 @@ import Header from '@/components/Header';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { THINKING_DEPTH_OPTIONS, getThinkingDepthLabel } from '@/lib/types';
+import { THINKING_DEPTH_OPTIONS, getReportLanguageLabel, getThinkingDepthLabel } from '@/lib/types';
 
 export default function MyAuditsPage() {
   const { data: session, status } = useSession();
@@ -206,6 +206,9 @@ export default function MyAuditsPage() {
                     </span>
                     <span className="text-xxs font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded">
                       {getModeLabel(audit.analysisMode)}
+                    </span>
+                    <span className="text-xxs font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded dark:bg-sky-950/30 dark:text-sky-300">
+                      {getReportLanguageLabel(audit.reportLanguage)}
                     </span>
                     <span className="text-xxs text-gray-400 font-semibold">{new Date(audit.createdAt).toLocaleDateString()}</span>
                   </div>

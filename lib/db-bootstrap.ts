@@ -14,6 +14,14 @@ export function ensureRuntimeSchema() {
         ADD COLUMN IF NOT EXISTS "isBanned" BOOLEAN NOT NULL DEFAULT false;
       `);
       await prisma.$executeRawUnsafe(`
+        ALTER TABLE "UserSettings"
+        ADD COLUMN IF NOT EXISTS "defaultReportLanguage" TEXT NOT NULL DEFAULT 'zh-CN';
+      `);
+      await prisma.$executeRawUnsafe(`
+        ALTER TABLE "Audit"
+        ADD COLUMN IF NOT EXISTS "reportLanguage" TEXT NOT NULL DEFAULT 'zh-CN';
+      `);
+      await prisma.$executeRawUnsafe(`
         ALTER TABLE "AppSetting"
         ADD COLUMN IF NOT EXISTS "alipayPointsQrImageUrl" TEXT NOT NULL DEFAULT '/alipay-points.jpg',
         ADD COLUMN IF NOT EXISTS "alipayByokQrImageUrl" TEXT NOT NULL DEFAULT '/alipay-byok.jpg';

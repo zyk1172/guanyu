@@ -13,6 +13,7 @@ export interface WebSearchOptions {
   tavilyApiKey?: string;
   tavilySearchDepth?: 'basic' | 'advanced' | string;
   serperApiKey?: string;
+  locale?: 'zh-CN' | 'en-US';
 }
 
 function decodeHtml(value: string): string {
@@ -128,7 +129,7 @@ async function searchSerper(query: string, limit: number, options: WebSearchOpti
         'Content-Type': 'application/json',
         'X-API-KEY': apiKey,
       },
-      body: JSON.stringify(buildSerperSearchRequest(query, limit)),
+      body: JSON.stringify(buildSerperSearchRequest(query, limit, options.locale)),
       cache: 'no-store',
     });
 

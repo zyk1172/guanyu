@@ -7,7 +7,7 @@ import Link from 'next/link';
 import Header from '@/components/Header';
 import AnalysisResultView from '@/components/AnalysisResult';
 import ErrorMessage from '@/components/ErrorMessage';
-import { getThinkingDepthLabel } from '@/lib/types';
+import { getReportLanguageLabel, getThinkingDepthLabel } from '@/lib/types';
 
 export default function AuditDetailsPage() {
   const params = useParams();
@@ -139,6 +139,9 @@ export default function AuditDetailsPage() {
               <span className="text-xxs font-bold bg-gray-150 dark:bg-gray-900 text-gray-600 dark:text-gray-400 px-2 py-0.5 rounded tracking-wide uppercase">
                 {getModeLabel(auditRecord.analysisMode)}
               </span>
+              <span className="text-xxs font-bold bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300 px-2 py-0.5 rounded tracking-wide">
+                {getReportLanguageLabel(auditRecord.reportLanguage)}
+              </span>
               <span className="text-xxs text-gray-400 dark:text-gray-500 font-semibold">
                 信源: {auditRecord.source} · {new Date(auditRecord.createdAt).toLocaleString()}
               </span>
@@ -184,6 +187,7 @@ export default function AuditDetailsPage() {
                 modelName: auditRecord.modelName,
                 reasoningDepth: getDepthLabel(auditRecord.reasoningDepth),
                 analysisMode: getModeLabel(auditRecord.analysisMode),
+                reportLanguage: auditRecord.reportLanguage,
                 createdAt: new Date(auditRecord.createdAt).toLocaleString(),
                 viewCount: auditRecord.viewCount,
                 isPublic: auditRecord.isPublic,

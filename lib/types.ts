@@ -1,6 +1,34 @@
 export type AnalysisMode = 'quick' | 'deep';
 export type ThinkingDepth = 'none' | 'low' | 'medium' | 'high' | 'extreme';
+export type ReportLanguage = 'zh-CN' | 'en-US';
 export type AudienceTheme = 'teen' | 'youth' | 'mature' | 'senior';
+
+export const REPORT_LANGUAGE_OPTIONS: Array<{
+  value: ReportLanguage;
+  label: string;
+  description: string;
+}> = [
+  { value: 'zh-CN', label: '中文', description: '报告正文、摘要和追问使用中文输出。' },
+  { value: 'en-US', label: 'English', description: 'Report narrative, summaries, and follow-up answers are generated in English.' },
+];
+
+export function normalizeReportLanguage(value: string | null | undefined): ReportLanguage {
+  return value === 'en-US' || value === 'en' || value === 'english' ? 'en-US' : 'zh-CN';
+}
+
+export function getReportLanguageLabel(value: string | null | undefined): string {
+  return normalizeReportLanguage(value) === 'en-US' ? 'English' : '中文';
+}
+
+export function getReadWorthDisplayLabel(label: ReadWorthLabel, language: string | null | undefined): string {
+  if (normalizeReportLanguage(language) !== 'en-US') return label;
+  return {
+    值得细读: 'Worth Reading',
+    可以略读: 'Skimmable',
+    不值一读: 'Not Worth Reading',
+    暂无法判断: 'Insufficient Information',
+  }[label];
+}
 
 export const AUDIENCE_THEME_LABELS: Record<AudienceTheme, string> = {
   teen: '青少年版',
@@ -186,6 +214,7 @@ export interface NormalizedReportMeta {
   modelName: string;
   reasoningDepth: string;
   analysisMode: AnalysisMode;
+  reportLanguage: ReportLanguage;
   createdAt: string;
   viewCount?: number;
   isPublic?: boolean;
