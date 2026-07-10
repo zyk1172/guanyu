@@ -43,6 +43,36 @@ test('manual published date has highest priority', () => {
   assert.equal(result.publishedAtConfidence, 'high');
 });
 
+test('extracts publication dates from common US and European metadata formats', () => {
+  const cases = [
+    ['July 3, 2026', '2026-07-03'],
+    ['3 July 2026', '2026-07-03'],
+    ['3 juillet 2026', '2026-07-03'],
+    ['3. Juli 2026', '2026-07-03'],
+    ['3 de julio de 2026', '2026-07-03'],
+    ['3 luglio 2026', '2026-07-03'],
+  ];
+
+  for (const [rawDate, expected] of cases) {
+    const html = `<html><head><meta name="parsely-pub-date" content="${rawDate}"></head><body><article>Test article body.</article></body></html>`;
+    const result = extractPublishedDate(html);
+    assert.equal(result.publishedAt, expected, rawDate);
+    assert.equal(result.publishedAtSource, 'meta_pubdate');
+  }
+});
+
+test('prefers JSON-LD article publication dates over generic metadata', () => {
+  const html = `
+    <html><head>
+      <meta name="parsely-pub-date" content="July 2, 2026">
+      <script type="application/ld+json">{"@context":"https://schema.org","@type":"NewsArticle","datePublished":"2026-07-03T10:30:00Z"}</script>
+    </head><body><article>Test article body.</article></body></html>
+  `;
+  const result = extractPublishedDate(html);
+  assert.equal(result.publishedAt, '2026-07-03');
+  assert.equal(result.publishedAtSource, 'json_ld');
+});
+
 test('read worth verdict uses only productized labels', () => {
   const labels = new Set(['值得细读', '可以略读', '不值一读', '暂无法判断']);
   const cases = [

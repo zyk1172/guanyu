@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { AnalysisMode, REPORT_LANGUAGE_OPTIONS, ReportLanguage, normalizeReportLanguage } from '../lib/types';
 
@@ -14,6 +14,62 @@ interface AnalysisFormProps {
   isLoading: boolean;
 }
 
+function explainParseFailure(message: string) {
+  const error = String(message || '').trim();
+  if (/URL 格式|缺少 URL/.test(error)) {
+    return {
+      reason: '链接格式无效',
+      explanation: '链接可能不完整，或并非标准的 http/https 新闻地址。',
+    };
+  }
+  if (/内网|localhost|协议/.test(error)) {
+    return {
+      reason: '链接因安全限制未被抓取',
+      explanation: '为保护你的网络安全，系统不会访问内网、设备地址或非网页协议。',
+    };
+  }
+  if (/状态码 401|状态码 403|状态码 429|登录墙|访问被拒/.test(error)) {
+    return {
+      reason: '该网站拒绝了自动访问',
+      explanation: '该页面可能要求登录、限制自动抓取，或临时触发了访问频率限制。',
+    };
+  }
+  if (/状态码 404|状态码 410/.test(error)) {
+    return {
+      reason: '新闻链接已失效或无法找到',
+      explanation: '原页面可能被删除、迁移，或链接地址不再有效。',
+    };
+  }
+  if (/超时|Timeout|Abort/.test(error)) {
+    return {
+      reason: '网站响应超时',
+      explanation: '新闻站点响应较慢、网络不稳定或页面内容过大，导致系统未能在限定时间内完成抓取。',
+    };
+  }
+  if (/网络错误|网络连接|Failed to fetch/.test(error)) {
+    return {
+      reason: '网络连接未完成',
+      explanation: '浏览器暂时无法连接到解析服务，或目标网站的网络连接中断。',
+    };
+  }
+  if (/状态码 5\d\d|服务器/.test(error)) {
+    return {
+      reason: '解析服务暂时不可用',
+      explanation: '服务端或目标网站出现临时异常，稍后重试通常可以恢复。',
+    };
+  }
+  if (/内容过少|无法提取正文|动态渲染|不是网页|体积过大/.test(error)) {
+    return {
+      reason: '未识别到可用的新闻正文',
+      explanation: '该页面可能依赖浏览器脚本渲染、包含付费墙，或主要内容不是可直接读取的文字新闻。',
+    };
+  }
+  return {
+    reason: '自动解析暂时未完成',
+    explanation: error || '网站页面结构或网络响应暂时不适合自动抓取。',
+  };
+}
+
 export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps) {
   const { status } = useSession();
   const [title, setTitle] = useState('');
@@ -24,7 +80,8 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
   const mode: AnalysisMode = 'deep';
   const [urlInput, setUrlInput] = useState('');
   const [isParsing, setIsParsing] = useState(false);
-  const [parseError, setParseError] = useState('');
+  const [parseFailure, setParseFailure] = useState<string | null>(null);
+  const contentRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     if (status !== 'authenticated') return;
@@ -43,12 +100,12 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
     if (!trimmed) return;
 
     try { new URL(trimmed); } catch {
-      setParseError('URL 格式无效');
+      setParseFailure('URL 格式无效');
       return;
     }
 
     setIsParsing(true);
-    setParseError('');
+    setParseFailure(null);
 
     try {
       const res = await fetch('/api/parse-url', {
@@ -60,7 +117,7 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
       const data = await res.json();
 
       if (!res.ok) {
-        setParseError(data.error || '解析失败');
+        setParseFailure(data.error || '解析失败');
         return;
       }
 
@@ -68,7 +125,7 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
       if (data.source) setSource(data.source);
       if (data.content) setContent(data.content);
     } catch {
-      setParseError('网络错误，请重试');
+      setParseFailure('网络错误，请重试');
     } finally {
       setIsParsing(false);
     }
@@ -88,6 +145,15 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
   };
 
   const isFormValid = content.trim().length >= 50;
+  const parseFailureInfo = parseFailure ? explainParseFailure(parseFailure) : null;
+
+  const focusManualContent = () => {
+    setParseFailure(null);
+    requestAnimationFrame(() => {
+      contentRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      contentRef.current?.focus();
+    });
+  };
 
   return (
     <div className="animated-panel space-y-4 bg-white dark:bg-gray-950 p-3 sm:p-4 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-xl hover:shadow-indigo-500/5 transition-shadow duration-300">
@@ -111,7 +177,7 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
             <input
               type="url"
               value={urlInput}
-              onChange={(e) => { setUrlInput(e.target.value); setParseError(''); }}
+              onChange={(e) => { setUrlInput(e.target.value); setParseFailure(null); }}
               onKeyDown={handleKeyDown}
               placeholder="粘贴新闻链接，点击自动填充标题、来源和正文..."
               className="interactive-lift min-w-0 flex-1 px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white"
@@ -135,9 +201,6 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
               )}
             </button>
           </div>
-          {parseError && (
-            <p className="text-xs text-red-500">{parseError}</p>
-          )}
         </div>
 
         <div className="relative">
@@ -181,6 +244,7 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
           </label>
           <textarea
             id="content"
+            ref={contentRef}
             value={content}
             onChange={(e) => setContent(e.target.value)}
             rows={8}
@@ -250,6 +314,50 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
           )}
         </button>
       </form>
+
+      {parseFailure && parseFailureInfo && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="parse-failure-title"
+          aria-describedby="parse-failure-description"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setParseFailure(null);
+          }}
+        >
+          <div className="w-full max-w-md rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-card)] sm:p-5">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary-soft)] text-[var(--color-warning)]" aria-hidden="true">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-start justify-between gap-3">
+                  <h3 id="parse-failure-title" className="text-sm font-black text-[var(--color-text)]">抱歉，网页自动解析失败</h3>
+                  <button type="button" onClick={() => setParseFailure(null)} className="rounded p-1 text-[var(--color-text-muted)] transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)]" aria-label="关闭提示">
+                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 6 12 12M18 6 6 18" /></svg>
+                  </button>
+                </div>
+                <p className="mt-2 text-xs font-bold text-[var(--color-text)]">原因：{parseFailureInfo.reason}</p>
+                <p id="parse-failure-description" className="mt-1 text-xs leading-relaxed text-[var(--color-text-muted)]">{parseFailureInfo.explanation}</p>
+                <p className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-xs leading-relaxed text-[var(--color-text-muted)]">
+                  不影响继续审视。请在原页面复制新闻正文，粘贴到下方“新闻正文”输入框；标题和来源也可以手动补充。
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button type="button" onClick={() => { setParseFailure(null); handleParseUrl(); }} className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-xs font-bold text-[var(--color-text)] transition hover:bg-[var(--color-surface-muted)]">
+                再试一次
+              </button>
+              <button type="button" onClick={focusManualContent} className="rounded-lg bg-[var(--color-primary)] px-3 py-2 text-xs font-bold text-white transition hover:bg-[var(--color-primary-hover)] active:scale-[0.98]">
+                手动粘贴正文
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

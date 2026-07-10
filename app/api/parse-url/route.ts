@@ -3,7 +3,7 @@ import * as cheerio from 'cheerio';
 import type { AnyNode } from 'domhandler';
 import { lookup } from 'node:dns/promises';
 import net from 'node:net';
-import { extractPublishedDate } from '@/lib/publishedDate.mjs';
+import { extractPublishedDate, normalizeDate } from '@/lib/publishedDate.mjs';
 
 export const maxDuration = 30;
 export const runtime = 'nodejs';
@@ -30,7 +30,8 @@ interface FetchedHtml {
 function cleanTitle(rawTitle: string): string {
   const normalized = rawTitle
     .replace(/\s+/g, ' ')
-    .replace(/\s*[|\-–—]\s*.+$/, '')
+    .replace(/\s+(?:\||–|—)\s+[^|–—]+$/, '')
+    .replace(/\s+-\s+[A-Za-z][A-Za-z0-9 .&'’]{1,50}$/, '')
     .trim();
 
   const half = Math.floor(normalized.length / 2);
@@ -74,6 +75,21 @@ const REMOVE_SELECTORS = [
   '.social-share',
   '.related-posts',
   '.recommendation',
+  '.related',
+  '.related-content',
+  '.recommended',
+  '.newsletter',
+  '.paywall',
+  '.consent',
+  '.cookie',
+  '.sticky',
+  '.modal',
+  '[data-testid*="related"]',
+  '[data-testid*="recommend"]',
+  '[data-testid*="newsletter"]',
+  '[data-testid*="advert"]',
+  '[data-component*="related"]',
+  '[data-component*="newsletter"]',
   '.art-btn',
   '.bottom',
   '.paper-box',
@@ -89,8 +105,23 @@ const ARTICLE_SELECTORS = [
   'founder-content',
   '[itemprop="articleBody"]',
   '[property="articleBody"]',
+  '[data-testid="article-body"]',
+  '[data-testid*="article-body"]',
+  '[data-qa="article-body"]',
+  '[data-component-name="article-body"]',
+  '[data-gu-name="body"]',
+  '.article__body',
+  '.article__content',
+  '.article__content-body',
+  '.article-content__body',
+  '.article-content__content',
+  '.story__body',
+  '.story-body__inner',
+  '.post__body',
+  '.c-article-content',
+  '.longText',
+  '.storytext',
   '#content.article-text',
-  '#content',
   '#articleContent',
   '.article-text',
   '.article-content',
@@ -103,11 +134,31 @@ const ARTICLE_SELECTORS = [
   '.story-body',
   '.text',
   '.whitecon',
-  '.content',
   '.article-box .article',
   'article',
+  '[role="main"]',
   'main',
+  '#content',
+  '.content',
 ];
+
+const SITE_ARTICLE_SELECTORS: Record<string, string[]> = {
+  'reuters.com': ['[data-testid="article-body"]', '[data-testid*="article-body"]'],
+  'apnews.com': ['[data-testid="article-content"]', '[data-key="article-body"]'],
+  'bbc.com': ['[data-testid="article-body"]', '[data-component="text-block"]'],
+  'cnn.com': ['.article__content', '[data-component-name="article-body"]'],
+  'nytimes.com': ['[data-testid="article-body"]', '[data-testid="articleBody"]'],
+  'washingtonpost.com': ['[data-qa="article-body"]', '.article-body'],
+  'theguardian.com': ['[data-gu-name="body"]', '.article-body-commercial-selector'],
+  'npr.org': ['.storytext', '.story-text'],
+  'ft.com': ['.article__content-body', '.article-body'],
+  'dw.com': ['.longText', '.article__body'],
+  'france24.com': ['.article__content', '.article-content'],
+  'euronews.com': ['.c-article-content', '.article__content'],
+  'lemonde.fr': ['.article__content', '.article__content--desktop'],
+  'spiegel.de': ['[data-testid="article-body"]', '.article-section'],
+  'independent.co.uk': ['.article-body', '.sc-article-body'],
+};
 
 function isBoilerplateLine(line: string): boolean {
   const compact = line.replace(/\s+/g, '');
@@ -129,6 +180,16 @@ function isBoilerplateLine(line: string): boolean {
     '中国青年报官方微信',
     '中青报系',
     '中国青年作家报',
+    'Advertisement',
+    'ADVERTISEMENT',
+    'Skip to content',
+    'Read more',
+    'Related articles',
+    'Recommended stories',
+    'Sign up for our newsletter',
+    'Privacy settings',
+    'Alle Rechte vorbehalten',
+    'Publicité',
   ]);
   if (exactNoise.has(compact)) return true;
 
@@ -143,7 +204,7 @@ function isBoilerplateLine(line: string): boolean {
   ];
   if (noisePatterns.some((pattern) => pattern.test(compact))) return true;
 
-  const navTokens = ['上一版', '下一版', '返回目录', '返回首页', '上一篇', '下一篇', '全文复制'];
+  const navTokens = ['上一版', '下一版', '返回目录', '返回首页', '上一篇', '下一篇', '全文复制', 'Subscribe', 'Sign in', 'Read more', 'Recommended', 'Advertisement', 'Cookie'];
   const navHits = navTokens.filter((token) => compact.includes(token)).length;
   return navHits >= 2;
 }
@@ -248,7 +309,7 @@ async function fetchHtmlWithRedirects(initialUrl: string): Promise<FetchedHtml> 
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
         Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'zh-CN,zh;q=0.9,zh-TW;q=0.8,en;q=0.7',
+        'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7,fr;q=0.6,de;q=0.6,es;q=0.6,it;q=0.6',
       },
       cache: 'no-store',
     });
@@ -299,7 +360,12 @@ function flattenJsonLd(value: any): any[] {
 function readJsonLdObjects($: cheerio.CheerioAPI) {
   const objects: any[] = [];
   $('script[type="application/ld+json"]').each((_, el) => {
-    const raw = $(el).contents().text().trim();
+    const raw = $(el).contents().text()
+      .replace(/^\s*<!--/, '')
+      .replace(/-->\s*$/, '')
+      .replace(/^\s*<!\[CDATA\[/, '')
+      .replace(/\]\]>\s*$/, '')
+      .trim();
     if (!raw) return;
     try {
       objects.push(...flattenJsonLd(JSON.parse(raw)));
@@ -318,6 +384,19 @@ function firstMeta($: cheerio.CheerioAPI, selectors: string[]) {
   return '';
 }
 
+function firstValue(values: Array<{ value: string; source: string; confidence: string }>) {
+  return values.find((item) => normalizeDate(item.value)) || null;
+}
+
+function publisherName(value: unknown) {
+  if (Array.isArray(value)) return publisherName(value[0]);
+  if (value && typeof value === 'object') {
+    const publisher = value as Record<string, unknown>;
+    return String(publisher.name || publisher.alternateName || '').trim();
+  }
+  return String(value || '').trim();
+}
+
 function extractStructuredMetadata($: cheerio.CheerioAPI) {
   const jsonLd = readJsonLdObjects($);
   const article = jsonLd.find((item) => {
@@ -326,38 +405,127 @@ function extractStructuredMetadata($: cheerio.CheerioAPI) {
   }) || jsonLd[0] || {};
 
   const headline = String(article.headline || article.name || '').trim();
-  const sourceName = typeof article.publisher === 'object'
-    ? String(article.publisher.name || '').trim()
-    : String(article.publisher || '').trim();
-  const datePublished = String(article.datePublished || article.dateCreated || '').trim();
+  const sourceName = publisherName(article.publisher || article.sourceOrganization || article.provider);
+  const dateCandidate = firstValue([
+    { value: String(article.datePublished || article.dateCreated || '').trim(), source: 'json_ld', confidence: 'high' },
+    { value: firstMeta($, ['meta[property="article:published_time"]', 'meta[name="article:published_time"]']), source: 'meta_article', confidence: 'high' },
+    { value: firstMeta($, ['meta[property="og:published_time"]']), source: 'meta_og', confidence: 'high' },
+    { value: firstMeta($, [
+      'meta[name="parsely-pub-date"]',
+      'meta[name="sailthru.date"]',
+      'meta[name="pubdate"]',
+      'meta[name="publishdate"]',
+      'meta[name="publish_date"]',
+      'meta[itemprop="datePublished"]',
+    ]), source: 'meta_pubdate', confidence: 'medium' },
+    { value: $('time[datetime]').first().attr('datetime') || '', source: 'time_tag', confidence: 'medium' },
+  ]);
   const dateModified = String(article.dateModified || '').trim();
+  const structuredBody = String(article.articleBody || article.text || '').trim();
 
   return {
     title: headline || firstMeta($, [
       'meta[property="og:title"]',
       'meta[name="twitter:title"]',
       'meta[name="title"]',
+      'meta[name="parsely-title"]',
+      'meta[name="sailthru.title"]',
+      'meta[itemprop="headline"]',
     ]),
     source: sourceName || firstMeta($, [
       'meta[property="og:site_name"]',
       'meta[name="application-name"]',
       'meta[name="source"]',
       'meta[name="publisher"]',
+      'meta[name="parsely-author"]',
     ]),
-    publishedAt: datePublished || firstMeta($, [
-      'meta[property="article:published_time"]',
-      'meta[name="article:published_time"]',
-      'meta[name="pubdate"]',
-      'meta[name="publishdate"]',
-      'meta[name="publish_date"]',
-      'meta[name="date"]',
-      'meta[itemprop="datePublished"]',
-    ]) || $('time[datetime]').first().attr('datetime') || '',
+    publishedAt: dateCandidate?.value || '',
+    publishedAtSource: dateCandidate?.source || 'unknown',
+    publishedAtConfidence: dateCandidate?.confidence || 'unknown',
     modifiedAt: dateModified || firstMeta($, [
       'meta[property="article:modified_time"]',
       'meta[itemprop="dateModified"]',
     ]),
+    structuredBody,
   };
+}
+
+function siteSelectorsForUrl(url: string) {
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+    const matched = Object.entries(SITE_ARTICLE_SELECTORS)
+      .find(([domain]) => host === domain || host.endsWith(`.${domain}`));
+    return matched?.[1] || [];
+  } catch {
+    return [];
+  }
+}
+
+function scoreArticleCandidate($el: cheerio.Cheerio<AnyNode>, $: cheerio.CheerioAPI, text: string, title: string, selectorBonus = 0) {
+  const compact = text.replace(/\s+/g, ' ').trim();
+  if (compact.length < 180) return Number.NEGATIVE_INFINITY;
+
+  const paragraphCount = $el.find('p').length;
+  const linkTextLength = $el.find('a').text().replace(/\s+/g, ' ').trim().length;
+  const linkRatio = linkTextLength / Math.max(compact.length, 1);
+  const punctuationCount = (compact.match(/[.!?。！？]/g) || []).length;
+  const attributes = `${$el.attr('id') || ''} ${$el.attr('class') || ''} ${$el.attr('data-testid') || ''} ${$el.attr('data-component') || ''}`.toLowerCase();
+  const titleTokens = title.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((token) => token.length >= 4).slice(0, 8);
+  const titleHits = titleTokens.filter((token) => compact.toLowerCase().includes(token)).length;
+  const semanticBonus = /article|story|post|entry|content|body|longtext|text-block/.test(attributes) ? 900 : 0;
+  const noisePenalty = /related|recommend|newsletter|advert|promo|cookie|comment|footer|header|navigation|sidebar/.test(attributes) ? 2400 : 0;
+  const nestedArticlePenalty = $el.is('div, section') && $el.find('article, main').length > 0 ? 1400 : 0;
+
+  return (
+    Math.min(compact.length, 16_000) * 0.82
+    + Math.min(paragraphCount * 320, 3_200)
+    + Math.min(punctuationCount * 18, 1_100)
+    + titleHits * 140
+    + semanticBonus
+    + selectorBonus
+    - linkRatio * Math.min(compact.length, 10_000)
+    - noisePenalty
+    - nestedArticlePenalty
+  );
+}
+
+function extractBestArticleText($: cheerio.CheerioAPI, title: string, url: string, structuredBody: string) {
+  const candidates: Array<{ node?: AnyNode; text?: string; score: number }> = [];
+  const seen = new Set<AnyNode>();
+
+  const addCandidate = (node: AnyNode, selectorBonus = 0) => {
+    if (seen.has(node)) return;
+    seen.add(node);
+    const $node = $(node);
+    const text = normalizeExtractedText($node.text());
+    const score = scoreArticleCandidate($node, $, text, title, selectorBonus);
+    if (Number.isFinite(score)) candidates.push({ node, score });
+  };
+
+  const selectors = [...siteSelectorsForUrl(url), ...ARTICLE_SELECTORS];
+  selectors.forEach((selector, index) => {
+    $(selector).slice(0, 12).each((_, element) => addCandidate(element, Math.max(200, 1_800 - index * 45)));
+  });
+
+  let genericCount = 0;
+  $('article, main, [role="main"], section, div').each((_, element) => {
+    if (genericCount >= 420) return false;
+    const $element = $(element);
+    const rawLength = $element.text().trim().length;
+    if (rawLength < 220 || rawLength > 50_000) return;
+    genericCount += 1;
+    addCandidate(element, $element.is('article, main, [role="main"]') ? 1_000 : 0);
+  });
+
+  const normalizedStructuredBody = normalizeExtractedText(structuredBody);
+  if (normalizedStructuredBody.length >= 300) {
+    candidates.push({ text: normalizedStructuredBody, score: normalizedStructuredBody.length * 0.88 + 1_200 });
+  }
+
+  candidates.sort((left, right) => right.score - left.score);
+  const best = candidates[0];
+  if (best?.node) return extractText($(best.node), $);
+  return best?.text || extractText($('body'), $);
 }
 
 function parseHtml(html: string, url: string): ParseResult {
@@ -382,38 +550,15 @@ function parseHtml(html: string, url: string): ParseResult {
     || (() => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; } })()
     || '';
 
-  const content = (() => {
-    for (const selector of ARTICLE_SELECTORS) {
-      const node = $(selector).first();
-      const text = node.length ? extractText(node, $) : '';
-      if (text.length > 200) return text;
-    }
-
-    const candidates = $('div').map((_, el) => {
-      const $el = $(el);
-      const text = $el.text().trim();
-      const tagCount = $el.find('*').length;
-      const density = text.length / Math.max(tagCount, 1);
-      return { el, text, density, length: text.length };
-    }).get();
-
-    candidates.sort((a, b) => {
-      if (Math.abs(a.length - b.length) < 100) return b.density - a.density;
-      return b.length - a.length;
-    });
-
-    const best = candidates.find(c => c.length > 200 && c.density > 2);
-    if (best) return normalizeExtractedText(best.text);
-
-    return extractText($('body'), $);
-  })().slice(0, 15000);
+  const content = extractBestArticleText($, title, url, metadata.structuredBody).slice(0, 15_000);
 
   const extractedPublished = extractPublishedDate(html, source);
-  const published = metadata.publishedAt
+  const structuredPublishedAt = normalizeDate(metadata.publishedAt);
+  const published = structuredPublishedAt
     ? {
-        publishedAt: metadata.publishedAt,
-        publishedAtSource: metadata.publishedAt.includes('T') ? 'json_ld' : 'meta_article',
-        publishedAtConfidence: 'high',
+        publishedAt: structuredPublishedAt,
+        publishedAtSource: metadata.publishedAtSource,
+        publishedAtConfidence: metadata.publishedAtConfidence,
       }
     : extractedPublished;
   const date = published.publishedAt;
