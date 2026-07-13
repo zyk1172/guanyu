@@ -8,6 +8,7 @@ import { prisma } from '@/lib/prisma';
 import { buildAiCompletionPrompt, validateCompletionMarkdown } from '@/lib/ai-completion-core.mjs';
 import { getAnalysisTimeoutMs } from '@/lib/reasoning-depth-core.mjs';
 import { safeOutboundRequest } from '@/lib/safe-outbound';
+import { reserveCompletionAttempt } from '@/lib/rate-limit';
 
 export const maxDuration = 300;
 
@@ -68,6 +69,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     ]);
     if (!account || account.isBanned) {
       return NextResponse.json({ error: '账号已被管理员暂停使用，无法使用 AI 补全。' }, { status: 403 });
+    }
+
+    try {
+      await reserveCompletionAttempt(user.id);
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : 'AI 补全操作过于频繁，请稍后再试。' }, { status: 429 });
     }
 
     const modelConfig = chooseModelConfig({

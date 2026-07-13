@@ -10,6 +10,15 @@ const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_WINDOW_LIMIT = 8;
 const EXTENSION_LINK_WINDOW_MS = 10 * 60 * 1000;
 const EXTENSION_LINK_WINDOW_LIMIT = 12;
+const COMPLETION_WINDOW_MS = 5 * 60 * 1000;
+const COMPLETION_WINDOW_LIMIT = 3;
+
+async function acquireUserActionLock(
+  tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
+  key: string
+) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+}
 
 export function getClientIp(request: Request) {
   const trustProxyHeaders = process.env.VERCEL === '1' || process.env.TRUST_PROXY_HEADERS === 'true';
@@ -110,19 +119,22 @@ function loginAttemptKey(email: string) {
 export async function reserveLoginAttempt(email: string) {
   const key = loginAttemptKey(email);
   const windowStart = new Date(Date.now() - LOGIN_WINDOW_MS);
-  const recentAttempts = await prisma.verificationCode.count({
-    where: { email: key, purpose: 'login_attempt', createdAt: { gte: windowStart } },
-  });
-  if (recentAttempts >= LOGIN_WINDOW_LIMIT) {
-    throw new Error('登录尝试过于频繁，请 15 分钟后再试。');
-  }
-  await prisma.verificationCode.create({
-    data: {
-      email: key,
-      codeHash: crypto.randomUUID(),
-      purpose: 'login_attempt',
-      expiresAt: new Date(Date.now() + LOGIN_WINDOW_MS),
-    },
+  await prisma.$transaction(async (tx) => {
+    await acquireUserActionLock(tx, `guanyu-login:${key}`);
+    const recentAttempts = await tx.verificationCode.count({
+      where: { email: key, purpose: 'login_attempt', createdAt: { gte: windowStart } },
+    });
+    if (recentAttempts >= LOGIN_WINDOW_LIMIT) {
+      throw new Error('登录尝试过于频繁，请 15 分钟后再试。');
+    }
+    await tx.verificationCode.create({
+      data: {
+        email: key,
+        codeHash: crypto.randomUUID(),
+        purpose: 'login_attempt',
+        expiresAt: new Date(Date.now() + LOGIN_WINDOW_MS),
+      },
+    });
   });
 }
 
@@ -135,18 +147,35 @@ export async function clearLoginAttempts(email: string) {
 export async function reserveExtensionLinkAttempt(ip: string) {
   const key = `extension-link:${hashForStorage(ip)}`;
   const windowStart = new Date(Date.now() - EXTENSION_LINK_WINDOW_MS);
-  const count = await prisma.verificationCode.count({
-    where: { email: key, purpose: 'extension_link_attempt', createdAt: { gte: windowStart } },
+  await prisma.$transaction(async (tx) => {
+    await acquireUserActionLock(tx, `guanyu-extension:${key}`);
+    const count = await tx.verificationCode.count({
+      where: { email: key, purpose: 'extension_link_attempt', createdAt: { gte: windowStart } },
+    });
+    if (count >= EXTENSION_LINK_WINDOW_LIMIT) {
+      throw new Error('插件连接尝试过于频繁，请 10 分钟后再试。');
+    }
+    await tx.verificationCode.create({
+      data: {
+        email: key,
+        codeHash: crypto.randomUUID(),
+        purpose: 'extension_link_attempt',
+        expiresAt: new Date(Date.now() + EXTENSION_LINK_WINDOW_MS),
+      },
+    });
   });
-  if (count >= EXTENSION_LINK_WINDOW_LIMIT) {
-    throw new Error('插件连接尝试过于频繁，请 10 分钟后再试。');
-  }
-  await prisma.verificationCode.create({
-    data: {
-      email: key,
-      codeHash: crypto.randomUUID(),
-      purpose: 'extension_link_attempt',
-      expiresAt: new Date(Date.now() + EXTENSION_LINK_WINDOW_MS),
-    },
+}
+
+export async function reserveCompletionAttempt(userId: string) {
+  const windowStart = new Date(Date.now() - COMPLETION_WINDOW_MS);
+  await prisma.$transaction(async (tx) => {
+    await acquireUserActionLock(tx, `guanyu-completion:${userId}`);
+    const count = await tx.rateLimitEvent.count({
+      where: { userId, action: 'completion', createdAt: { gte: windowStart } },
+    });
+    if (count >= COMPLETION_WINDOW_LIMIT) {
+      throw new Error('AI 补全操作过于频繁，请 5 分钟后再试。');
+    }
+    await tx.rateLimitEvent.create({ data: { userId, action: 'completion' } });
   });
 }

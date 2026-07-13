@@ -4,6 +4,7 @@ import { getToken } from 'next-auth/jwt';
 import type { NextRequest } from 'next/server';
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import { prisma } from '@/lib/prisma';
+import { clearLoginAttempts, reserveLoginAttempt } from '@/lib/rate-limit';
 
 export interface CurrentUser {
   id: string;
@@ -53,6 +54,11 @@ export const authOptions: NextAuthOptions = {
         }
 
         const email = credentials.email.toLowerCase();
+        try {
+          await reserveLoginAttempt(email);
+        } catch (error) {
+          throw new Error(error instanceof Error ? error.message : '登录尝试过于频繁，请稍后再试。');
+        }
         const user = await prisma.user.findUnique({
           where: { email },
         });
@@ -71,6 +77,8 @@ export const authOptions: NextAuthOptions = {
         if (password.needsUpgrade) {
           await prisma.user.update({ where: { id: user.id }, data: { password: hashPassword(credentials.password) } });
         }
+
+        await clearLoginAttempts(email);
 
         return { id: user.id, email: user.email };
       },

@@ -127,6 +127,8 @@ export async function createEmailVerificationCode(email: string, ip: string) {
   const windowStart = new Date(Date.now() - 10 * 60 * 1000);
   await prisma.$transaction(async (tx) => {
     const ipHash = hashForStorage(ip);
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`guanyu-register-email:${email}`}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`guanyu-register-ip:${ipHash}`}))`;
     const [emailCount, ipCount] = await Promise.all([
       tx.verificationCode.count({ where: { email, purpose: 'register_email', createdAt: { gte: windowStart } } }),
       tx.verificationCode.count({ where: { ipHash, purpose: 'register_email', createdAt: { gte: windowStart } } }),
