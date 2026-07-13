@@ -4,9 +4,11 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useUiLanguage } from '@/components/LanguageProvider';
+import { getBrandIdentity } from '@/lib/brand-core.mjs';
 
 export default function LoginPage() {
-  const { t } = useUiLanguage();
+  const { t, language } = useUiLanguage();
+  const brand = getBrandIdentity(language);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -14,7 +16,7 @@ export default function LoginPage() {
 
   const handleLogin = async () => {
     if (!email || !password) {
-      setError('请输入邮箱和密码');
+      setError(t('auth.enterEmailPassword'));
       return;
     }
 
@@ -30,12 +32,12 @@ export default function LoginPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || '登录失败，密码不正确或信息有误。');
+        setError(language.startsWith('zh-') ? (data.error || t('auth.loginFailed')) : t('auth.loginFailed'));
       } else {
         window.location.assign(data.url || '/');
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : '未知异常，请重试');
+      setError(t('auth.loginFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -47,7 +49,7 @@ export default function LoginPage() {
         <div className="text-center">
           <Image
             src="/guanyu-icon.png"
-            alt="观隅"
+            alt={brand.name}
             width={48}
             height={48}
             className="mx-auto h-12 w-12 rounded-xl object-cover shadow-sm mb-4"

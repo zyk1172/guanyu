@@ -4,9 +4,12 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useUiLanguage } from '@/components/LanguageProvider';
+import { getBrandIdentity } from '@/lib/brand-core.mjs';
 
 export default function RegisterPage() {
-  const { t } = useUiLanguage();
+  const { t, language } = useUiLanguage();
+  const brand = getBrandIdentity(language);
+  const genericError = (key: string, serverMessage?: string) => language.startsWith('zh-') ? (serverMessage || t(key)) : t(key);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -24,28 +27,28 @@ export default function RegisterPage() {
     try {
       const response = await fetch('/api/captcha', { cache: 'no-store' });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || '图形验证码加载失败');
+      if (!response.ok) throw new Error(genericError('auth.captchaLoadFailed', data.error));
       setCaptchaId(data.challengeId);
       setCaptchaImage(data.image);
     } catch (err: any) {
-      setError(err?.message || '图形验证码加载失败，请刷新页面。');
+      setError(err?.message || t('auth.captchaLoadFailed'));
     }
   };
 
   useEffect(() => {
     void refreshCaptcha();
-  }, []);
+  }, [language]);
 
   const handleSendCode = async () => {
     setError(null);
     setCodeMessage(null);
 
     if (!email) {
-      setError('请先输入邮箱地址');
+      setError(t('auth.enterEmail'));
       return;
     }
     if (!captchaAnswer) {
-      setError('请先输入图形验证码');
+      setError(t('auth.enterCaptcha'));
       return;
     }
 
@@ -58,13 +61,13 @@ export default function RegisterPage() {
       });
       const result = await response.json();
       if (!response.ok) {
-        setError(result.error || '发送邮箱验证码失败');
+        setError(genericError('auth.codeSendFailed', result.error));
         await refreshCaptcha();
         return;
       }
-      setCodeMessage(result.message || '邮箱验证码已发送，请查收。');
+      setCodeMessage(t('auth.codeSent'));
     } catch {
-      setError('发送邮箱验证码失败，请稍后重试。');
+      setError(t('auth.codeSendFailed'));
     } finally {
       setIsSendingCode(false);
     }
@@ -74,21 +77,21 @@ export default function RegisterPage() {
     setError(null);
 
     if (!email || !password) {
-      setError('请输入邮箱和密码');
+      setError(t('auth.enterEmailPassword'));
       return;
     }
 
     if (password.length < 6) {
-      setError('密码至少需要 6 个字符');
+      setError(t('auth.passwordTooShort'));
       return;
     }
 
     if (password !== confirmPassword) {
-      setError('两次输入的密码不一致');
+      setError(t('auth.passwordMismatch'));
       return;
     }
     if (!emailCode) {
-      setError('请输入邮箱验证码');
+      setError(t('auth.enterEmailCode'));
       return;
     }
 
@@ -102,14 +105,14 @@ export default function RegisterPage() {
       const result = await response.json();
 
       if (!response.ok) {
-        setError(result.error || '注册失败，请检查邮箱或密码。');
+        setError(genericError('auth.registrationFailed', result.error));
         return;
       }
 
       window.location.assign(result.url || '/account');
     } catch (err) {
       console.error('注册失败:', err);
-      setError('注册失败，请稍后重试。');
+      setError(t('auth.registrationFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -121,7 +124,7 @@ export default function RegisterPage() {
         <div className="text-center">
           <Image
             src="/guanyu-icon.png"
-            alt="观隅"
+            alt={brand.name}
             width={44}
             height={44}
             className="mx-auto h-11 w-11 rounded-xl object-cover shadow-sm mb-3"

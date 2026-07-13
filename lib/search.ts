@@ -1,5 +1,6 @@
 import { buildTavilySearchRequest, normalizeTavilySearchResponse } from './tavily-core.mjs';
 import { buildSerperSearchRequest, normalizeSerperSearchResponse } from './serper-core.mjs';
+import type { ReportLanguage } from './types';
 
 export interface WebSearchSource {
   title: string;
@@ -13,8 +14,10 @@ export interface WebSearchOptions {
   tavilyApiKey?: string;
   tavilySearchDepth?: 'basic' | 'advanced' | string;
   serperApiKey?: string;
-  locale?: 'zh-CN' | 'en-US';
+  locale?: ReportLanguage;
 }
+
+const SEARCH_TIMEOUT_MS = 15_000;
 
 function decodeHtml(value: string): string {
   return value
@@ -56,6 +59,7 @@ async function searchTavily(query: string, limit: number, options: WebSearchOpti
       },
       body: JSON.stringify(buildTavilySearchRequest(query, limit, options.tavilySearchDepth || 'basic')),
       cache: 'no-store',
+      signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
     });
 
     if (!response.ok) {
@@ -87,6 +91,7 @@ async function searchDuckDuckGo(query: string, limit = 5): Promise<WebSearchSour
           Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         },
         cache: 'no-store',
+        signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
       }
     );
 
@@ -131,6 +136,7 @@ async function searchSerper(query: string, limit: number, options: WebSearchOpti
       },
       body: JSON.stringify(buildSerperSearchRequest(query, limit, options.locale)),
       cache: 'no-store',
+      signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
     });
 
     if (!response.ok) {

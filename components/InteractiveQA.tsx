@@ -15,7 +15,7 @@ interface InteractiveQAProps {
 }
 
 export default function InteractiveQA({ auditId, messages: controlledMessages, onMessagesChange }: InteractiveQAProps) {
-  const { t } = useUiLanguage();
+  const { language, t } = useUiLanguage();
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isSending, setIsSaving] = useState(false);
@@ -48,6 +48,7 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
           auditId,
           question: userQuestion,
           chatHistory: messages,
+          interfaceLanguage: language,
         }),
       });
 

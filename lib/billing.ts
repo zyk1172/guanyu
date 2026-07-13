@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { cacheGet, cacheSet, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
+import { getPaymentPackageDefinition } from '@/lib/payment-package-core.mjs';
 
 export const DAILY_FREE_REPORT_LIMIT = 3;
 export const POINT_PACKAGE_POINTS = 30;
@@ -20,6 +21,7 @@ export interface UsagePlan {
   freeQuotaUsedBefore: number;
   creditBalanceBefore: number;
   creditBalanceCentsBefore: number;
+  rateLimitEventId?: string;
 }
 
 export function isByokPlan(planType?: string | null) {
@@ -201,6 +203,66 @@ export async function commitUsage(plan: UsagePlan, auditId: string) {
   });
 }
 
+export async function reserveAnalysisUsage(userId: string, mode: 'quick' | 'deep'): Promise<UsagePlan> {
+  await ensureRuntimeSchema();
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`guanyu-analysis:${userId}`}));`;
+    const user = await tx.user.findUnique({
+      where: { id: userId },
+      select: { id: true, freeQuotaDate: true, freeQuotaUsed: true, creditBalance: true, creditBalanceCents: true, planType: true, isBanned: true },
+    });
+    if (!user) throw new Error('账号不存在，请重新登录。');
+    if (user.isBanned) throw new Error('账号已被管理员暂停使用，无法生成报告。');
+
+    const windowStart = new Date(Date.now() - 5 * 60 * 1000);
+    const recentCount = await tx.rateLimitEvent.count({ where: { userId, action: 'analyze', createdAt: { gte: windowStart } } });
+    if (recentCount >= 3) throw new Error('操作过于频繁，请 5 分钟后再生成新的审视报告。');
+    const rateEvent = await tx.rateLimitEvent.create({ data: { userId, action: 'analyze' } });
+
+    const freeQuotaDate = todayInShanghai();
+    const freeQuotaUsedBefore = user.freeQuotaDate === freeQuotaDate ? user.freeQuotaUsed : 0;
+    const costPoints = getAnalysisPointCost(mode);
+    const costCents = pointsToCents(costPoints);
+    const creditBalanceCentsBefore = effectiveCreditCents(user);
+    const plan: UsagePlan = {
+      userId, mode, costPoints, costCents, freeQuotaDate, freeQuotaUsedBefore,
+      creditBalanceBefore: user.creditBalance, creditBalanceCentsBefore, rateLimitEventId: rateEvent.id,
+      source: isByokPlan(user.planType) ? 'byok' : freeQuotaUsedBefore < DAILY_FREE_REPORT_LIMIT ? 'free_admin' : 'points',
+    };
+
+    if (plan.source === 'free_admin') {
+      await tx.user.update({ where: { id: userId }, data: { freeQuotaDate, freeQuotaUsed: freeQuotaUsedBefore + 1 } });
+    } else if (plan.source === 'points') {
+      if (creditBalanceCentsBefore < costCents) throw new Error(`免费额度已用完，本次需要 ${costPoints} 点，当前剩余 ${centsToDisplayPoints(creditBalanceCentsBefore)} 点。请先购买点数。`);
+      const nextCents = creditBalanceCentsBefore - costCents;
+      const updated = await tx.user.update({ where: { id: userId }, data: { creditBalance: Math.floor(nextCents / 100), creditBalanceCents: nextCents }, select: { creditBalance: true, creditBalanceCents: true } });
+      await tx.pointTransaction.create({ data: { userId, delta: -costPoints, balanceAfter: updated.creditBalance, deltaCents: -costCents, balanceAfterCents: updated.creditBalanceCents, type: 'consume', reason: '观隅分析预扣 3 点' } });
+    }
+    return plan;
+  });
+}
+
+export async function refundAnalysisUsage(plan: UsagePlan) {
+  if (!plan.rateLimitEventId) return;
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`guanyu-analysis:${plan.userId}`}));`;
+    await tx.rateLimitEvent.deleteMany({ where: { id: plan.rateLimitEventId, userId: plan.userId } });
+    if (plan.source === 'free_admin') {
+      const current = await tx.user.findUnique({ where: { id: plan.userId }, select: { freeQuotaDate: true, freeQuotaUsed: true } });
+      if (current?.freeQuotaDate === plan.freeQuotaDate && current.freeQuotaUsed > 0) {
+        await tx.user.update({ where: { id: plan.userId }, data: { freeQuotaUsed: { decrement: 1 } } });
+      }
+    }
+    if (plan.source === 'points') {
+      const current = await tx.user.findUnique({ where: { id: plan.userId }, select: { creditBalance: true, creditBalanceCents: true } });
+      if (!current) return;
+      const nextCents = effectiveCreditCents(current) + plan.costCents;
+      const updated = await tx.user.update({ where: { id: plan.userId }, data: { creditBalance: Math.floor(nextCents / 100), creditBalanceCents: nextCents }, select: { creditBalance: true, creditBalanceCents: true } });
+      await tx.pointTransaction.create({ data: { userId: plan.userId, delta: plan.costPoints, balanceAfter: updated.creditBalance, deltaCents: plan.costCents, balanceAfterCents: updated.creditBalanceCents, type: 'refund', reason: '分析失败，已退还 3 点' } });
+    }
+  });
+}
+
 export async function grantPoints(userId: string, points: number, reason: string, orderId?: string) {
   if (!Number.isInteger(points) || points <= 0) {
     throw new Error('加点数量必须为正整数。');
@@ -245,6 +307,7 @@ export async function consumeQuestionPoint(userId: string, auditId?: string) {
 
   await ensureRuntimeSchema();
   return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`guanyu-question:${userId}`}));`;
     const user = await tx.user.findUnique({
       where: { id: userId },
       select: { planType: true, creditBalance: true, creditBalanceCents: true },
@@ -310,25 +373,18 @@ export async function activateByokPlan(userId: string, reason: string, orderId?:
   });
 }
 
-export function getPackageDefinition(packageType: string): {
+export function getPackageDefinition(packageType: string, paymentMethod = 'alipay_qr'): {
   packageType: PackageType;
   packageName: string;
   amountCents: number;
+  currency: 'CNY' | 'USD';
   points: number;
 } {
-  if (packageType === 'byok_lifetime') {
-    return {
-      packageType: 'byok_lifetime',
-      packageName: '30 元买断 · 自备 API',
-      amountCents: BYOK_PACKAGE_AMOUNT_CENTS,
-      points: 0,
-    };
-  }
-
-  return {
-    packageType: 'points_30',
-    packageName: '30 点套餐',
-    amountCents: POINT_PACKAGE_AMOUNT_CENTS,
-    points: POINT_PACKAGE_POINTS,
+  return getPaymentPackageDefinition(packageType, paymentMethod) as {
+    packageType: PackageType;
+    packageName: string;
+    amountCents: number;
+    currency: 'CNY' | 'USD';
+    points: number;
   };
 }

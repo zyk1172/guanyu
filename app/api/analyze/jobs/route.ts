@@ -2,8 +2,20 @@ import { after, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { createAnalyzeJob, runAnalyzeJob } from '@/lib/analyze-job';
+import { normalizeReportLanguage } from '@/lib/types';
 
 export const maxDuration = 300;
+
+function reportLanguageFromRequest(request: Request) {
+  const cookie = request.headers.get('cookie') || '';
+  const match = cookie.match(/(?:^|;\s*)guanyu-ui-language=([^;]+)/);
+  if (!match?.[1]) return undefined;
+  try {
+    return normalizeReportLanguage(decodeURIComponent(match[1]));
+  } catch {
+    return undefined;
+  }
+}
 
 export async function POST(request: Request) {
   await ensureRuntimeSchema();
@@ -20,7 +32,7 @@ export async function POST(request: Request) {
       source: body.source,
       content: body.content,
       focus: body.focus,
-      reportLanguage: body.reportLanguage,
+      reportLanguage: body.reportLanguage || reportLanguageFromRequest(request),
     });
   } catch {
     return NextResponse.json({ error: '新闻正文太短，最少需要 50 个字符。' }, { status: 400 });

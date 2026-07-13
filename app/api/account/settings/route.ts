@@ -6,11 +6,13 @@ import { encryptSecret } from '@/lib/secret';
 import { getOrCreateAppSetting, isByokPlan } from '@/lib/billing';
 import { cacheDel, CACHE_KEYS } from '@/lib/cache';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
+import { getEffectiveRssSourceConfig, getRssSourceCatalog, normalizeRssSourceConfig } from '@/lib/rss-core.mjs';
+import { assertPublicOutboundUrl } from '@/lib/safe-outbound';
 
 const VALID_ANALYSIS_MODES = new Set(['quick', 'deep']);
 const VALID_THINKING_DEPTHS = new Set(['none', 'low', 'medium', 'high', 'extreme', 'quick', 'standard', 'deep', 'exhaustive']);
 const VALID_TAVILY_DEPTHS = new Set(['basic', 'advanced']);
-const VALID_REPORT_LANGUAGES = new Set(['zh-CN', 'en-US']);
+const VALID_REPORT_LANGUAGES = new Set(['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'ko-KR', 'de-DE', 'it-IT']);
 
 function normalizeThinkingDepth(depth: unknown) {
   if (typeof depth !== 'string') return 'medium';
@@ -66,6 +68,7 @@ export async function GET(request: Request) {
     }
 
     const canUseOwnApi = isSuperAdmin || isByokPlan(account.planType);
+    const rssSourceCatalog = getRssSourceCatalog();
 
     if (!settings) {
       // 预防性创建：如果用户不小心丢了配置
@@ -83,6 +86,11 @@ export async function GET(request: Request) {
         },
       });
       const safeSettings = withSafeModelFields(newSettings);
+      const rssFeedConfig = getEffectiveRssSourceConfig({
+        canUseOwnApi,
+        adminConfig: appSetting.adminRssFeedIdsJson,
+        personalConfig: newSettings.rssFeedUrlsJson,
+      });
       return NextResponse.json({
         ...safeSettings,
         ...(!canUseOwnApi ? {
@@ -98,10 +106,18 @@ export async function GET(request: Request) {
         isSuperAdmin,
         canUseOwnApi,
         modelConfigSource: canUseOwnApi ? 'personal' : 'admin',
+        rssFeedConfig,
+        rssConfigSource: canUseOwnApi ? 'personal' : 'admin',
+        rssSourceCatalog,
       });
     }
 
     const safeSettings = withSafeModelFields(settings);
+    const rssFeedConfig = getEffectiveRssSourceConfig({
+      canUseOwnApi,
+      adminConfig: appSetting.adminRssFeedIdsJson,
+      personalConfig: settings.rssFeedUrlsJson,
+    });
     return NextResponse.json({
       ...safeSettings,
       ...(!canUseOwnApi ? {
@@ -117,6 +133,9 @@ export async function GET(request: Request) {
       isSuperAdmin,
       canUseOwnApi,
       modelConfigSource: canUseOwnApi ? 'personal' : 'admin',
+      rssFeedConfig,
+      rssConfigSource: canUseOwnApi ? 'personal' : 'admin',
+      rssSourceCatalog,
     });
   } catch (error: any) {
     console.error('GET settings error:', error);
@@ -158,6 +177,7 @@ export async function PATCH(request: Request) {
       defaultIsPublic,
       defaultSaveResult,
       defaultEnableCharts,
+      rssFeedConfig,
     } = body;
     const safeAnalysisMode = VALID_ANALYSIS_MODES.has(defaultAnalysisMode) ? defaultAnalysisMode : 'deep';
     const safeReasoningDepth = normalizeThinkingDepth(defaultReasoningDepth);
@@ -172,13 +192,22 @@ export async function PATCH(request: Request) {
       trimmedTavilyApiKey ||
       trimmedSerperApiKey
     );
-    if (!canUseOwnApi && hasOwnApiUpdate) {
+    const hasRssConfigUpdate = rssFeedConfig !== undefined;
+    const normalizedRssFeedConfig = normalizeRssSourceConfig(rssFeedConfig);
+    if (!canUseOwnApi && (hasOwnApiUpdate || hasRssConfigUpdate)) {
       return NextResponse.json({
-        error: '只有 30 元买断账号可以填写自己的大模型和联网 API。点数账号使用管理员统一模型与搜索额度。',
+        error: '点数账号使用管理员统一模型、联网搜索与 RSS 订阅。只有 30 元买断账号可以填写自己的配置。',
       }, { status: 403 });
     }
     const safeModelName = String(defaultModelName || '').trim() || process.env.OPENAI_MODEL_DEFAULT || 'gpt-4o';
     const safeLlmBaseUrl = String(llmBaseUrl || '').trim() || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
+    if (canUseOwnApi) {
+      try {
+        await assertPublicOutboundUrl(safeLlmBaseUrl, { requireHttps: process.env.NODE_ENV === 'production' });
+      } catch (error: any) {
+        return NextResponse.json({ error: error?.message || '大模型接口地址不符合安全要求。' }, { status: 400 });
+      }
+    }
 
     const apiKeyUpdate = trimmedApiKey
       ? { llmApiKeyEncrypted: encryptSecret(trimmedApiKey) }
@@ -207,6 +236,7 @@ export async function PATCH(request: Request) {
           enableSerperSearch: Boolean(enableSerperSearch),
         } : {}),
         ...serperApiKeyUpdate,
+        ...(canUseOwnApi && hasRssConfigUpdate ? { rssFeedUrlsJson: JSON.stringify(normalizedRssFeedConfig) } : {}),
         defaultReasoningDepth: safeReasoningDepth,
         defaultReportLanguage: safeReportLanguage,
         defaultIsPublic,
@@ -229,6 +259,7 @@ export async function PATCH(request: Request) {
         defaultIsPublic: defaultIsPublic !== undefined ? defaultIsPublic : true,
         defaultSaveResult: defaultSaveResult !== undefined ? defaultSaveResult : true,
         defaultEnableCharts: defaultEnableCharts !== undefined ? defaultEnableCharts : true,
+        rssFeedUrlsJson: canUseOwnApi && hasRssConfigUpdate ? JSON.stringify(normalizedRssFeedConfig) : '[]',
       },
     });
 
@@ -242,6 +273,7 @@ export async function PATCH(request: Request) {
       if (trimmedApiKey) appSettingUpdate.adminLlmApiKeyEncrypted = encryptSecret(trimmedApiKey);
       if (trimmedTavilyApiKey) appSettingUpdate.adminTavilyApiKeyEncrypted = encryptSecret(trimmedTavilyApiKey);
       if (trimmedSerperApiKey) appSettingUpdate.adminSerperApiKeyEncrypted = encryptSecret(trimmedSerperApiKey);
+      if (hasRssConfigUpdate) appSettingUpdate.adminRssFeedIdsJson = JSON.stringify(normalizedRssFeedConfig);
 
       await prisma.appSetting.upsert({
         where: { id: 'global' },

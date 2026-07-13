@@ -4,8 +4,16 @@ import { slidingWindowCount, slidingWindowRecord, CACHE_KEYS } from '@/lib/cache
 
 const ANALYZE_WINDOW_MS = 5 * 60 * 1000;
 const ANALYZE_WINDOW_LIMIT = 3;
+const CAPTCHA_WINDOW_MS = 10 * 60 * 1000;
+const CAPTCHA_WINDOW_LIMIT = 12;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_WINDOW_LIMIT = 8;
+const EXTENSION_LINK_WINDOW_MS = 10 * 60 * 1000;
+const EXTENSION_LINK_WINDOW_LIMIT = 12;
 
 export function getClientIp(request: Request) {
+  const trustProxyHeaders = process.env.VERCEL === '1' || process.env.TRUST_PROXY_HEADERS === 'true';
+  if (!trustProxyHeaders) return 'direct-client';
   const forwarded = request.headers.get('x-forwarded-for');
   if (forwarded) return forwarded.split(',')[0]?.trim() || 'unknown';
   return request.headers.get('x-real-ip') || 'unknown';
@@ -78,4 +86,67 @@ export async function assertEmailCodeSendLimit(email: string, ip: string) {
   if (ipCount >= 5) {
     throw new Error('当前网络请求验证码过于频繁，请稍后再试。');
   }
+}
+
+export async function assertCaptchaChallengeLimit(ip: string) {
+  const windowStart = new Date(Date.now() - CAPTCHA_WINDOW_MS);
+  const ipHash = hashForStorage(ip);
+  const count = await prisma.verificationCode.count({
+    where: {
+      ipHash,
+      purpose: 'register_captcha',
+      createdAt: { gte: windowStart },
+    },
+  });
+  if (count >= CAPTCHA_WINDOW_LIMIT) {
+    throw new Error('验证码刷新过于频繁，请 10 分钟后再试。');
+  }
+}
+
+function loginAttemptKey(email: string) {
+  return `login:${hashForStorage(email.trim().toLowerCase())}`;
+}
+
+export async function reserveLoginAttempt(email: string) {
+  const key = loginAttemptKey(email);
+  const windowStart = new Date(Date.now() - LOGIN_WINDOW_MS);
+  const recentAttempts = await prisma.verificationCode.count({
+    where: { email: key, purpose: 'login_attempt', createdAt: { gte: windowStart } },
+  });
+  if (recentAttempts >= LOGIN_WINDOW_LIMIT) {
+    throw new Error('登录尝试过于频繁，请 15 分钟后再试。');
+  }
+  await prisma.verificationCode.create({
+    data: {
+      email: key,
+      codeHash: crypto.randomUUID(),
+      purpose: 'login_attempt',
+      expiresAt: new Date(Date.now() + LOGIN_WINDOW_MS),
+    },
+  });
+}
+
+export async function clearLoginAttempts(email: string) {
+  await prisma.verificationCode.deleteMany({
+    where: { email: loginAttemptKey(email), purpose: 'login_attempt' },
+  });
+}
+
+export async function reserveExtensionLinkAttempt(ip: string) {
+  const key = `extension-link:${hashForStorage(ip)}`;
+  const windowStart = new Date(Date.now() - EXTENSION_LINK_WINDOW_MS);
+  const count = await prisma.verificationCode.count({
+    where: { email: key, purpose: 'extension_link_attempt', createdAt: { gte: windowStart } },
+  });
+  if (count >= EXTENSION_LINK_WINDOW_LIMIT) {
+    throw new Error('插件连接尝试过于频繁，请 10 分钟后再试。');
+  }
+  await prisma.verificationCode.create({
+    data: {
+      email: key,
+      codeHash: crypto.randomUUID(),
+      purpose: 'extension_link_attempt',
+      expiresAt: new Date(Date.now() + EXTENSION_LINK_WINDOW_MS),
+    },
+  });
 }

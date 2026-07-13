@@ -5,6 +5,8 @@ import { setSessionCookie } from '@/lib/session-cookie';
 import { isSuperAdminIdentity } from '@/lib/admin-core.mjs';
 import { verifyEmailCode } from '@/lib/captcha';
 import { sendWelcomeEmail } from '@/lib/email';
+import { assertSameOrigin } from '@/lib/request-security';
+import { getClientIp } from '@/lib/rate-limit';
 
 async function readRegistration(request: NextRequest) {
   const contentType = request.headers.get('content-type') || '';
@@ -42,12 +44,17 @@ function errorResponse(message: string, wantsJson: boolean, status = 400) {
 export async function POST(request: NextRequest) {
   try {
     const { email, password, confirmPassword, emailCode, wantsJson } = await readRegistration(request);
+    try {
+      assertSameOrigin(request);
+    } catch (error: any) {
+      return errorResponse(error?.message || '跨站请求已被拒绝。', wantsJson, 403);
+    }
 
     if (!email || !password) {
       return errorResponse('请输入邮箱和密码', wantsJson);
     }
-    if (password.length < 6) {
-      return errorResponse('密码至少需要 6 个字符', wantsJson);
+    if (password.length < 8) {
+      return errorResponse('密码至少需要 8 个字符', wantsJson);
     }
     if (password !== confirmPassword) {
       return errorResponse('两次输入的密码不一致', wantsJson);
@@ -60,7 +67,7 @@ export async function POST(request: NextRequest) {
     if (existing) {
       return errorResponse('该邮箱已经注册，请直接登录。', wantsJson, 409);
     }
-    const emailCodeOk = await verifyEmailCode(email, emailCode);
+    const emailCodeOk = await verifyEmailCode(email, emailCode, getClientIp(request));
     if (!emailCodeOk) {
       return errorResponse('邮箱验证码错误或已过期，请重新获取。', wantsJson);
     }

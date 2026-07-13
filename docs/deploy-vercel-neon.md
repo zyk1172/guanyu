@@ -24,7 +24,8 @@ DATABASE_URL=
 NEXTAUTH_SECRET=
 APP_ENCRYPTION_KEY=
 NEXTAUTH_URL=
-SUPER_ADMIN_EMAILS=zykhs@icloud.com
+SUPER_ADMIN_EMAILS=admin@example.com
+ADMIN_NOTIFY_EMAILS=admin@example.com
 ```
 
 可选但推荐（Upstash Redis 缓存，加速热门榜、审视详情、全局设置读取，并承担分析限流计数）：
@@ -42,6 +43,23 @@ UPSTASH_REDIS_REST_TOKEN=
 - 备用：在 Vercel 环境变量中配置 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL_DEFAULT`、`TAVILY_API_KEY`、`SERPER_API_KEY`。
 
 如果从 NAS 数据库迁移已有用户设置，`APP_ENCRYPTION_KEY` 必须与 NAS 当前生产环境一致，否则数据库里已加密的模型密钥和搜索密钥无法解密。全新 Neon 数据库可以使用新的 `APP_ENCRYPTION_KEY`。
+
+### 邮件投递配置
+
+报告完成、订单提交/确认/驳回、点数到账、账号封禁或恢复都会写入 `EmailDelivery` 投递记录，并发送给相关用户；报告完成时还会额外发送给 `ADMIN_NOTIFY_EMAILS` 和超级管理员。必须至少配置一套真实的发信通道：
+
+```dotenv
+SMTP_HOST=smtpdm.aliyun.com
+SMTP_PORT=465
+SMTP_SECURE=true
+SMTP_USER=system@your-domain.example
+SMTP_PASS=your-smtp-password-or-token
+SMTP_FROM=system@your-domain.example
+SMTP_FROM_NAME=观隅
+ADMIN_NOTIFY_EMAILS=admin@example.com
+```
+
+也可以改用阿里云 DirectMail 的 `ALIYUN_ACCESS_KEY_ID`、`ALIYUN_ACCESS_KEY_SECRET` 与 `ALIYUN_DM_ACCOUNT_NAME`。两个通道同时存在时，系统先尝试 SMTP，再回退 DirectMail；每封邮件失败会重试一次，并在超级管理员账号管理页显示通道、失败原因和重试次数。仅创建了空环境变量不算完成配置。
 
 ## 3. 初始化 Neon 表结构
 
@@ -92,12 +110,13 @@ vercel --prod
 ## 6. 首次上线后的检查
 
 1. 打开 Vercel 生产域名。
-2. 使用 `zykhs@icloud.com` 注册或登录。
+2. 使用配置在 `SUPER_ADMIN_EMAILS` 中的管理员邮箱注册或登录。
 3. 确认账号具有超级管理员权限。
 4. 在“账号管理”中保存全局大模型、Base URL、API Key、Tavily / Serper 搜索配置。
 5. 用快速审视生成一篇测试报告。
 6. 用深度审视生成一篇测试报告，确认联网核验结果出现。
 7. 打开报告详情页，测试追问功能。
+8. 生成一份报告后，在“账号管理”的“邮件投递记录”确认创建者和 `ADMIN_NOTIFY_EMAILS` 中的管理员均出现 `sent` 状态；若是 `failed`，按记录中的通道和错误修正 Vercel 邮件变量。
 
 ## 7. Vercel 部署注意事项
 

@@ -2,17 +2,41 @@ import type { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { getToken } from 'next-auth/jwt';
 import type { NextRequest } from 'next/server';
-import { createHash } from 'crypto';
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import { prisma } from '@/lib/prisma';
-import { isSuperAdminIdentity } from './admin-core.mjs';
 
 export interface CurrentUser {
   id: string;
   email?: string | null;
 }
 
+const PASSWORD_PREFIX = 'scrypt';
+
 export function hashPassword(password: string): string {
-  return createHash('sha256').update(password).digest('hex');
+  const salt = randomBytes(16).toString('base64url');
+  const digest = scryptSync(password, salt, 64).toString('base64url');
+  return `${PASSWORD_PREFIX}$${salt}$${digest}`;
+}
+
+export function verifyPassword(password: string, storedValue: string) {
+  if (storedValue.startsWith(`${PASSWORD_PREFIX}$`)) {
+    const [, salt, encodedDigest] = storedValue.split('$');
+    if (!salt || !encodedDigest) return { valid: false, needsUpgrade: false };
+    const expected = Buffer.from(encodedDigest, 'base64url');
+    const actual = scryptSync(password, salt, 64);
+    return {
+      valid: expected.length === actual.length && timingSafeEqual(expected, actual),
+      needsUpgrade: false,
+    };
+  }
+
+  // Existing SHA-256 rows stay usable once, then are upgraded after a valid login.
+  const expected = Buffer.from(storedValue, 'hex');
+  const actual = Buffer.from(createHash('sha256').update(password).digest('hex'), 'hex');
+  return {
+    valid: expected.length === actual.length && timingSafeEqual(expected, actual),
+    needsUpgrade: true,
+  };
 }
 
 export const authOptions: NextAuthOptions = {
@@ -33,38 +57,19 @@ export const authOptions: NextAuthOptions = {
           where: { email },
         });
 
-        if (!user) {
-          const newUser = await prisma.user.create({
-            data: {
-              email,
-              password: hashPassword(credentials.password),
-              role: isSuperAdminIdentity({ email }, {
-                SUPER_ADMIN_EMAILS: process.env.SUPER_ADMIN_EMAILS,
-                SUPER_ADMIN_IDS: process.env.SUPER_ADMIN_IDS,
-              }) ? 'super_admin' : 'user',
-              settings: {
-                create: {
-                  defaultModelName: process.env.OPENAI_MODEL_DEFAULT || 'gpt-4o',
-                  llmBaseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
-                  defaultReasoningDepth: 'medium',
-                  defaultAnalysisMode: 'deep',
-                  defaultIsPublic: true,
-                  defaultSaveResult: true,
-                  defaultEnableCharts: true,
-                },
-              },
-            },
-          });
-          return { id: newUser.id, email: newUser.email };
-        }
+        if (!user) throw new Error('账号不存在，请先完成邮箱验证注册。');
 
         if (user.isBanned) {
           throw new Error('账号已被管理员暂停使用，请联系管理员。');
         }
 
-        const hashedInput = hashPassword(credentials.password);
-        if (user.password !== hashedInput) {
+        const password = verifyPassword(credentials.password, user.password);
+        if (!password.valid) {
           throw new Error('密码错误');
+        }
+
+        if (password.needsUpgrade) {
+          await prisma.user.update({ where: { id: user.id }, data: { password: hashPassword(credentials.password) } });
         }
 
         return { id: user.id, email: user.email };

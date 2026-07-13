@@ -23,25 +23,22 @@ export async function GET(
     const userId = user?.id;
     const isSuperAdmin = userId ? await getSuperAdminStatus(userId) : false;
 
-    const cacheKey = CACHE_KEYS.audit(id);
-    let audit = await cacheGet<AuditRecord>(cacheKey);
-    if (!audit) {
-      audit = await prisma.audit.findUnique({
-        where: { id },
-      });
-      if (audit) {
-        await cacheSet(cacheKey, audit, CACHE_TTL.audit);
-      }
-    }
+    // Authorization is always decided from the database. A cached public
+    // snapshot must never keep a report readable after its owner makes it private.
+    const currentAudit = await prisma.audit.findUnique({ where: { id } });
 
-    if (!audit) {
+    if (!currentAudit) {
       return NextResponse.json({ error: '未找到该审视记录' }, { status: 404 });
     }
 
     // 鉴权逻辑：如果是私有审视且不是创建者本人访问，直接返回 403
-    if (!audit.isPublic && audit.userId !== userId && !isSuperAdmin) {
+    if (!currentAudit.isPublic && currentAudit.userId !== userId && !isSuperAdmin) {
       return NextResponse.json({ error: '你没有权限查看这条审视记录。' }, { status: 403 });
     }
+
+    const cacheKey = CACHE_KEYS.audit(id);
+    const audit = await cacheGet<AuditRecord>(cacheKey) || currentAudit;
+    if (audit === currentAudit) await cacheSet(cacheKey, currentAudit, CACHE_TTL.audit);
 
     // 浏览计数在响应后异步入库，不阻塞详情返回
     after(async () => {

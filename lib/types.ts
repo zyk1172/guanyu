@@ -1,6 +1,6 @@
 export type AnalysisMode = 'quick' | 'deep';
 export type ThinkingDepth = 'none' | 'low' | 'medium' | 'high' | 'extreme';
-export type ReportLanguage = 'zh-CN' | 'en-US';
+export type ReportLanguage = 'zh-CN' | 'zh-TW' | 'en-US' | 'ja-JP' | 'ko-KR' | 'de-DE' | 'it-IT';
 export type AudienceTheme = 'teen' | 'youth' | 'mature' | 'senior';
 
 export const REPORT_LANGUAGE_OPTIONS: Array<{
@@ -9,26 +9,53 @@ export const REPORT_LANGUAGE_OPTIONS: Array<{
   description: string;
 }> = [
   { value: 'zh-CN', label: '中文', description: '报告正文、摘要和追问使用中文输出。' },
+  { value: 'zh-TW', label: '繁體中文', description: '報告正文、摘要和追問使用繁體中文輸出。' },
   { value: 'en-US', label: 'English', description: 'Report narrative, summaries, and follow-up answers are generated in English.' },
+  { value: 'ja-JP', label: '日本語', description: 'レポート、要約、追問を日本語で生成します。' },
+  { value: 'ko-KR', label: '한국어', description: '보고서, 요약 및 후속 질문을 한국어로 생성합니다.' },
+  { value: 'de-DE', label: 'Deutsch', description: 'Bericht, Zusammenfassung und Nachfragen werden auf Deutsch erstellt.' },
+  { value: 'it-IT', label: 'Italiano', description: 'Rapporto, sintesi e domande di approfondimento sono generati in italiano.' },
 ];
 
 export function normalizeReportLanguage(value: string | null | undefined): ReportLanguage {
-  return value === 'en-US' || value === 'en' || value === 'english' ? 'en-US' : 'zh-CN';
+  const normalized = String(value || '').trim();
+  const aliases: Record<string, ReportLanguage> = {
+    'zh-CN': 'zh-CN', zh: 'zh-CN', chinese: 'zh-CN', 'simplified-chinese': 'zh-CN',
+    'zh-TW': 'zh-TW', 'zh-Hant': 'zh-TW', traditional: 'zh-TW', 'traditional-chinese': 'zh-TW',
+    'en-US': 'en-US', en: 'en-US', english: 'en-US',
+    'ja-JP': 'ja-JP', ja: 'ja-JP', japanese: 'ja-JP',
+    'ko-KR': 'ko-KR', ko: 'ko-KR', korean: 'ko-KR',
+    'de-DE': 'de-DE', de: 'de-DE', german: 'de-DE', deutsch: 'de-DE',
+    'it-IT': 'it-IT', it: 'it-IT', italian: 'it-IT', italiano: 'it-IT',
+  };
+  return aliases[normalized] || 'zh-CN';
 }
 
 export function getReportLanguageLabel(value: string | null | undefined, uiLanguage?: string | null): string {
-  if (normalizeReportLanguage(value) === 'en-US') return 'English';
-  return normalizeReportLanguage(uiLanguage) === 'en-US' ? 'Chinese' : '中文';
+  const language = normalizeReportLanguage(value);
+  const labels: Record<ReportLanguage, string> = {
+    'zh-CN': normalizeReportLanguage(uiLanguage) === 'en-US' ? 'Simplified Chinese' : '中文',
+    'zh-TW': '繁體中文',
+    'en-US': 'English',
+    'ja-JP': '日本語',
+    'ko-KR': '한국어',
+    'de-DE': 'Deutsch',
+    'it-IT': 'Italiano',
+  };
+  return labels[language];
 }
 
 export function getReadWorthDisplayLabel(label: ReadWorthLabel, language: string | null | undefined): string {
-  if (normalizeReportLanguage(language) !== 'en-US') return label;
-  return {
-    值得细读: 'Worth Reading',
-    可以略读: 'Skimmable',
-    不值一读: 'Not Worth Reading',
-    暂无法判断: 'Insufficient Information',
-  }[label];
+  const labels: Record<ReportLanguage, Record<ReadWorthLabel, string>> = {
+    'zh-CN': { 值得细读: '值得细读', 可以略读: '可以略读', 不值一读: '不值一读', 暂无法判断: '暂无法判断' },
+    'zh-TW': { 值得细读: '值得細讀', 可以略读: '可以略讀', 不值一读: '不值一讀', 暂无法判断: '暫無法判斷' },
+    'en-US': { 值得细读: 'Worth Reading', 可以略读: 'Skimmable', 不值一读: 'Not Worth Reading', 暂无法判断: 'Insufficient Information' },
+    'ja-JP': { 值得细读: '精読する価値あり', 可以略读: 'ざっと読む価値あり', 不值一读: '読む価値は低い', 暂无法判断: '判断材料が不足' },
+    'ko-KR': { 值得细读: '정독할 가치 있음', 可以略读: '훑어볼 만함', 不值一读: '읽을 가치 낮음', 暂无法判断: '판단 자료 부족' },
+    'de-DE': { 值得细读: 'Lesenswert', 可以略读: 'Ueberfliegbar', 不值一读: 'Nicht lesenswert', 暂无法判断: 'Nicht ausreichend beurteilbar' },
+    'it-IT': { 值得细读: 'Da leggere con attenzione', 可以略读: 'Da scorrere', 不值一读: 'Non merita lettura', 暂无法判断: 'Informazioni insufficienti' },
+  };
+  return labels[normalizeReportLanguage(language)][label];
 }
 
 export const AUDIENCE_THEME_LABELS: Record<AudienceTheme, string> = {
@@ -71,8 +98,17 @@ export const THINKING_DEPTH_OPTIONS: Array<{
 ];
 
 export function getThinkingDepthLabel(depth: string, uiLanguage?: string | null): string {
-  if (normalizeReportLanguage(uiLanguage) === 'en-US') {
-    const labels: Record<string, string> = {
+  const language = normalizeReportLanguage(uiLanguage);
+  const labelsByLanguage: Record<ReportLanguage, Record<string, string>> = {
+    'zh-CN': {
+      ...THINKING_DEPTH_LABELS,
+      quick: '低', standard: '中', deep: '高', exhaustive: '极高',
+    },
+    'zh-TW': {
+      none: '無', low: '低', medium: '中', high: '高', extreme: '極高',
+      quick: '低', standard: '中', deep: '高', exhaustive: '極高',
+    },
+    'en-US': {
       none: 'None',
       low: 'Low',
       medium: 'Medium',
@@ -82,17 +118,25 @@ export function getThinkingDepthLabel(depth: string, uiLanguage?: string | null)
       standard: 'Medium',
       deep: 'High',
       exhaustive: 'Very high',
-    };
-    return labels[depth] || depth;
-  }
-  const labels: Record<string, string> = {
-    ...THINKING_DEPTH_LABELS,
-    quick: '低',
-    standard: '中',
-    deep: '高',
-    exhaustive: '极高',
+    },
+    'ja-JP': {
+      none: 'なし', low: '低', medium: '中', high: '高', extreme: '最高',
+      quick: '低', standard: '中', deep: '高', exhaustive: '最高',
+    },
+    'ko-KR': {
+      none: '없음', low: '낮음', medium: '중간', high: '높음', extreme: '매우 높음',
+      quick: '낮음', standard: '중간', deep: '높음', exhaustive: '매우 높음',
+    },
+    'de-DE': {
+      none: 'Keine', low: 'Niedrig', medium: 'Mittel', high: 'Hoch', extreme: 'Sehr hoch',
+      quick: 'Niedrig', standard: 'Mittel', deep: 'Hoch', exhaustive: 'Sehr hoch',
+    },
+    'it-IT': {
+      none: 'Nessuna', low: 'Bassa', medium: 'Media', high: 'Alta', extreme: 'Molto alta',
+      quick: 'Bassa', standard: 'Media', deep: 'Alta', exhaustive: 'Molto alta',
+    },
   };
-  return labels[depth] || depth;
+  return labelsByLanguage[language][depth] || depth;
 }
 
 export function normalizeThinkingDepthValue(depth: string | null | undefined): ThinkingDepth {

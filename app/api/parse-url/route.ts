@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server';
 import * as cheerio from 'cheerio';
 import type { AnyNode } from 'domhandler';
-import { lookup } from 'node:dns/promises';
-import net from 'node:net';
 import { extractPublishedDate, normalizeDate } from '@/lib/publishedDate.mjs';
+import { assertPublicOutboundUrl, safeOutboundRequest } from '@/lib/safe-outbound';
 
 export const maxDuration = 30;
 export const runtime = 'nodejs';
@@ -229,58 +228,13 @@ function normalizeExtractedText(rawText: string): string {
     .trim();
 }
 
-function isPrivateIPv4(ip: string) {
-  const parts = ip.split('.').map((part) => Number(part));
-  if (parts.length !== 4 || parts.some((part) => Number.isNaN(part))) return true;
-  const [a, b] = parts;
-  return (
-    a === 10 ||
-    a === 127 ||
-    a === 0 ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168)
-  );
-}
-
-function isPrivateIPv6(ip: string) {
-  const normalized = ip.toLowerCase();
-  return normalized === '::1' || normalized.startsWith('fc') || normalized.startsWith('fd') || normalized.startsWith('fe80:');
-}
-
 async function assertPublicHttpUrl(input: string): Promise<URL> {
-  let parsed: URL;
   try {
-    parsed = new URL(input);
-  } catch {
-    throw new Error('URL 格式无效。');
+    const { target } = await assertPublicOutboundUrl(input);
+    return target;
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : 'URL 格式无效。');
   }
-
-  if (!['http:', 'https:'].includes(parsed.protocol)) {
-    throw new Error('仅支持 http(s) 协议。');
-  }
-
-  const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (host === 'localhost' || host.endsWith('.localhost')) {
-    throw new Error('出于安全原因，不支持抓取 localhost 或内网地址。');
-  }
-
-  const ipType = net.isIP(host);
-  if ((ipType === 4 && isPrivateIPv4(host)) || (ipType === 6 && isPrivateIPv6(host))) {
-    throw new Error('出于安全原因，不支持抓取内网、回环或链路本地地址。');
-  }
-
-  if (!ipType) {
-    const addresses = await lookup(host, { all: true, verbatim: false });
-    if (!addresses.length) throw new Error('无法解析该域名。');
-    for (const address of addresses) {
-      if ((address.family === 4 && isPrivateIPv4(address.address)) || (address.family === 6 && isPrivateIPv6(address.address))) {
-        throw new Error('出于安全原因，域名解析到了内网地址，已拒绝抓取。');
-      }
-    }
-  }
-
-  return parsed;
 }
 
 function charsetFromContentType(contentType: string) {
@@ -288,7 +242,7 @@ function charsetFromContentType(contentType: string) {
   return match?.[1]?.replace(/["']/g, '').toLowerCase() || 'utf-8';
 }
 
-function decodeHtmlBuffer(buffer: ArrayBuffer, contentType: string) {
+function decodeHtmlBuffer(buffer: ArrayBuffer | Uint8Array, contentType: string) {
   const charset = charsetFromContentType(contentType);
   try {
     return new TextDecoder(charset).decode(buffer);
@@ -301,19 +255,15 @@ async function fetchHtmlWithRedirects(initialUrl: string): Promise<FetchedHtml> 
   let currentUrl = (await assertPublicHttpUrl(initialUrl)).toString();
 
   for (let i = 0; i <= MAX_REDIRECTS; i += 1) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-    const response = await fetch(currentUrl, {
-      signal: controller.signal,
-      redirect: 'manual',
+    const response = await safeOutboundRequest(currentUrl, {
+      timeoutMs: 15_000,
+      maxBytes: MAX_RESPONSE_BYTES,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
         Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7,fr;q=0.6,de;q=0.6,es;q=0.6,it;q=0.6',
       },
-      cache: 'no-store',
     });
-    clearTimeout(timeout);
 
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get('location');
@@ -322,7 +272,7 @@ async function fetchHtmlWithRedirects(initialUrl: string): Promise<FetchedHtml> 
       continue;
     }
 
-    if (!response.ok) {
+    if (response.status < 200 || response.status >= 300) {
       throw new Error(`请求失败 (状态码 ${response.status})。`);
     }
 
@@ -336,13 +286,8 @@ async function fetchHtmlWithRedirects(initialUrl: string): Promise<FetchedHtml> 
       throw new Error('网页体积过大，请粘贴正文后再审视。');
     }
 
-    const buffer = await response.arrayBuffer();
-    if (buffer.byteLength > MAX_RESPONSE_BYTES) {
-      throw new Error('网页体积过大，请粘贴正文后再审视。');
-    }
-
     return {
-      html: decodeHtmlBuffer(buffer, contentType),
+      html: decodeHtmlBuffer(response.body, contentType),
       finalUrl: currentUrl,
     };
   }
@@ -616,7 +561,7 @@ export async function POST(request: Request) {
     }
     const message = typeof error?.message === 'string' ? error.message : '';
     if (message) {
-      const status = message.includes('内网') || message.includes('localhost') || message.includes('协议') || message.includes('URL 格式')
+      const status = message.includes('内网') || message.includes('localhost') || message.includes('协议') || message.includes('URL 格式') || message.includes('受限制') || message.includes('外部服务地址')
         ? 400
         : message.includes('超时')
           ? 504

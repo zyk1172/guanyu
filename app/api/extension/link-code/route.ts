@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   await prisma.extensionLinkCode.create({
     data: {
       userId: user.id,
-      codeHash: hashExtensionSecret(code),
+      codeHash: hashExtensionSecret(code.replace(/-/g, '')),
       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
     },
   });

@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createEmailVerificationCode, verifyCaptcha } from '@/lib/captcha';
 import { prisma } from '@/lib/prisma';
-import { assertEmailCodeSendLimit, getClientIp } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/rate-limit';
+import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { sendRegisterCodeEmail } from '@/lib/email';
 
 export async function POST(request: NextRequest) {
   try {
+    await ensureRuntimeSchema();
     const body = await request.json();
     const email = String(body.email || '').trim().toLowerCase();
     const captchaId = String(body.captchaId || '');
@@ -18,7 +20,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '请先完成图形验证码。' }, { status: 400 });
     }
 
-    const captchaOk = await verifyCaptcha(captchaId, captchaAnswer);
+    const ip = getClientIp(request);
+    const captchaOk = await verifyCaptcha(captchaId, captchaAnswer, ip);
     if (!captchaOk) {
       return NextResponse.json({ error: '图形验证码错误或已过期，请刷新后重试。' }, { status: 400 });
     }
@@ -28,8 +31,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '该邮箱已经注册，请直接登录。' }, { status: 409 });
     }
 
-    const ip = getClientIp(request);
-    await assertEmailCodeSendLimit(email, ip);
     const code = await createEmailVerificationCode(email, ip);
     await sendRegisterCodeEmail(email, code);
 
@@ -43,4 +44,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error?.message || '发送邮箱验证码失败，请稍后重试。' }, { status: 500 });
   }
 }
-

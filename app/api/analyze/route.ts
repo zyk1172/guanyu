@@ -3,14 +3,18 @@ import { getCurrentUser } from '@/lib/auth';
 import { cacheDelByPrefix, CACHE_KEYS } from '@/lib/cache';
 import { prisma } from '@/lib/prisma';
 import { buildCompactFallbackPrompt, buildPrompt } from '@/lib/prompts';
+import { buildReportLanguageJsonRepairPrompt, buildReportLanguageSystemGuard, getLanguageRepairErrorMessage, hasUnexpectedReportProse } from '@/lib/report-language-core.mjs';
 import { computeReadWorth } from '@/lib/readWorth';
 import { searchWeb, WebSearchOptions } from '@/lib/search';
 import { decryptSecret } from '@/lib/secret';
-import { assertAnalyzeRateLimit, recordAnalyzeEvent } from '@/lib/rate-limit';
+import { chooseModelConfig } from '@/lib/model-config';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
-import { buildUsagePlan, commitUsage, getOrCreateAppSetting } from '@/lib/billing';
+import { buildUsagePlan, getOrCreateAppSetting, refundAnalysisUsage, reserveAnalysisUsage } from '@/lib/billing';
 import { normalizeReportLanguage } from '@/lib/types';
-import type { UsageSource } from '@/lib/billing';
+import { getAnalysisTimeoutMs, getModelOutputTokenBudget, normalizeThinkingDepthCore } from '@/lib/reasoning-depth-core.mjs';
+import { formatUnconfirmedItem } from '@/lib/report-display-core.mjs';
+import { safeOutboundRequest } from '@/lib/safe-outbound';
+import type { UsagePlan, UsageSource } from '@/lib/billing';
 import type {
   AnalysisMode,
   AnalysisResult,
@@ -26,20 +30,8 @@ import type {
 export const maxDuration = 300;
 
 const MAX_NEWS_CONTENT_LENGTH = 30000;
-const VALID_THINKING_DEPTHS = new Set(['none', 'low', 'medium', 'high', 'extreme', 'quick', 'standard', 'deep', 'exhaustive']);
 const EMPTY_ONLINE_TITLES = new Set(['相关背景来源', '待核验线索', '来源标题', '未提供', '暂无']);
 const EMPTY_ONLINE_TEXT = new Set(['可作为背景核对方向。', '当前无可靠条目。', '未找到可用于外部核验的可靠来源。']);
-
-function normalizeThinkingDepth(depth?: string | null) {
-  if (!depth || !VALID_THINKING_DEPTHS.has(depth)) return 'medium';
-  const legacyMap: Record<string, string> = {
-    quick: 'low',
-    standard: 'medium',
-    deep: 'high',
-    exhaustive: 'extreme',
-  };
-  return legacyMap[depth] || depth;
-}
 
 function clampScore(score: unknown, defaultVal = 50): number {
   const val = Number.parseInt(String(score), 10);
@@ -145,9 +137,12 @@ function normalizeGap(item: any, fallbackTitle: string, hasExternalResults: bool
   };
 }
 
-function normalizeOnlineVerification(parsed: any, factCheckSources: Awaited<ReturnType<typeof searchWeb>>) {
+function normalizeOnlineVerification(parsed: any, factCheckSources: Awaited<ReturnType<typeof searchWeb>>, reportLanguage: ReportLanguage) {
   const existing = parsed?.onlineVerification || parsed?.web_verification || {};
   const hasExternalResults = factCheckSources.length > 0;
+  const noReliableSourcesMessage = !reportLanguage.startsWith('zh-')
+    ? 'No reliable source was found for external verification.'
+    : '未找到可用于外部核验的可靠来源。';
   const sourceFromSearch = (source: any) => {
     const title = String(source?.title || '').trim();
     const url = String(source?.url || '').trim();
@@ -190,7 +185,7 @@ function normalizeOnlineVerification(parsed: any, factCheckSources: Awaited<Retu
     : factCheckSources.slice(0, 5).map(sourceFromSearch).filter(Boolean);
   const pendingLeads = asArray(existing.pendingLeads || existing.leads_to_verify).map(sourceFromSearch).filter(Boolean);
   const unableToConfirm = asArray<string>(existing.unableToConfirm || existing.unconfirmed_items)
-    .map((item) => String(item || '').trim())
+    .map((item) => formatUnconfirmedItem(item))
     .filter((item) => item && !EMPTY_ONLINE_TEXT.has(item) && !EMPTY_ONLINE_TITLES.has(item));
   const hasAnyResult = verifiedSources.length + backgroundSources.length + pendingLeads.length > 0;
 
@@ -200,7 +195,7 @@ function normalizeOnlineVerification(parsed: any, factCheckSources: Awaited<Retu
     verifiedSources: verifiedSources as any[],
     backgroundSources: backgroundSources as any[],
     pendingLeads: pendingLeads as any[],
-    unableToConfirm: unableToConfirm.length > 0 ? unableToConfirm : (hasAnyResult ? [] : ['未找到可用于外部核验的可靠来源。']),
+    unableToConfirm: unableToConfirm.length > 0 ? unableToConfirm : (hasAnyResult ? [] : [noReliableSourcesMessage]),
   };
 }
 
@@ -211,7 +206,8 @@ function normalizeReport(params: {
   factCheckSources: Awaited<ReturnType<typeof searchWeb>>;
 }): AnalysisResult {
   const { parsed, mode, meta, factCheckSources } = params;
-  const onlineVerification = normalizeOnlineVerification(parsed, factCheckSources);
+  const reportLanguage = normalizeReportLanguage(meta.reportLanguage);
+  const onlineVerification = normalizeOnlineVerification(parsed, factCheckSources, reportLanguage);
   const hasExternalResults = onlineVerification.status === 'has_results';
   const scores = getScores(parsed);
   const timeAssessment = {
@@ -228,7 +224,7 @@ function normalizeReport(params: {
     modelName: meta.modelName,
     reasoningDepth: meta.reasoningDepth,
     analysisMode: mode,
-    reportLanguage: normalizeReportLanguage(meta.reportLanguage),
+    reportLanguage,
     createdAt: meta.createdAt,
     viewCount: meta.viewCount,
     isPublic: meta.isPublic,
@@ -245,7 +241,9 @@ function normalizeReport(params: {
       newsSummary: String(parsed.newsSummary || parsed.news_summary || '当前材料不足，无法形成可靠摘要。'),
       oneSentenceJudgment: String(parsed.oneSentenceJudgment || parsed.one_sentence_conclusion || '需要结合更多来源核验报道中的关键信息缺口。'),
       readingValue: '暂无法判断' as const,
-      readingValueReason: String(parsed.readingValueReason || parsed.reading_value_reason || '当前材料证据状态有限，阅读价值需要结合原文信息完整度和外部核验情况判断。'),
+      readingValueReason: String(parsed.readingValueReason || parsed.reading_value_reason || (!reportLanguage.startsWith('zh-')
+        ? 'The available evidence is limited. Reading value depends on the article’s information completeness and external verification status.'
+        : '当前材料证据状态有限，阅读价值需要结合原文信息完整度和外部核验情况判断。')),
       scores,
       quickSignals: {
         mostCredibleInfo: String(parsed.quickSignals?.mostCredibleInfo || parsed.quick_signals?.most_credible_info || '原文明确出现、可直接定位到文本的事实信息相对更可信。'),
@@ -271,7 +269,9 @@ function normalizeReport(params: {
     methodology: '观隅九镜审读法' as const,
     meta: baseMeta,
     generationScope: String(parsed.generationScope || parsed.report_meta?.generated_scope || '基于用户提供原文、账号配置和可用联网线索生成；不替用户断言新闻真假。'),
-    scoreExplanation: String(parsed.scoreExplanation || parsed.report_meta?.scoring_note || '评分用于衡量报道结构与证据状态，不等同于判断新闻真假。可信度越高表示越可信，信息完整度越高表示信息越完整，叙事倾向性越高表示引导性越强，证据强度越高表示证据越充分，推测不确定性越高表示越需要补充核验。'),
+    scoreExplanation: String(parsed.scoreExplanation || parsed.report_meta?.scoring_note || (!reportLanguage.startsWith('zh-')
+      ? 'Scores describe reporting structure and evidence state. They do not determine whether a news report is true or false. Higher credibility, completeness, and evidence strength are positive; higher narrative steering and speculation uncertainty require more caution.'
+      : '评分用于衡量报道结构与证据状态，不等同于判断新闻真假。可信度越高表示越可信，信息完整度越高表示信息越完整，叙事倾向性越高表示引导性越强，证据强度越高表示证据越充分，推测不确定性越高表示越需要补充核验。')),
     sourceInterpretation: {
       whatItSays: String(parsed.sourceInterpretation?.whatItSays || parsed.source_interpretation?.what_it_says || parsed.newsSummary || parsed.news_summary || '当前材料不足，无法形成可靠原文解读。'),
       coreClaims: stringArray(parsed.sourceInterpretation?.coreClaims || parsed.source_interpretation?.core_claims, [String(parsed.oneSentenceConclusion || parsed.one_sentence_conclusion || '原文核心主张需要结合全文继续确认。')]),
@@ -283,7 +283,9 @@ function normalizeReport(params: {
     newsSummary: String(parsed.newsSummary || parsed.news_summary || '当前材料不足，无法形成可靠摘要。'),
     oneSentenceConclusion: String(parsed.oneSentenceConclusion || parsed.one_sentence_conclusion || '需要结合更多来源核验报道中的关键信息缺口。'),
     readingValue: '暂无法判断' as const,
-    readingValueReason: String(parsed.readingValueReason || parsed.reading_value_reason || '阅读价值由报道信息完整度、证据强度、叙事倾向性和待核验问题共同决定。'),
+    readingValueReason: String(parsed.readingValueReason || parsed.reading_value_reason || (!reportLanguage.startsWith('zh-')
+      ? 'Reading value is determined by information completeness, evidence strength, narrative steering, and unresolved verification questions.'
+      : '阅读价值由报道信息完整度、证据强度、叙事倾向性和待核验问题共同决定。')),
     scores,
     scoreReasons: {
       credibility: String(parsed.scoreReasons?.credibility || parsed.score_summary?.score_reasoning?.credibility_score || '当前材料不足，无法形成可靠判断。'),
@@ -405,34 +407,10 @@ function buildSearchOptions(params: {
   return { provider: 'none' };
 }
 
-function chooseModelConfig(params: {
-  usageSource: UsageSource;
-  userSettings: any;
-  appSetting: any;
-}) {
-  if (params.usageSource !== 'byok') {
-    return {
-      modelName: params.appSetting?.adminModelName || process.env.OPENAI_MODEL_DEFAULT || 'gpt-4o',
-      baseURL: params.appSetting?.adminLlmBaseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
-      apiKey: params.appSetting?.adminLlmApiKeyEncrypted
-        ? decryptSecret(params.appSetting.adminLlmApiKeyEncrypted)
-        : (process.env.OPENAI_API_KEY || ''),
-    };
-  }
-
-  return {
-    modelName: params.userSettings?.defaultModelName || '',
-    baseURL: params.userSettings?.llmBaseUrl || '',
-    apiKey: params.userSettings?.llmApiKeyEncrypted
-      ? decryptSecret(params.userSettings.llmApiKeyEncrypted)
-      : '',
-  };
-}
-
 async function buildDeepSearchGroups(base: { title?: string; source?: string; content: string; reportLanguage: ReportLanguage }, searchOptions: WebSearchOptions) {
   const core = [base.title, base.source].filter(Boolean).join(' ');
   const contentHint = base.content.slice(0, 180).replace(/\s+/g, ' ');
-  const queries = base.reportLanguage === 'en-US'
+  const queries = !base.reportLanguage.startsWith('zh-')
     ? [
         `${core} primary sources official data policy documents ${contentHint}`,
         `${core} independent reporting background data context ${contentHint}`,
@@ -454,10 +432,11 @@ async function callChatCompletions(params: {
   system: string;
   userPrompt: string;
   timeoutMs?: number;
+  maxTokens?: number;
 }) {
-  let response: Response;
+  let response: { status: number; body: Buffer };
   try {
-    response = await fetch(`${params.baseURL}/chat/completions`, {
+    response = await safeOutboundRequest(`${params.baseURL.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -471,23 +450,30 @@ async function callChatCompletions(params: {
         ],
         temperature: 0.1,
         response_format: { type: 'json_object' },
+        ...(params.maxTokens ? { max_tokens: params.maxTokens } : {}),
       }),
-      // 上游挂起时主动断开，避免函数吃满 maxDuration 后被平台硬杀
-      signal: AbortSignal.timeout(params.timeoutMs ?? 210_000),
+      timeoutMs: params.timeoutMs ?? getAnalysisTimeoutMs(process.env.GUANYU_LLM_TIMEOUT_MS),
+      maxBytes: 8 * 1024 * 1024,
+      requireHttps: process.env.NODE_ENV === 'production',
     });
   } catch (error: any) {
-    const isTimeout = error?.name === 'TimeoutError' || error?.name === 'AbortError';
+    const isTimeout = error?.name === 'TimeoutError' || error?.name === 'AbortError' || /超时|timeout/i.test(String(error?.message || ''));
     return {
       ok: false as const,
       status: isTimeout ? 504 : 502,
       text: String(error?.message || error),
       message: '',
+      usedTokenBudget: Boolean(params.maxTokens),
     };
   }
 
-  const text = await response.text();
-  if (!response.ok) {
-    return { ok: false as const, status: response.status, text, message: '' };
+  const text = response.body.toString('utf8');
+  if (response.status < 200 || response.status >= 300) {
+    if (response.status === 400 && params.maxTokens && /(?:max_?tokens?|token limit|output token)/i.test(text)) {
+      console.warn('[model-output-budget] provider rejected max_tokens; retrying without an explicit output budget');
+      return callChatCompletions({ ...params, maxTokens: undefined });
+    }
+    return { ok: false as const, status: response.status, text, message: '', usedTokenBudget: Boolean(params.maxTokens) };
   }
 
   let data: any = null;
@@ -502,6 +488,7 @@ async function callChatCompletions(params: {
     status: response.status,
     text,
     message: data?.choices?.[0]?.message?.content || '',
+    usedTokenBudget: Boolean(params.maxTokens),
   };
 }
 
@@ -536,14 +523,19 @@ function parseAssistantJSON(assistantMessage: string) {
 }
 
 export async function POST(request: Request) {
+  let usageReservation: UsagePlan | null = null;
+  const releaseReservation = async () => {
+    if (!usageReservation) return;
+    const reservation = usageReservation;
+    usageReservation = null;
+    await refundAnalysisUsage(reservation).catch((error) => console.error('Refund analysis usage failed:', error));
+  };
   try {
     await ensureRuntimeSchema();
     const currentUser = await getCurrentUser(request);
     if (!currentUser) {
       return NextResponse.json({ error: '请登录后再创建新闻审视。' }, { status: 401 });
     }
-    await assertAnalyzeRateLimit(currentUser.id);
-
     const [userSettings, appSetting] = await Promise.all([
       prisma.userSettings.findUnique({
         where: { userId: currentUser.id },
@@ -559,11 +551,23 @@ export async function POST(request: Request) {
     }
 
     const truncatedContent = content.slice(0, MAX_NEWS_CONTENT_LENGTH);
-    const actualReasoningDepth = normalizeThinkingDepth(userSettings?.defaultReasoningDepth);
+    const actualReasoningDepth = normalizeThinkingDepthCore(userSettings?.defaultReasoningDepth);
     const actualAnalysisMode = 'deep' as AnalysisMode;
     const actualReportLanguage = normalizeReportLanguage(reportLanguage || userSettings?.defaultReportLanguage);
     const actualIsPublic = userSettings?.defaultIsPublic !== undefined ? userSettings.defaultIsPublic : true;
-    const usagePlan = await buildUsagePlan(currentUser.id, actualAnalysisMode);
+    const preliminaryPlan = await buildUsagePlan(currentUser.id, actualAnalysisMode);
+    const modelConfig = chooseModelConfig({ usageSource: preliminaryPlan.source, userSettings, appSetting });
+    if (!modelConfig.apiKey || !modelConfig.modelName || !modelConfig.baseURL) {
+      return NextResponse.json({
+        error: preliminaryPlan.source === 'byok'
+          ? '买断账号需要先在账号管理中保存自己的大模型名称、接口地址和 API Key。'
+          : preliminaryPlan.source === 'free_admin'
+          ? '管理员免费额度模型 API 未配置，请联系管理员。'
+          : '管理员点数模型 API 未配置，请联系管理员。',
+      }, { status: 500 });
+    }
+    usageReservation = await reserveAnalysisUsage(currentUser.id, actualAnalysisMode);
+    const usagePlan = usageReservation;
     const searchOptions = buildSearchOptions({ usageSource: usagePlan.source, userSettings, appSetting, reportLanguage: actualReportLanguage });
 
     const searchQuery = [title, source, truncatedContent.slice(0, 120)].filter(Boolean).join(' ').slice(0, 240);
@@ -571,7 +575,18 @@ export async function POST(request: Request) {
     const deepSources = actualAnalysisMode === 'deep'
       ? (await buildDeepSearchGroups({ title, source, content: truncatedContent, reportLanguage: actualReportLanguage }, searchOptions)).flat()
       : [];
-    const webSearchContext = buildSearchContext([...factCheckSources, ...deepSources]);
+    const allSearchSources = [...factCheckSources, ...deepSources];
+    const webSearchContext = buildSearchContext(allSearchSources);
+    const searchSourceCounts = allSearchSources.reduce<Record<string, number>>((counts, item) => {
+      const provider = item.provider || 'unknown';
+      counts[provider] = (counts[provider] || 0) + 1;
+      return counts;
+    }, {});
+    console.info('[web-search]', JSON.stringify({
+      provider: searchOptions.provider || 'none',
+      resultCount: allSearchSources.length,
+      sourceCounts: searchSourceCounts,
+    }));
 
     const promptInput = {
       title: title || '未知标题',
@@ -585,24 +600,15 @@ export async function POST(request: Request) {
     };
     const { system, user: userPrompt } = buildPrompt(promptInput);
 
-    const modelConfig = chooseModelConfig({ usageSource: usagePlan.source, userSettings, appSetting });
-    if (!modelConfig.apiKey || !modelConfig.modelName || !modelConfig.baseURL) {
-      return NextResponse.json({
-        error: usagePlan.source === 'byok'
-          ? '买断账号需要先在账号管理中保存自己的大模型名称、接口地址和 API Key。'
-          : usagePlan.source === 'free_admin'
-          ? '管理员免费额度模型 API 未配置，请联系管理员。'
-          : '管理员点数模型 API 未配置，请联系管理员。',
-      }, { status: 500 });
-    }
-
     let usedFallbackPrompt = false;
+    const outputTokenBudget = getModelOutputTokenBudget(actualReasoningDepth);
     let llmResult = await callChatCompletions({
       baseURL: modelConfig.baseURL,
       apiKey: modelConfig.apiKey,
       modelName: modelConfig.modelName,
       system,
       userPrompt,
+      maxTokens: outputTokenBudget,
     });
 
     if (!llmResult.ok && llmResult.status >= 500) {
@@ -614,16 +620,19 @@ export async function POST(request: Request) {
         modelName: modelConfig.modelName,
         system: fallbackPrompt.system,
         userPrompt: fallbackPrompt.user,
-        timeoutMs: 60_000,
+        timeoutMs: 75_000,
+        maxTokens: outputTokenBudget,
       });
     }
 
     if (!llmResult.ok) {
       console.error('LLM API error:', llmResult.text);
+      await releaseReservation();
       return NextResponse.json({ error: modelErrorMessage(llmResult.status, usagePlan.source) }, { status: 500 });
     }
 
     if (!llmResult.message) {
+      await releaseReservation();
       return NextResponse.json({ error: '模型审视返回内容为空，请重新尝试。' }, { status: 500 });
     }
 
@@ -640,7 +649,8 @@ export async function POST(request: Request) {
           modelName: modelConfig.modelName,
           system: fallbackPrompt.system,
           userPrompt: fallbackPrompt.user,
-          timeoutMs: 60_000,
+          timeoutMs: 75_000,
+          maxTokens: outputTokenBudget,
         });
         if (fallbackResult.ok && fallbackResult.message) {
           parsedJSON = parseAssistantJSON(fallbackResult.message);
@@ -648,7 +658,34 @@ export async function POST(request: Request) {
         }
       }
       if (!parsedJSON) {
+        await releaseReservation();
         return NextResponse.json({ error: '大模型返回格式异常，无法转换为结构化 JSON，请重试。' }, { status: 500 });
+      }
+    }
+
+    if (actualReportLanguage !== 'zh-CN' && hasUnexpectedReportProse(parsedJSON, actualReportLanguage)) {
+      const localizedResult = await callChatCompletions({
+        baseURL: modelConfig.baseURL,
+        apiKey: modelConfig.apiKey,
+        modelName: modelConfig.modelName,
+        system: buildReportLanguageSystemGuard(actualReportLanguage),
+        userPrompt: buildReportLanguageJsonRepairPrompt(parsedJSON, actualReportLanguage),
+        timeoutMs: 90_000,
+        maxTokens: outputTokenBudget,
+      });
+      if (!localizedResult.ok || !localizedResult.message) {
+        await releaseReservation();
+        return NextResponse.json({ error: getLanguageRepairErrorMessage(actualReportLanguage) }, { status: 502 });
+      }
+      try {
+        parsedJSON = parseAssistantJSON(localizedResult.message);
+      } catch {
+        await releaseReservation();
+        return NextResponse.json({ error: getLanguageRepairErrorMessage(actualReportLanguage) }, { status: 502 });
+      }
+      if (hasUnexpectedReportProse(parsedJSON, actualReportLanguage)) {
+        await releaseReservation();
+        return NextResponse.json({ error: getLanguageRepairErrorMessage(actualReportLanguage) }, { status: 502 });
       }
     }
 
@@ -673,22 +710,23 @@ export async function POST(request: Request) {
       usedCompactFallback: usedFallbackPrompt,
       hasWebSearchContext: Boolean(webSearchContext),
       searchProvider: searchOptions.provider || 'none',
+      searchResultCount: allSearchSources.length,
+      searchSourceCounts,
       usageSource: usagePlan.source,
       pointCost: usagePlan.costPoints,
       reportLanguage: actualReportLanguage,
+      reasoningDepth: actualReasoningDepth,
+      outputTokenBudget,
+      tokenBudgetApplied: llmResult.usedTokenBudget,
+      requestTimeoutMs: getAnalysisTimeoutMs(process.env.GUANYU_LLM_TIMEOUT_MS),
     };
 
     const scores = normalizedResult.scores;
     const newsSummaryText = normalizedResult.newsSummary || '当前材料不足，无法形成可靠摘要。';
-    const forceSaveResult = request.headers.get('x-guanyu-force-save') === 'true';
-    const saveResult = forceSaveResult || userSettings?.defaultSaveResult !== false;
-    let savedAuditId = '';
-
     const normalizedPublishedAt = normalizedResult.meta?.publishedAt || '';
     const normalizedPublishedAtConfidence = normalizedResult.meta?.publishedAtConfidence || 'unknown';
 
-    if (saveResult) {
-      const dbRecord = await prisma.audit.create({
+    const dbRecord = await prisma.audit.create({
         data: {
           userId: currentUser.id,
           title: title || '未命名新闻标题',
@@ -715,21 +753,19 @@ export async function POST(request: Request) {
           viewCount: 0,
           heatScore: 0,
         },
-      });
-      savedAuditId = dbRecord.id;
-      await commitUsage(usagePlan, dbRecord.id);
-      await recordAnalyzeEvent(currentUser.id);
-      if (actualIsPublic) {
-        // 新公开审视应尽快出现在热门榜，主动失效热榜缓存
-        after(() => cacheDelByPrefix(CACHE_KEYS.hotAuditsPrefix));
-      }
+    });
+    usageReservation = null;
+    if (actualIsPublic) {
+      // 新公开审视应尽快出现在热门榜，主动失效热榜缓存
+      after(() => cacheDelByPrefix(CACHE_KEYS.hotAuditsPrefix));
     }
 
     return NextResponse.json({
-      auditId: savedAuditId,
+      auditId: dbRecord.id,
       result: normalizedResult,
     });
   } catch (error: any) {
+    await releaseReservation();
     console.error('Route analyze error:', error);
     return NextResponse.json({ error: error?.message || '服务器内部处理出错，请重试' }, { status: 500 });
   }

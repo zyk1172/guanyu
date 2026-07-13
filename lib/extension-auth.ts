@@ -9,8 +9,8 @@ export function hashExtensionSecret(value: string) {
 }
 
 export function createExtensionLinkCode() {
-  const raw = crypto.randomInt(0, 10_000_000).toString().padStart(8, '0');
-  return `${raw.slice(0, 4)}-${raw.slice(4)}`;
+  const raw = crypto.randomBytes(16).toString('hex').toUpperCase();
+  return raw.match(/.{1,4}/g)?.join('-') || raw;
 }
 
 export function createExtensionToken() {
@@ -18,7 +18,7 @@ export function createExtensionToken() {
 }
 
 export function normalizeExtensionCode(code: string) {
-  return code.trim().toUpperCase().replace(/\s+/g, '');
+  return code.trim().toUpperCase().replace(/[^A-F0-9]/g, '');
 }
 
 export async function authenticateExtensionRequest(request: Request) {

@@ -7,6 +7,7 @@ import {
   EvidenceGrade,
   QuickAnalysisResult,
   ReadWorthLabel,
+  getReportLanguageLabel,
   getReadWorthDisplayLabel,
   normalizeReportLanguage,
   SpeculationRisk,
@@ -18,7 +19,21 @@ import { GsapReveal } from './GsapMotion';
 import InteractiveQA, { ChatMessage } from './InteractiveQA';
 import ReadWorthVerdict from './ReadWorthVerdict';
 import { computeReadWorth } from '../lib/readWorth';
-import { useUiLanguage } from './LanguageProvider';
+import {
+  formatAnalysisMode,
+  formatConfidence,
+  formatEvidenceGrade,
+  formatJudgmentType,
+  formatMaterialType,
+  formatPriority,
+  formatPublishedAtSource,
+  formatReasonableness,
+  formatSpeculationRisk,
+  formatThinkingDepth,
+  formatUnconfirmedItem,
+  formatVerificationStatus,
+  getReportText,
+} from '../lib/report-display-core.mjs';
 
 interface AnalysisResultProps {
   result: AnalysisResult;
@@ -162,39 +177,40 @@ function isUsefulOnlineSource(source: any) {
   return Boolean(url || title || relevance);
 }
 
-function safeHost(url: string) {
+function safeHost(url: string, reportLanguage = 'zh-CN') {
   try {
     return new URL(url).hostname;
   } catch {
-    return '来源标题';
+    return !reportLanguage.startsWith('zh-') ? 'Source' : '来源标题';
   }
 }
 
-function statusLabel(value?: VerificationStatus | string) {
-  return STATUS_LABELS[normalizeStatus(value)];
+function statusLabel(value?: VerificationStatus | string, reportLanguage = 'zh-CN') {
+  return formatVerificationStatus(normalizeStatus(value), reportLanguage) || STATUS_LABELS[normalizeStatus(value)];
 }
 
-function JudgmentCard({ item }: { item: any }) {
+function JudgmentCard({ item, reportLanguage = 'zh-CN' }: { item: any; reportLanguage?: string }) {
   const evidence = item.evidenceGrade || item.currentEvidenceGrade || item.evidence_grade || 'D';
   const status = item.verificationStatus || item.verification_status;
   const risk = item.speculationRisk || item.speculation_risk;
+  const text = (key: string) => getReportText(key, reportLanguage);
   return (
     <article className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs dark:border-gray-850 dark:bg-gray-900">
-      <div className="text-sm font-black leading-snug text-gray-950 dark:text-white md:text-base">{line(item.title, '关键判断')}</div>
-      <p className="mt-1 leading-relaxed text-gray-600 dark:text-gray-300">{line(item.content || item.description || item.detail)}</p>
+      <div className="text-sm font-black leading-snug text-gray-950 dark:text-white md:text-base">{line(item.title, !reportLanguage.startsWith('zh-') ? 'Key finding' : '关键判断')}</div>
+      <p className="mt-1 leading-relaxed text-gray-600 dark:text-gray-300">{line(item.content || item.description || item.detail, text('insufficientMaterial'))}</p>
       <div className="mt-2 flex flex-wrap gap-1.5">
         {item.judgmentType && (
-          <Badge className="border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-900/30 dark:bg-indigo-950/20 dark:text-indigo-300">{item.judgmentType}</Badge>
+          <Badge className="border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-900/30 dark:bg-indigo-950/20 dark:text-indigo-300">{formatJudgmentType(item.judgmentType, reportLanguage)}</Badge>
         )}
         <Badge className={evidenceClass(evidence)} title={EVIDENCE_DEFINITIONS[evidence as EvidenceGrade]}>
-          证据 {evidence}
+          {formatEvidenceGrade(evidence, reportLanguage)}
         </Badge>
-        <Badge className={statusClass(status)}>{statusLabel(status)}</Badge>
-        {risk && <Badge className={riskClass(risk)}>推测不确定性 {risk}</Badge>}
+        <Badge className={statusClass(status)}>{statusLabel(status, reportLanguage)}</Badge>
+        {risk && <Badge className={riskClass(risk)}>{formatSpeculationRisk(risk, reportLanguage)}</Badge>}
       </div>
       {(item.nextVerification || item.whyItMatters) && (
         <p className="mt-2 text-xxs font-semibold leading-relaxed text-gray-500 dark:text-gray-400">
-          {item.whyItMatters ? `重要性：${item.whyItMatters}；` : ''}验证路径：{line(item.nextVerification, '寻找原始材料、公开数据、多方报道或当事方回应。')}
+          {item.whyItMatters ? `${text('importance')}: ${item.whyItMatters}${!reportLanguage.startsWith('zh-') ? '. ' : '；'}` : ''}{text('verificationPath')}: {line(item.nextVerification, !reportLanguage.startsWith('zh-') ? 'Consult primary documents, public data, independent reporting, or a response from the involved party.' : '寻找原始材料、公开数据、多方报道或当事方回应。')}
         </p>
       )}
     </article>
@@ -350,7 +366,18 @@ function convertLegacyResult(result: any, auditMeta?: AnalysisResultProps['audit
 function useNormalizedResult(result: AnalysisResult, auditMeta?: AnalysisResultProps['auditMeta']) {
   return useMemo(() => {
     const clean = normalizeDisplayCopy(result);
-    if (isQuick(clean) || isDeep(clean)) return clean;
+    if (isQuick(clean)) return clean;
+    if (isDeep(clean)) {
+      return {
+        ...clean,
+        onlineVerification: {
+          ...clean.onlineVerification,
+          unableToConfirm: (clean.onlineVerification?.unableToConfirm || [])
+            .map((item: unknown) => formatUnconfirmedItem(item))
+            .filter(Boolean),
+        },
+      };
+    }
     return convertLegacyResult(clean, auditMeta);
   }, [result, auditMeta]);
 }
@@ -393,13 +420,14 @@ function chartProps(report: QuickAnalysisResult | DeepAnalysisResult) {
   };
 }
 
-function OriginalContentPanel({ originalContent }: { originalContent?: string }) {
+function OriginalContentPanel({ originalContent, reportLanguage = 'zh-CN' }: { originalContent?: string; reportLanguage?: string }) {
   const [open, setOpen] = useState(false);
   if (!originalContent?.trim()) return null;
+  const text = (key: string) => getReportText(key, reportLanguage);
   return (
-    <Section title="新闻原文" aside={<button type="button" onClick={() => setOpen((value) => !value)} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-bold text-gray-700 transition hover:bg-gray-100 active:scale-[0.98] dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">{open ? '收起原文' : '查看原文'}</button>}>
+    <Section title={text('articleOriginal')} aside={<button type="button" onClick={() => setOpen((value) => !value)} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-bold text-gray-700 transition hover:bg-gray-100 active:scale-[0.98] dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">{open ? text('hideOriginal') : text('showOriginal')}</button>}>
       {!open ? (
-        <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400">完整原文默认折叠，只在需要核对模型引用和上下文时展开。</p>
+        <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400">{text('originalCollapsed')}</p>
       ) : (
         <pre className="max-h-[420px] overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs leading-6 text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300">{originalContent}</pre>
       )}
@@ -411,18 +439,19 @@ function limitedItems<T>(items: T[], limit: number) {
   return limit >= 999 ? items : items.slice(0, limit);
 }
 
-function compactAside(total: number, limit: number) {
+function compactAside(total: number, limit: number, reportLanguage = 'zh-CN') {
   if (limit >= 999 || total <= limit) return undefined;
-  return <span className="text-xxs font-semibold text-gray-400">已优先显示 {limit}/{total} 条，完整内容见 Markdown</span>;
+  return <span className="text-xxs font-semibold text-gray-400">{!reportLanguage.startsWith('zh-') ? `Showing ${limit} of ${total}; the complete report is available in Markdown.` : `已优先显示 ${limit}/${total} 条，完整内容见 Markdown`}</span>;
 }
 
 function ReadingValueSection({ label, reason, reportLanguage }: { label: ReadWorthLabel; reason?: string; reportLanguage?: string }) {
+  const language = normalizeReportLanguage(reportLanguage);
   return (
-    <Section title="阅读价值判断">
-      <div className="grid gap-3 md:grid-cols-[220px_minmax(0,1fr)]">
-        <ReadWorthVerdict label={label} displayLabel={getReadWorthDisplayLabel(label, reportLanguage)} />
+    <Section title={getReportText('readingValue', language)}>
+      <div className="grid gap-3 md:grid-cols-[minmax(240px,280px)_minmax(0,1fr)]">
+        <ReadWorthVerdict label={label} displayLabel={getReadWorthDisplayLabel(label, language)} reportLanguage={language} />
         <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm leading-relaxed text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300">
-          {line(reason, '该判断综合信息完整度、证据强度、叙事倾向性和待核验问题得出。')}
+          {line(reason, !language.startsWith('zh-') ? 'This judgment combines information completeness, evidence strength, narrative steering, and unresolved verification questions.' : '该判断综合信息完整度、证据强度、叙事倾向性和待核验问题得出。')}
         </div>
       </div>
     </Section>
@@ -430,22 +459,24 @@ function ReadingValueSection({ label, reason, reportLanguage }: { label: ReadWor
 }
 
 function ScoresSection({ report, quick = false }: { report: QuickAnalysisResult | DeepAnalysisResult; quick?: boolean }) {
+  const language = normalizeReportLanguage(report.meta.reportLanguage);
+  const text = (key: string) => getReportText(key, language);
   const rows = quick
     ? [
-        ['信息完整度', report.scores.informationCompleteness, '原文关键信息够不够'],
-        ['证据强度', report.scores.evidenceStrength, '原文证据硬不硬'],
-        ['叙事倾向性', report.scores.narrativeBias, '原文是否明显单向引导'],
+        [text('informationCompleteness'), report.scores.informationCompleteness, !language.startsWith('zh-') ? 'How complete the article’s essential information is' : '原文关键信息够不够'],
+        [text('evidenceStrength'), report.scores.evidenceStrength, !language.startsWith('zh-') ? 'How strong the article’s evidence is' : '原文证据硬不硬'],
+        [text('narrativeBias'), report.scores.narrativeBias, !language.startsWith('zh-') ? 'Whether the article guides readers in one direction' : '原文是否明显单向引导'],
       ]
     : [
-        ['可信度', report.scores.credibility, '越高表示越可信'],
-        ['信息完整度', report.scores.informationCompleteness, '越高表示信息越完整'],
-        ['叙事倾向性', report.scores.narrativeBias, '越高表示引导性越强'],
-        ['证据强度', report.scores.evidenceStrength, '越高表示证据越充分'],
-        ['推测不确定性', report.scores.speculationRisk, '越高表示越需要谨慎核验'],
+        [text('credibility'), report.scores.credibility, text('scoreHelpCredibility')],
+        [text('informationCompleteness'), report.scores.informationCompleteness, text('scoreHelpCompleteness')],
+        [text('narrativeBias'), report.scores.narrativeBias, text('scoreHelpBias')],
+        [text('evidenceStrength'), report.scores.evidenceStrength, text('scoreHelpEvidence')],
+        [text('speculationUncertainty'), report.scores.speculationRisk, text('scoreHelpRisk')],
       ];
 
   return (
-    <Section title="核心指数" aside={<span className="text-xxs font-semibold text-gray-400">评分不等于判断新闻真假</span>}>
+    <Section title={text('coreScores')} aside={<span className="text-xxs font-semibold text-gray-400">{text('scoreDisclaimer')}</span>}>
       <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
         {rows.map(([name, value, help]) => (
           <div key={String(name)} className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">
@@ -461,17 +492,19 @@ function ScoresSection({ report, quick = false }: { report: QuickAnalysisResult 
 
 function WebVerificationView({ report }: { report: DeepAnalysisResult }) {
   const web = report.onlineVerification;
+  const language = normalizeReportLanguage(report.meta.reportLanguage);
+  const text = (key: string) => getReportText(key, language);
   if (!web.enabled || web.status === 'not_enabled') {
-    return <p className="rounded-lg border border-dashed border-gray-200 p-3 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">本次未启用联网核验</p>;
+    return <p className="rounded-lg border border-dashed border-gray-200 p-3 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">{!language.startsWith('zh-') ? 'Web verification was not enabled for this report.' : '本次未启用联网核验'}</p>;
   }
   if (web.status === 'no_reliable_sources') {
-    return <p className="rounded-lg border border-dashed border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">未找到可用于外部核验的可靠来源</p>;
+    return <p className="rounded-lg border border-dashed border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">{text('noReliableSources')}</p>;
   }
 
   const groups = [
-    ['已核验来源', web.verifiedSources.filter(isUsefulOnlineSource)],
-    ['相关背景来源', web.backgroundSources.filter(isUsefulOnlineSource)],
-    ['待核验线索', web.pendingLeads.filter(isUsefulOnlineSource)],
+    [text('verifiedSources'), web.verifiedSources.filter(isUsefulOnlineSource)],
+    [text('backgroundSources'), web.backgroundSources.filter(isUsefulOnlineSource)],
+    [text('pendingLeads'), web.pendingLeads.filter(isUsefulOnlineSource)],
   ] as const;
 
   return (
@@ -482,14 +515,14 @@ function WebVerificationView({ report }: { report: DeepAnalysisResult }) {
             <h4 className="text-xs font-black text-gray-900 dark:text-white">{title}</h4>
             <div className="mt-2 space-y-2">
               {items.length === 0 ? (
-                <p className="text-xs text-gray-400">当前无可靠条目。</p>
+                <p className="text-xs text-gray-400">{text('noReliableItems')}</p>
               ) : items.slice(0, 4).map((source, index) => (
                 <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer" className="block rounded-lg border border-gray-100 bg-white p-2 text-xs transition hover:border-sky-300 dark:border-gray-800 dark:bg-gray-950 dark:hover:border-sky-800">
-                  <div className="line-clamp-2 font-bold text-gray-950 dark:text-white">{line(source.title, source.url ? safeHost(source.url) : '来源标题')}</div>
+                  <div className="line-clamp-2 font-bold text-gray-950 dark:text-white">{line(source.title, source.url ? safeHost(source.url, language) : (!language.startsWith('zh-') ? 'Source' : '来源标题'))}</div>
                   <p className="mt-1 line-clamp-2 text-gray-500 dark:text-gray-400">{source.relevance || source.note}</p>
                   <div className="mt-2 flex flex-wrap gap-1">
-                    <Badge className={statusClass(source.verificationStatus)}>{statusLabel(source.verificationStatus)}</Badge>
-                    <Badge className={evidenceClass(source.evidenceGrade)}>证据 {source.evidenceGrade}</Badge>
+                    <Badge className={statusClass(source.verificationStatus)}>{statusLabel(source.verificationStatus, language)}</Badge>
+                    <Badge className={evidenceClass(source.evidenceGrade)}>{formatEvidenceGrade(source.evidenceGrade, language)}</Badge>
                   </div>
                 </a>
               ))}
@@ -499,9 +532,9 @@ function WebVerificationView({ report }: { report: DeepAnalysisResult }) {
       </div>
       {web.unableToConfirm.length > 0 && (
         <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">
-          <h4 className="text-xs font-black text-gray-900 dark:text-white">暂无法确认的信息</h4>
+          <h4 className="text-xs font-black text-gray-900 dark:text-white">{!language.startsWith('zh-') ? 'Information that cannot yet be verified' : '暂无法确认的信息'}</h4>
           <ul className="mt-2 space-y-1.5">
-            {web.unableToConfirm.map((item, index) => <li key={`${item}-${index}`} className="text-xs leading-relaxed text-gray-600 dark:text-gray-300">- {item}</li>)}
+            {web.unableToConfirm.map((item, index) => <li key={`${String(item)}-${index}`} className="text-xs leading-relaxed text-gray-600 dark:text-gray-300">- {formatUnconfirmedItem(item)}</li>)}
           </ul>
         </div>
       )}
@@ -509,12 +542,13 @@ function WebVerificationView({ report }: { report: DeepAnalysisResult }) {
   );
 }
 
-function bullets(items: string[]) {
-  return items.length > 0 ? items.map((item) => `- ${item}`) : ['- 当前材料不足，无法形成可靠判断'];
+function bullets(items: unknown[], reportLanguage = 'zh-CN') {
+  const normalized = items.map((item) => formatUnconfirmedItem(item)).filter(Boolean);
+  return normalized.length > 0 ? normalized.map((item) => `- ${item}`) : [`- ${getReportText('insufficientMaterial', reportLanguage)}`];
 }
 
 function mdCell(value: unknown) {
-  return String(value ?? '').replace(/\|/g, '\\|').replace(/\n+/g, '<br>').trim() || '暂无';
+  return String(value ?? '').replace(/\|/g, '\\|').replace(/\n+/g, '<br>').trim() || '—';
 }
 
 function markdownTable(headers: string[], rows: unknown[][]) {
@@ -527,34 +561,142 @@ function markdownTable(headers: string[], rows: unknown[][]) {
 
 function webVerificationMarkdown(report: DeepAnalysisResult) {
   const online = report.onlineVerification;
+  const language = normalizeReportLanguage(report.meta.reportLanguage);
+  const text = (key: string) => getReportText(key, language);
   if (!online?.enabled) {
-    return ['## 13. 联网核验依据', '', '本次未启用联网核验。', ''];
+    return [`## 13. ${text('webVerification')}`, '', !language.startsWith('zh-') ? 'Web verification was not enabled for this report.' : '本次未启用联网核验。', ''];
   }
 
   const rows = [
-    ...online.verifiedSources.filter(isUsefulOnlineSource).map((item) => ['已核验来源', item.title, item.url, statusLabel(item.verificationStatus), `证据 ${item.evidenceGrade}`, item.relevance || item.note]),
-    ...online.backgroundSources.filter(isUsefulOnlineSource).map((item) => ['相关背景来源', item.title, item.url, statusLabel(item.verificationStatus), `证据 ${item.evidenceGrade}`, item.relevance || item.note]),
-    ...online.pendingLeads.filter(isUsefulOnlineSource).map((item) => ['待核验线索', item.title, item.url, statusLabel(item.verificationStatus), `证据 ${item.evidenceGrade}`, item.relevance || item.note]),
+    ...online.verifiedSources.filter(isUsefulOnlineSource).map((item) => [text('verifiedSources'), item.title, item.url, statusLabel(item.verificationStatus, language), formatEvidenceGrade(item.evidenceGrade, language), item.relevance || item.note]),
+    ...online.backgroundSources.filter(isUsefulOnlineSource).map((item) => [text('backgroundSources'), item.title, item.url, statusLabel(item.verificationStatus, language), formatEvidenceGrade(item.evidenceGrade, language), item.relevance || item.note]),
+    ...online.pendingLeads.filter(isUsefulOnlineSource).map((item) => [text('pendingLeads'), item.title, item.url, statusLabel(item.verificationStatus, language), formatEvidenceGrade(item.evidenceGrade, language), item.relevance || item.note]),
   ];
 
   return [
-    '## 13. 联网核验依据',
+    `## 13. ${text('webVerification')}`,
     '',
-    `联网状态：${online.status === 'has_results' ? '已找到可用来源' : online.status === 'no_reliable_sources' ? '未找到可靠来源' : '未启用'}`,
+    `${!language.startsWith('zh-') ? 'Status' : '联网状态'}: ${online.status === 'has_results' ? (!language.startsWith('zh-') ? 'Usable sources found' : '已找到可用来源') : online.status === 'no_reliable_sources' ? text('noReliableSources') : (!language.startsWith('zh-') ? 'Not enabled' : '未启用')}`,
     '',
     ...(rows.length
-      ? markdownTable(['分类', '来源标题', '链接', '核验状态', '证据等级', '可支持或限制的判断'], rows)
-      : ['未找到可用于外部核验的可靠来源。']),
+      ? markdownTable(!language.startsWith('zh-') ? ['Category', 'Source title', 'Link', 'Verification status', 'Evidence grade', 'Supported or limited judgment'] : ['分类', '来源标题', '链接', '核验状态', '证据等级', '可支持或限制的判断'], rows)
+      : [text('noReliableSources')]),
     '',
-    '### 暂无法核验的信息',
+    `### ${!language.startsWith('zh-') ? 'Information that cannot yet be verified' : '暂无法核验的信息'}`,
     '',
-    ...bullets(online.unableToConfirm || []),
+    ...bullets(online.unableToConfirm || [], language),
     '',
   ];
 }
 
+function markdownForEnglish(report: QuickAnalysisResult | DeepAnalysisResult, originalContent?: string, qaMessages: ChatMessage[] = []) {
+  if (isQuick(report)) {
+    return [
+      '# Guanyu · Quick analysis',
+      '',
+      '## 1. Article at a glance', '', report.originalReading || report.newsSummary,
+      '', '## 2. Core claim', '', report.coreClaim,
+      '', '## 3. Reading value', '', `${getReadWorthDisplayLabel(report.readingValue, 'en-US')}. ${report.readingValueReason}`,
+      '', '## 4. One-sentence Guanyu view', '', report.oneSentenceJudgment,
+      '', '## 5. Three key signals', '',
+      `- Most credible information: ${report.quickSignals?.mostCredibleInfo || '—'}`,
+      `- Largest information gap: ${report.quickSignals?.biggestGap || '—'}`,
+      `- Narrative to watch: ${report.quickSignals?.narrativeToWatch || '—'}`,
+      '', '## 6. Core indicators', '',
+      ...markdownTable(['Indicator', 'Score', 'What it measures'], [
+        ['Information completeness', report.scores.informationCompleteness, 'Whether essential information is present'],
+        ['Evidence strength', report.scores.evidenceStrength, 'How strong the article’s evidence is'],
+        ['Narrative steering', report.scores.narrativeBias, 'Whether the article guides readers in one direction'],
+      ]),
+      '', '## 7. Three questions worth asking next', '', ...bullets(report.questionsToAsk, 'en-US'),
+      '', '## 8. Quick conclusion', '', report.quickConclusion,
+      '', '## Appendix A. Follow-up questions', '',
+      ...(qaMessages.length ? qaMessages.map((message, index) => `### ${index + 1}. ${message.role === 'user' ? 'My question' : 'Guanyu answer'}\n\n${message.content}`) : ['No follow-up questions yet.']),
+      '', '## Appendix B. Original article', '', originalContent?.trim() || 'The original article was not saved.',
+    ].join('\n');
+  }
+
+  const meta = report.meta;
+  return [
+    '# Guanyu · News narrative analysis report',
+    '',
+    '> This report does not declare what is true. It helps distinguish article statements, evidence gaps, narrative structure, and questions that need verification.',
+    '', '## 1. Reading the article', '',
+    `- What the article says: ${report.sourceInterpretation.whatItSays}`,
+    `- Core claims: ${report.sourceInterpretation.coreClaims.join('; ') || '—'}`,
+    `- Main actors: ${report.sourceInterpretation.mainActors.join('; ') || '—'}`,
+    `- Key evidence in the article: ${report.sourceInterpretation.keyEvidence.join('; ') || '—'}`,
+    `- Narrative style: ${report.sourceInterpretation.narrativeStyle}`,
+    `- Likely reader takeaway: ${report.sourceInterpretation.likelyReaderImpression}`,
+    '', '## 2. Reading value', '', `${getReadWorthDisplayLabel(report.readingValue, 'en-US')}. ${report.readingValueReason}`,
+    '', '## 3. How a general reader can approach it', '', report.normalReaderGuide,
+    '', '## 4. One-sentence Guanyu view', '', report.oneSentenceConclusion,
+    '', '## 5. Core indicators', '',
+    ...markdownTable(['Indicator', 'Score', 'Direction', 'Reason'], [
+      ['Credibility', report.scores.credibility, 'Higher means more credible', report.scoreReasons.credibility],
+      ['Information completeness', report.scores.informationCompleteness, 'Higher means more complete information', report.scoreReasons.informationCompleteness],
+      ['Narrative steering', report.scores.narrativeBias, 'Higher means stronger framing', report.scoreReasons.narrativeBias],
+      ['Evidence strength', report.scores.evidenceStrength, 'Higher means stronger evidence', report.scoreReasons.evidenceStrength],
+      ['Speculation uncertainty', report.scores.speculationRisk, 'Higher means more verification is needed', report.scoreReasons.speculationRisk],
+    ]),
+    '', 'Scores describe reporting structure and evidence state. They do not determine whether a news report is true or false.',
+    '', '## 6. Layers of conclusion', '',
+    '### Can be confirmed', ...bullets(report.conclusionLayers.confirmed, 'en-US'),
+    '', '### Reasonable doubts', ...bullets(report.conclusionLayers.reasonableDoubts, 'en-US'),
+    '', '### Cannot yet be determined', ...bullets(report.conclusionLayers.cannotJudgeYet, 'en-US'),
+    '', '## 7. Three key findings',
+    ...report.keyFindings.map((item) => `- **${item.title}**: ${item.content} (${formatJudgmentType(item.judgmentType, 'en-US')}; ${formatEvidenceGrade(item.evidenceGrade, 'en-US')}; ${statusLabel(item.verificationStatus, 'en-US')}; ${formatSpeculationRisk(item.speculationRisk, 'en-US')}; verification: ${item.nextVerification})`),
+    '', '## 8. Evidence supporting the article narrative',
+    ...report.supportingEvidence.map((item) => `- ${item.content}; supports: ${item.supportsNarrative}; ${formatEvidenceGrade(item.evidenceGrade, 'en-US')}; ${statusLabel(item.verificationStatus, 'en-US')}; limitation: ${item.limitation}`),
+    '', '## 9. Major information gaps',
+    ...report.informationGaps.map((item) => `- **${item.title}**: ${item.description}; why it matters: ${item.whyItMatters}; ${formatEvidenceGrade(item.currentEvidenceGrade, 'en-US')}; ${statusLabel(item.verificationStatus, 'en-US')}; verification: ${item.nextVerification}`),
+    '', '## 10. Key interest relationships',
+    ...report.stakeholderRelations.map((item) => `- **${item.role}**: possible benefit: ${item.possibleBenefit || 'Not disclosed in the article; needs verification.'}; possible cost: ${item.possibleCost || 'Not disclosed in the article; needs verification.'}; ${formatJudgmentType(item.judgmentType, 'en-US')}; ${formatSpeculationRisk(item.speculationRisk, 'en-US')}; pending check: ${item.pendingVerification}`),
+    '', '## 11. Alternative explanations',
+    ...report.alternativeExplanations.map((item) => `- **${item.explanation}**: ${formatReasonableness(item.reasonableness, 'en-US')}; current evidence: ${item.currentEvidenceStatus}; ${formatSpeculationRisk(item.speculationRisk, 'en-US')}; needed verification: ${item.neededVerification}`),
+    '', '## 12. Evidence and verification state',
+    `- Strongest evidence: ${report.evidenceVerificationSummary.strongestEvidence}`,
+    `- Weakest evidence: ${report.evidenceVerificationSummary.weakestEvidence}`,
+    ...bullets(report.evidenceVerificationSummary.sourceSupportedClaims.map((item) => `Supported by the article only: ${item}`), 'en-US'),
+    ...bullets(report.evidenceVerificationSummary.externallyVerifiedClaims.map((item) => `Externally verified: ${item}`), 'en-US'),
+    ...bullets(report.evidenceVerificationSummary.pendingVerificationClaims.map((item) => `Needs external verification: ${item}`), 'en-US'),
+    ...bullets(report.evidenceVerificationSummary.unableToVerifyClaims.map((item) => `Unable to verify: ${formatUnconfirmedItem(item)}`), 'en-US'),
+    '', '## 13. Verification roadmap',
+    ...report.verificationRoadmap.map((item) => `- **${item.question}**: ${formatMaterialType(item.materialType, 'en-US')}; ${formatPriority(item.priority, 'en-US')}; why it matters: ${item.whyItMatters}`),
+    '', ...webVerificationMarkdown(report).slice(2),
+    '## 14. Questions to ask next', '', ...bullets(report.questionsToAsk, 'en-US'),
+    '', '## 15. Conclusions not yet supported', '', ...bullets(report.cannotConclude, 'en-US'),
+    '', '## 16. Interpretation boundary', '', report.riskNotice,
+    '', '## 17. Report metadata', '',
+    ...markdownTable(['Item', 'Value'], [
+      ['Article title', line(meta.title, 'Not supplied')],
+      ['Article source', line(meta.source, 'Not supplied')],
+      ['Published at', meta.publishedAt || 'Publication date could not be identified reliably'],
+      ['Publication-date source', formatPublishedAtSource(meta.publishedAtSource, 'en-US') || meta.publishedAtSource],
+      ['Publication-date confidence', formatConfidence(meta.publishedAtConfidence, 'en-US') || meta.publishedAtConfidence],
+      ['Model', line(meta.modelName, 'Not supplied')],
+      ['Reasoning depth', formatThinkingDepth(meta.reasoningDepth, 'en-US')],
+      ['Report language', 'English'],
+      ['Analysis mode', formatAnalysisMode(meta.analysisMode, 'en-US')],
+      ['Generated at', line(meta.createdAt, 'Not supplied')],
+      ['Methodology', 'Guanyu Nine-Lens Reading Method'],
+    ]),
+    '', '## 18. Appendix: Original article', '', originalContent?.trim() || 'The original article was not saved.',
+    '', '## Appendix: Follow-up questions', '',
+    ...(qaMessages.length ? qaMessages.map((message, index) => `### ${index + 1}. ${message.role === 'user' ? 'My question' : 'Guanyu answer'}\n\n${message.content}`) : ['No follow-up questions yet.']),
+  ].join('\n');
+}
+
 function markdownFor(report: QuickAnalysisResult | DeepAnalysisResult, originalContent?: string, qaMessages: ChatMessage[] = []) {
   const meta = report.meta;
+  const reportLanguage = normalizeReportLanguage(meta.reportLanguage);
+  // Legacy quick reports and the Markdown template have full English copy. For
+  // every non-Chinese target language this prevents a Chinese export from being
+  // mixed into an otherwise localized report until its dedicated legacy format
+  // is regenerated by the current deep-report pipeline.
+  if (!reportLanguage.startsWith('zh-')) {
+    return markdownForEnglish(report, originalContent, qaMessages);
+  }
   if (isQuick(report)) {
     return [
       '# 观隅 · 快速分析',
@@ -703,7 +845,7 @@ function markdownFor(report: QuickAnalysisResult | DeepAnalysisResult, originalC
       ['发布时间可信度', CONFIDENCE_LABELS[meta.publishedAtConfidence] || meta.publishedAtConfidence],
       ['使用模型', line(meta.modelName, '未填写')],
       ['思考强度', line(meta.reasoningDepth, '未填写')],
-      ['报告语言', meta.reportLanguage === 'en-US' ? 'English' : '中文'],
+      ['报告语言', getReportLanguageLabel(meta.reportLanguage, meta.reportLanguage)],
       ['分析模式', line(meta.analysisMode, '未填写')],
       ['报告生成时间', line(meta.createdAt, '未填写')],
       ['方法论', report.methodology],
@@ -719,8 +861,67 @@ function markdownFor(report: QuickAnalysisResult | DeepAnalysisResult, originalC
   ].join('\n');
 }
 
-function DownloadButton({ report, originalContent, qaMessages }: { report: QuickAnalysisResult | DeepAnalysisResult; originalContent?: string; qaMessages: ChatMessage[] }) {
-  const { t } = useUiLanguage();
+function completionPreviewHtml(value: string) {
+  const escaped = value.replace(/[&<>"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[character] || character));
+  return escaped
+    .replace(/&lt;span style=&quot;color:(#047857|#b91c1c)&quot;&gt;([\s\S]*?)&lt;\/span&gt;/g, '<span style="color:$1;font-weight:700">$2</span>');
+}
+
+function AiCompletionButton({ auditId, reportLanguage }: { auditId: string; reportLanguage: string }) {
+  const [markdown, setMarkdown] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const text = (key: string) => getReportText(key, reportLanguage);
+
+  const generate = async () => {
+    setIsGenerating(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/audits/${encodeURIComponent(auditId)}/completion`, { method: 'POST' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || text('completionFailed'));
+      setMarkdown(String(data.markdown || ''));
+    } catch (requestError: any) {
+      setError(requestError?.message || text('completionFailed'));
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const download = () => {
+    if (!markdown) return;
+    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'guanyu-ai-completion.md';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <>
+      <button type="button" onClick={generate} disabled={isGenerating} className="rounded-lg border border-[var(--color-success)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-bold text-[var(--color-success)] transition hover:bg-[var(--color-card-hover)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60">
+        {isGenerating ? text('generatingCompletion') : text('aiCompletion')}
+      </button>
+      {error && <span className="w-full text-right text-xxs font-semibold text-[var(--color-danger)]">{error}</span>}
+      {markdown && (
+        <section className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-sm sm:p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] pb-2">
+            <h3 className="text-sm font-black text-[var(--color-text)]">{text('completionPreview')}</h3>
+            <button type="button" onClick={download} className="rounded border border-[var(--color-border-strong)] px-2 py-1 text-xxs font-bold text-[var(--color-text)] hover:bg-[var(--color-card-hover)]">{text('downloadCompletion')}</button>
+          </div>
+          <div className="max-h-[38rem] overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
+            <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-7 text-[var(--color-text)]" dangerouslySetInnerHTML={{ __html: completionPreviewHtml(markdown) }} />
+          </div>
+        </section>
+      )}
+    </>
+  );
+}
+
+function DownloadButton({ report, originalContent, qaMessages, auditId }: { report: QuickAnalysisResult | DeepAnalysisResult; originalContent?: string; qaMessages: ChatMessage[]; auditId?: string }) {
+  const reportLanguage = normalizeReportLanguage(report.meta.reportLanguage);
   const download = () => {
     const blob = new Blob([markdownFor(report, originalContent, qaMessages)], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -736,26 +937,28 @@ function DownloadButton({ report, originalContent, qaMessages }: { report: Quick
   return (
     <div data-gsap-reveal className="flex flex-wrap justify-end gap-2">
       <button onClick={download} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100 active:scale-[0.98] dark:border-indigo-900/40 dark:bg-indigo-950/20 dark:text-indigo-300">
-        {t('report.exportMarkdown')}
+        {getReportText('exportMarkdown', reportLanguage)}
       </button>
+      {auditId && <AiCompletionButton auditId={auditId} reportLanguage={reportLanguage} />}
     </div>
   );
 }
 
 function QuickReportView({ report, originalContent, qaMessages }: { report: QuickAnalysisResult; originalContent?: string; qaMessages: ChatMessage[] }) {
+  const reportLanguage = normalizeReportLanguage(report.meta.reportLanguage);
   const questions = limitedItems(report.questionsToAsk, 3);
   return (
     <>
-      <Section title="1. 原文速读"><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{report.originalReading || report.newsSummary}</p></Section>
-      <Section title="2. 核心主张"><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.coreClaim}</p></Section>
+      <Section title={reportLanguage === 'en-US' ? '1. Article at a glance' : '1. 原文速读'}><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{report.originalReading || report.newsSummary}</p></Section>
+      <Section title={reportLanguage === 'en-US' ? '2. Core claim' : '2. 核心主张'}><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.coreClaim}</p></Section>
       <ReadingValueSection label={report.readingValue} reason={report.readingValueReason} reportLanguage={report.meta.reportLanguage} />
-      <Section title="4. 一句话观隅审视"><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.oneSentenceJudgment}</p></Section>
-      <Section title="5. 三个关键信号">
+      <Section title={reportLanguage === 'en-US' ? '4. One-sentence Guanyu view' : '4. 一句话观隅审视'}><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.oneSentenceJudgment}</p></Section>
+      <Section title={reportLanguage === 'en-US' ? '5. Three key signals' : '5. 三个关键信号'}>
         <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
           {[
-            ['最可信信息', report.quickSignals?.mostCredibleInfo],
-            ['最大信息缺口', report.quickSignals?.biggestGap],
-            ['最需警惕叙事', report.quickSignals?.narrativeToWatch],
+            [reportLanguage === 'en-US' ? 'Most credible information' : '最可信信息', report.quickSignals?.mostCredibleInfo],
+            [reportLanguage === 'en-US' ? 'Largest information gap' : '最大信息缺口', report.quickSignals?.biggestGap],
+            [reportLanguage === 'en-US' ? 'Narrative to watch' : '最需警惕叙事', report.quickSignals?.narrativeToWatch],
           ].map(([title, content]) => (
             <article key={title} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs dark:border-gray-850 dark:bg-gray-900">
               <div className="font-black text-gray-950 dark:text-white">{title}</div>
@@ -765,17 +968,18 @@ function QuickReportView({ report, originalContent, qaMessages }: { report: Quic
         </div>
       </Section>
       <ScoresSection report={report} quick />
-      <Section title="7. 最值得追问的 3 个问题">
+      <Section title={reportLanguage === 'en-US' ? '7. Three questions worth asking next' : '7. 最值得追问的 3 个问题'}>
         <ul className="grid grid-cols-1 gap-2 md:grid-cols-3">{questions.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs font-semibold leading-relaxed text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300">{item}</li>)}</ul>
       </Section>
-      <Section title="8. 快速结论"><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{report.quickConclusion}</p></Section>
+      <Section title={reportLanguage === 'en-US' ? '8. Quick conclusion' : '8. 快速结论'}><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{report.quickConclusion}</p></Section>
       <DownloadButton report={report} originalContent={originalContent} qaMessages={qaMessages} />
     </>
   );
 }
 
-function DeepReportView({ report, originalContent, qaMessages, displayLimit }: { report: DeepAnalysisResult; originalContent?: string; qaMessages: ChatMessage[]; displayLimit: number }) {
-  const { t } = useUiLanguage();
+function DeepReportView({ report, originalContent, qaMessages, displayLimit, auditId }: { report: DeepAnalysisResult; originalContent?: string; qaMessages: ChatMessage[]; displayLimit: number; auditId?: string }) {
+  const reportLanguage = normalizeReportLanguage(report.meta.reportLanguage);
+  const text = (key: string) => getReportText(key, reportLanguage);
   const keyFindings = limitedItems(report.keyFindings, displayLimit);
   const supportingEvidence = limitedItems(report.supportingEvidence, displayLimit);
   const informationGaps = limitedItems(report.informationGaps, displayLimit);
@@ -785,30 +989,30 @@ function DeepReportView({ report, originalContent, qaMessages, displayLimit }: {
   const questions = limitedItems(report.questionsToAsk, displayLimit);
   return (
     <>
-      <Section title={t('report.sourceInterpretation')}>
+      <Section title={text('sourceInterpretation')}>
         <div className="grid gap-3 text-xs md:grid-cols-2">
           <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900 md:col-span-2">
-            <div className="font-black text-gray-950 dark:text-white">{t('report.whatItSays')}</div>
+            <div className="font-black text-gray-950 dark:text-white">{text('whatItSays')}</div>
             <p className="mt-1 leading-relaxed text-gray-600 dark:text-gray-300">{report.sourceInterpretation.whatItSays || report.newsSummary}</p>
           </div>
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><div className="font-black">{t('report.coreClaim')}</div><ul className="mt-1 space-y-1">{report.sourceInterpretation.coreClaims.map((item, index) => <li key={`${item}-${index}`}>- {item}</li>)}</ul></div>
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><div className="font-black">{t('report.mainActors')}</div><ul className="mt-1 space-y-1">{report.sourceInterpretation.mainActors.map((item, index) => <li key={`${item}-${index}`}>- {item}</li>)}</ul></div>
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><div className="font-black">{t('report.keyEvidence')}</div><ul className="mt-1 space-y-1">{report.sourceInterpretation.keyEvidence.map((item, index) => <li key={`${item}-${index}`}>- {item}</li>)}</ul></div>
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><div className="font-black">{t('report.narrativeStyle')}</div><p className="mt-1 leading-relaxed">{report.sourceInterpretation.narrativeStyle}</p></div>
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900 md:col-span-2"><div className="font-black">{t('report.readerImpression')}</div><p className="mt-1 leading-relaxed">{report.sourceInterpretation.likelyReaderImpression}</p></div>
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><div className="font-black">{text('coreClaims')}</div><ul className="mt-1 space-y-1">{report.sourceInterpretation.coreClaims.map((item, index) => <li key={`${item}-${index}`}>- {item}</li>)}</ul></div>
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><div className="font-black">{text('mainActors')}</div><ul className="mt-1 space-y-1">{report.sourceInterpretation.mainActors.map((item, index) => <li key={`${item}-${index}`}>- {item}</li>)}</ul></div>
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><div className="font-black">{text('keyEvidence')}</div><ul className="mt-1 space-y-1">{report.sourceInterpretation.keyEvidence.map((item, index) => <li key={`${item}-${index}`}>- {item}</li>)}</ul></div>
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><div className="font-black">{text('narrativeStyle')}</div><p className="mt-1 leading-relaxed">{report.sourceInterpretation.narrativeStyle}</p></div>
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900 md:col-span-2"><div className="font-black">{text('readerImpression')}</div><p className="mt-1 leading-relaxed">{report.sourceInterpretation.likelyReaderImpression}</p></div>
         </div>
       </Section>
       <ReadingValueSection label={report.readingValue} reason={report.readingValueReason} reportLanguage={report.meta.reportLanguage} />
-      <Section title={t('report.readerGuide')}><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{report.normalReaderGuide}</p></Section>
-      <Section title={t('report.oneSentence')}><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.oneSentenceConclusion}</p></Section>
+      <Section title={text('readerGuide')}><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{report.normalReaderGuide}</p></Section>
+      <Section title={text('oneSentence')}><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.oneSentenceConclusion}</p></Section>
       <ScoresSection report={report} />
-      <AuditCharts {...chartProps(report)} />
-      <Section title={t('report.conclusionLayers')}>
+      <AuditCharts {...chartProps(report)} reportLanguage={reportLanguage} />
+      <Section title={text('conclusionLayers')}>
         <div className="grid gap-2 md:grid-cols-3">
           {[
-            [t('report.confirmed'), report.conclusionLayers.confirmed],
-            [t('report.reasonableDoubts'), report.conclusionLayers.reasonableDoubts],
-            [t('report.cannotJudge'), report.conclusionLayers.cannotJudgeYet],
+            [text('confirmed'), report.conclusionLayers.confirmed],
+            [text('reasonableDoubts'), report.conclusionLayers.reasonableDoubts],
+            [text('cannotJudge'), report.conclusionLayers.cannotJudgeYet],
           ].map(([title, items]) => (
             <div key={String(title)} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs dark:border-gray-850 dark:bg-gray-900">
               <div className="font-black text-gray-950 dark:text-white">{String(title)}</div>
@@ -817,60 +1021,60 @@ function DeepReportView({ report, originalContent, qaMessages, displayLimit }: {
           ))}
         </div>
       </Section>
-      <Section title={t('report.findings')} aside={compactAside(report.keyFindings.length, displayLimit)}><div className="grid grid-cols-1 gap-3 lg:grid-cols-3">{keyFindings.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} />)}</div></Section>
-      <Section title={t('report.supportingEvidence')} aside={compactAside(report.supportingEvidence.length, displayLimit) || <span className="text-xxs font-semibold text-gray-400">{t('report.supportingEvidence')}</span>}>
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">{supportingEvidence.map((item, index) => <JudgmentCard key={`${item.content}-${index}`} item={{ title: item.supportsNarrative, content: item.content, evidenceGrade: item.evidenceGrade, verificationStatus: item.verificationStatus, nextVerification: item.limitation }} />)}</div>
+      <Section title={text('findings')} aside={compactAside(report.keyFindings.length, displayLimit, reportLanguage)}><div className="grid grid-cols-1 gap-3 lg:grid-cols-3">{keyFindings.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} reportLanguage={reportLanguage} />)}</div></Section>
+      <Section title={text('supportingEvidence')} aside={compactAside(report.supportingEvidence.length, displayLimit, reportLanguage) || <span className="text-xxs font-semibold text-gray-400">{text('supportingEvidence')}</span>}>
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">{supportingEvidence.map((item, index) => <JudgmentCard key={`${item.content}-${index}`} reportLanguage={reportLanguage} item={{ title: item.supportsNarrative, content: item.content, evidenceGrade: item.evidenceGrade, verificationStatus: item.verificationStatus, nextVerification: item.limitation }} />)}</div>
       </Section>
-      <Section title={t('report.informationGaps')} aside={compactAside(report.informationGaps.length, displayLimit)}><div className="grid grid-cols-1 gap-2 md:grid-cols-2">{informationGaps.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} />)}</div></Section>
-      <Section title={t('report.interests')} aside={compactAside(report.stakeholderRelations.length, displayLimit)}>
+      <Section title={text('informationGaps')} aside={compactAside(report.informationGaps.length, displayLimit, reportLanguage)}><div className="grid grid-cols-1 gap-2 md:grid-cols-2">{informationGaps.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} reportLanguage={reportLanguage} />)}</div></Section>
+      <Section title={text('interests')} aside={compactAside(report.stakeholderRelations.length, displayLimit, reportLanguage)}>
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
-          {stakeholderRelations.map((item, index) => <JudgmentCard key={`${item.role}-${index}`} item={{ title: item.role, content: `可能利益：${item.possibleBenefit || '原文未披露，需进一步核验。'}；可能代价：${item.possibleCost || '原文未披露，需进一步核验。'}`, judgmentType: item.judgmentType, speculationRisk: item.speculationRisk, nextVerification: item.pendingVerification, verificationStatus: 'pending_verification', evidenceGrade: 'D' }} />)}
+          {stakeholderRelations.map((item, index) => <JudgmentCard key={`${item.role}-${index}`} reportLanguage={reportLanguage} item={{ title: item.role, content: !reportLanguage.startsWith('zh-') ? `${text('possibleBenefit')}: ${item.possibleBenefit || 'Not disclosed in the article; needs verification.'}; ${text('possibleCost')}: ${item.possibleCost || 'Not disclosed in the article; needs verification.'}` : `可能利益：${item.possibleBenefit || '原文未披露，需进一步核验。'}；可能代价：${item.possibleCost || '原文未披露，需进一步核验。'}`, judgmentType: item.judgmentType, speculationRisk: item.speculationRisk, nextVerification: item.pendingVerification, verificationStatus: 'pending_verification', evidenceGrade: 'D' }} />)}
         </div>
       </Section>
-      <Section title={t('report.alternatives')} aside={compactAside(report.alternativeExplanations.length, displayLimit)}>
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">{alternativeExplanations.map((item, index) => <JudgmentCard key={`${item.explanation}-${index}`} item={{ title: item.explanation, content: `合理性：${item.reasonableness}；当前证据：${item.currentEvidenceStatus}`, speculationRisk: item.speculationRisk, nextVerification: item.neededVerification, verificationStatus: 'pending_verification', evidenceGrade: item.speculationRisk === '高' ? 'E' : 'D' }} />)}</div>
+      <Section title={text('alternatives')} aside={compactAside(report.alternativeExplanations.length, displayLimit, reportLanguage)}>
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">{alternativeExplanations.map((item, index) => <JudgmentCard key={`${item.explanation}-${index}`} reportLanguage={reportLanguage} item={{ title: item.explanation, content: !reportLanguage.startsWith('zh-') ? `${formatReasonableness(item.reasonableness, reportLanguage)}; ${text('currentEvidence')}: ${item.currentEvidenceStatus}` : `合理性：${item.reasonableness}；当前证据：${item.currentEvidenceStatus}`, speculationRisk: item.speculationRisk, nextVerification: item.neededVerification, verificationStatus: 'pending_verification', evidenceGrade: item.speculationRisk === '高' ? 'E' : 'D' }} />)}</div>
       </Section>
-      <Section title={t('report.evidenceStatus')}>
+      <Section title={text('evidenceStatus')}>
         <div className="grid grid-cols-1 gap-2 text-xs md:grid-cols-2">
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><span className="font-bold">最强证据：</span>{report.evidenceVerificationSummary.strongestEvidence}</div>
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><span className="font-bold">最弱证据：</span>{report.evidenceVerificationSummary.weakestEvidence}</div>
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><span className="font-bold">{text('strongestEvidence')}: </span>{report.evidenceVerificationSummary.strongestEvidence}</div>
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><span className="font-bold">{text('weakestEvidence')}: </span>{report.evidenceVerificationSummary.weakestEvidence}</div>
           {[
-            ['仅由原文支持', report.evidenceVerificationSummary.sourceSupportedClaims],
-            ['外部已核验', report.evidenceVerificationSummary.externallyVerifiedClaims],
-            ['待外部核验', report.evidenceVerificationSummary.pendingVerificationClaims],
-            ['暂无法确认', report.evidenceVerificationSummary.unableToVerifyClaims],
+            [text('sourceSupported'), report.evidenceVerificationSummary.sourceSupportedClaims],
+            [text('externallyVerified'), report.evidenceVerificationSummary.externallyVerifiedClaims],
+            [text('pendingExternalVerification'), report.evidenceVerificationSummary.pendingVerificationClaims],
+            [text('unableToVerify'), report.evidenceVerificationSummary.unableToVerifyClaims],
           ].map(([title, items]) => (
             <div key={String(title)} className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">
               <div className="font-black text-gray-900 dark:text-white">{String(title)}</div>
-              <ul className="mt-2 space-y-1 text-gray-600 dark:text-gray-300">{(items as string[]).length ? (items as string[]).map((item, index) => <li key={`${item}-${index}`}>- {item}</li>) : <li>当前材料不足，无法形成可靠判断</li>}</ul>
+              <ul className="mt-2 space-y-1 text-gray-600 dark:text-gray-300">{(items as string[]).length ? (items as string[]).map((item, index) => <li key={`${item}-${index}`}>- {formatUnconfirmedItem(item)}</li>) : <li>{text('insufficientMaterial')}</li>}</ul>
             </div>
           ))}
         </div>
       </Section>
-      <Section title={t('report.roadmap')} aside={compactAside(report.verificationRoadmap.length, displayLimit)}>
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">{verificationRoadmap.map((item, index) => <article key={`${item.question}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs dark:border-gray-850 dark:bg-gray-900"><div className="font-bold text-gray-950 dark:text-white">{item.question}</div><p className="mt-1 text-gray-600 dark:text-gray-300">{item.whyItMatters}</p><div className="mt-2 flex gap-1.5"><Badge className="border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-900/30 dark:bg-indigo-950/20 dark:text-indigo-300">{item.materialType}</Badge><Badge className={riskClass(item.priority)}>优先级 {item.priority}</Badge></div></article>)}</div>
+      <Section title={text('roadmap')} aside={compactAside(report.verificationRoadmap.length, displayLimit, reportLanguage)}>
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">{verificationRoadmap.map((item, index) => <article key={`${item.question}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs dark:border-gray-850 dark:bg-gray-900"><div className="font-bold text-gray-950 dark:text-white">{item.question}</div><p className="mt-1 text-gray-600 dark:text-gray-300">{item.whyItMatters}</p><div className="mt-2 flex gap-1.5"><Badge className="border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-900/30 dark:bg-indigo-950/20 dark:text-indigo-300">{formatMaterialType(item.materialType, reportLanguage)}</Badge><Badge className={riskClass(item.priority)}>{formatPriority(item.priority, reportLanguage)}</Badge></div></article>)}</div>
       </Section>
-      <Section title={t('report.webVerification')}><WebVerificationView report={report} /></Section>
-      <Section title={t('report.questions')} aside={compactAside(report.questionsToAsk.length, displayLimit)}><ul className="grid grid-cols-1 gap-2 md:grid-cols-2">{questions.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs font-semibold leading-relaxed text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300">{item}</li>)}</ul></Section>
-      <Section title={t('report.notConcluded')}><ul className="space-y-2 text-xs leading-relaxed text-gray-700 dark:text-gray-300">{report.cannotConclude.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">- {item}</li>)}</ul></Section>
-      <Section title={t('report.riskNotice')}><p className="text-xs leading-relaxed text-gray-600 dark:text-gray-300">{report.riskNotice}</p></Section>
-      <Section title={t('report.meta')}>
+      <Section title={text('webVerification')}><WebVerificationView report={report} /></Section>
+      <Section title={text('questions')} aside={compactAside(report.questionsToAsk.length, displayLimit, reportLanguage)}><ul className="grid grid-cols-1 gap-2 md:grid-cols-2">{questions.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs font-semibold leading-relaxed text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300">{item}</li>)}</ul></Section>
+      <Section title={text('notConcluded')}><ul className="space-y-2 text-xs leading-relaxed text-gray-700 dark:text-gray-300">{report.cannotConclude.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">- {item}</li>)}</ul></Section>
+      <Section title={text('riskNotice')}><p className="text-xs leading-relaxed text-gray-600 dark:text-gray-300">{report.riskNotice}</p></Section>
+      <Section title={text('meta')}>
         <div className="grid gap-2 text-xs md:grid-cols-2">
           {[
-            ['新闻标题', report.meta.title],
-            ['新闻来源', report.meta.source],
-            ['发布时间', report.meta.publishedAt || '未能可靠识别发布时间'],
-            ['使用模型', report.meta.modelName],
-            ['思考强度', report.meta.reasoningDepth],
-            ['报告语言', report.meta.reportLanguage === 'en-US' ? 'English' : '中文'],
-            ['分析模式', report.meta.analysisMode],
-            ['生成时间', report.meta.createdAt],
-            ['方法论', report.methodology],
-          ].map(([key, value]) => <div key={key} className="rounded-lg bg-gray-50 p-2 dark:bg-gray-900"><span className="font-bold text-gray-500">{key}：</span>{value}</div>)}
+            [text('articleTitle'), report.meta.title],
+            [text('articleSource'), report.meta.source],
+            [text('publishedAt'), report.meta.publishedAt || (!reportLanguage.startsWith('zh-') ? 'Publication date could not be identified reliably' : '未能可靠识别发布时间')],
+            [text('modelName'), report.meta.modelName],
+            [text('thinkingDepth'), formatThinkingDepth(report.meta.reasoningDepth, reportLanguage)],
+            [text('reportLanguage'), reportLanguage],
+            [text('analysisMode'), formatAnalysisMode(report.meta.analysisMode, reportLanguage)],
+            [text('createdAt'), report.meta.createdAt],
+            [text('methodology'), !reportLanguage.startsWith('zh-') ? 'Guanyu Nine-Lens Reading Method' : report.methodology],
+          ].map(([key, value]) => <div key={key} className="rounded-lg bg-gray-50 p-2 dark:bg-gray-900"><span className="font-bold text-gray-500">{key}{!reportLanguage.startsWith('zh-') ? ': ' : '：'}</span>{value}</div>)}
         </div>
       </Section>
-      <OriginalContentPanel originalContent={originalContent} />
-      <DownloadButton report={report} originalContent={originalContent} qaMessages={qaMessages} />
+      <OriginalContentPanel originalContent={originalContent} reportLanguage={reportLanguage} />
+      <DownloadButton report={report} originalContent={originalContent} qaMessages={qaMessages} auditId={auditId} />
     </>
   );
 }
@@ -885,7 +1089,7 @@ export default function AnalysisResultView({ result: rawResult, auditId, origina
     <GsapReveal className="space-y-4 sm:space-y-5" y={18} stagger={0.055}>
       {isQuick(result)
         ? <QuickReportView report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} />
-        : <DeepReportView report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} displayLimit={readingLimit} />}
+        : <DeepReportView report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} displayLimit={readingLimit} auditId={auditId} />}
 
       {auditId && <InteractiveQA auditId={auditId} messages={qaMessages} onMessagesChange={setQaMessages} />}
     </GsapReveal>

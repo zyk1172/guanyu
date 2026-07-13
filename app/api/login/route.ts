@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { hashPassword } from '@/lib/auth';
+import { hashPassword, verifyPassword } from '@/lib/auth';
 import { setSessionCookie } from '@/lib/session-cookie';
+import { clearLoginAttempts, reserveLoginAttempt } from '@/lib/rate-limit';
+import { assertSameOrigin } from '@/lib/request-security';
 
 async function readCredentials(request: NextRequest) {
   const contentType = request.headers.get('content-type') || '';
@@ -34,10 +36,21 @@ function errorResponse(message: string, wantsJson: boolean, status = 400) {
 
 export async function POST(request: NextRequest) {
   try {
+    try {
+      assertSameOrigin(request);
+    } catch (error: any) {
+      return errorResponse(error?.message || '跨站请求已被拒绝。', request.headers.get('content-type')?.includes('application/json') ?? false, 403);
+    }
     const { email, password, wantsJson } = await readCredentials(request);
 
     if (!email || !password) {
       return errorResponse('请输入邮箱和密码', wantsJson);
+    }
+
+    try {
+      await reserveLoginAttempt(email);
+    } catch (error: any) {
+      return errorResponse(error?.message || '登录尝试过于频繁，请稍后再试。', wantsJson, 429);
     }
 
     const user = await prisma.user.findUnique({ where: { email } });
@@ -49,9 +62,15 @@ export async function POST(request: NextRequest) {
       return errorResponse('账号已被管理员暂停使用，请联系管理员。', wantsJson, 403);
     }
 
-    if (user.password !== hashPassword(password)) {
+    const passwordResult = verifyPassword(password, user.password);
+    if (!passwordResult.valid) {
       return errorResponse('密码错误', wantsJson, 401);
     }
+
+    if (passwordResult.needsUpgrade) {
+      await prisma.user.update({ where: { id: user.id }, data: { password: hashPassword(password) } });
+    }
+    await clearLoginAttempts(email);
 
     const response = wantsJson
       ? NextResponse.json({ ok: true, url: '/' })

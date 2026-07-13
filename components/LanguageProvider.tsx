@@ -7,7 +7,7 @@ import {
   normalizeUiLanguage,
 } from '@/lib/ui-language-core.mjs';
 
-export type UiLanguage = 'zh-CN' | 'en-US';
+export type UiLanguage = 'zh-CN' | 'zh-TW' | 'en-US' | 'ja-JP' | 'ko-KR' | 'de-DE' | 'it-IT';
 
 const STORAGE_KEY = 'guanyu-ui-language';
 const COOKIE_NAME = 'guanyu-ui-language';

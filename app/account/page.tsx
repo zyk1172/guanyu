@@ -10,13 +10,32 @@ import {
   getReportLanguageLabel,
   getThinkingDepthLabel,
   normalizeThinkingDepthValue,
-  REPORT_LANGUAGE_OPTIONS,
-  ReportLanguage,
   normalizeReportLanguage,
 } from '@/lib/types';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { useUiLanguage } from '@/components/LanguageProvider';
+
+function formatOrderAmount(amountCents: number, currency?: string | null) {
+  const amount = (Number(amountCents || 0) / 100).toFixed(2);
+  return currency === 'USD' ? `$${amount} USD` : `¥${amount} CNY`;
+}
+
+type RssFeedConfig = {
+  catalogIds: string[];
+  customFeeds: Array<{ name: string; url: string }>;
+};
+
+type RssSourceOption = {
+  id: string;
+  name: string;
+  nameZh: string;
+  region: 'international' | 'china' | 'chinese-language' | 'custom';
+  websiteUrl: string;
+  rssAvailability: string;
+  termsNote: string;
+  termsNoteZh?: string;
+};
 
 export default function AccountPage() {
   const { data: session, status } = useSession();
@@ -38,7 +57,7 @@ export default function AccountPage() {
   const [serperApiKey, setSerperApiKey] = useState('');
   const [hasSerperApiKey, setHasSerperApiKey] = useState(false);
   const [reasoningDepth, setReasoningDepth] = useState('medium');
-  const [reportLanguage, setReportLanguage] = useState<ReportLanguage>('zh-CN');
+  const reportLanguage = normalizeReportLanguage(language);
   const [isPublic, setIsPublic] = useState(true);
   const [saveResult, setSaveResult] = useState(true);
   const [enableCharts, setEnableCharts] = useState(true);
@@ -60,8 +79,18 @@ export default function AccountPage() {
   const [adminEmailDraft, setAdminEmailDraft] = useState<Record<string, string>>({});
   const [adminGrantDraft, setAdminGrantDraft] = useState<Record<string, string>>({});
   const [canUseOwnApi, setCanUseOwnApi] = useState(false);
+  const [rssFeedConfig, setRssFeedConfig] = useState<RssFeedConfig>({ catalogIds: [], customFeeds: [] });
+  const [rssSourceCatalog, setRssSourceCatalog] = useState<RssSourceOption[]>([]);
+  const [rssConfigSource, setRssConfigSource] = useState<'admin' | 'personal'>('admin');
+  const [rssCustomName, setRssCustomName] = useState('');
+  const [rssCustomUrl, setRssCustomUrl] = useState('');
   const [selectedPackageType, setSelectedPackageType] = useState<'points_30' | 'byok_lifetime'>('points_30');
+  const [paymentMethod, setPaymentMethod] = useState<'alipay_qr' | 'paypal_qr'>('alipay_qr');
   const hasByokPlan = billing?.planType === 'byok';
+  const pointsPackage = paymentMethod === 'paypal_qr' ? billing?.paypalPackage : billing?.package;
+  const advancedPackage = paymentMethod === 'paypal_qr' ? billing?.paypalByokPackage : billing?.byokPackage;
+  const selectedPaymentPackage = selectedPackageType === 'byok_lifetime' ? advancedPackage : pointsPackage;
+  const selectedPackageLabel = selectedPaymentPackage?.label || (selectedPackageType === 'byok_lifetime' ? t('account.byokPackage') : t('account.pointsPackage'));
 
   // 1. 登录路由守卫
   useEffect(() => {
@@ -120,13 +149,15 @@ export default function AccountPage() {
             setEnableSerperSearch(Boolean(data.enableSerperSearch));
             setHasSerperApiKey(Boolean(data.hasSerperApiKey));
             setReasoningDepth(normalizeThinkingDepthValue(data.defaultReasoningDepth));
-            setReportLanguage(normalizeReportLanguage(data.defaultReportLanguage));
             setIsPublic(data.defaultIsPublic);
             setSaveResult(data.defaultSaveResult);
             setEnableCharts(data.defaultEnableCharts);
             setAccountCreatedAt(data.account?.createdAt || null);
             setIsSuperAdmin(Boolean(data.isSuperAdmin));
             setCanUseOwnApi(Boolean(data.canUseOwnApi));
+            setRssFeedConfig(data.rssFeedConfig || { catalogIds: [], customFeeds: [] });
+            setRssSourceCatalog(Array.isArray(data.rssSourceCatalog) ? data.rssSourceCatalog : []);
+            setRssConfigSource(data.rssConfigSource === 'personal' ? 'personal' : 'admin');
           }
         });
 
@@ -178,6 +209,7 @@ export default function AccountPage() {
           defaultIsPublic: isPublic,
           defaultSaveResult: saveResult,
           defaultEnableCharts: enableCharts,
+          ...(canUseOwnApi ? { rssFeedConfig } : {}),
         }),
       });
 
@@ -205,6 +237,45 @@ export default function AccountPage() {
     }
   };
 
+  const toggleRssCatalogSource = (sourceId: string) => {
+    setRssFeedConfig((current) => ({
+      ...current,
+      catalogIds: current.catalogIds.includes(sourceId)
+        ? current.catalogIds.filter((id) => id !== sourceId)
+        : [...current.catalogIds, sourceId],
+    }));
+  };
+
+  const addCustomRssFeed = () => {
+    const url = rssCustomUrl.trim();
+    if (!url) return;
+    try {
+      const parsed = new URL(url);
+      if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error('invalid');
+      setRssFeedConfig((current) => {
+        if (current.customFeeds.some((feed) => feed.url === parsed.toString()) || current.customFeeds.length >= 5) return current;
+        return {
+          ...current,
+          customFeeds: [...current.customFeeds, {
+            name: rssCustomName.trim().slice(0, 80) || parsed.hostname,
+            url: parsed.toString(),
+          }],
+        };
+      });
+      setRssCustomName('');
+      setRssCustomUrl('');
+    } catch {
+      setSettingsSettingsMessage(language === 'en-US' ? 'Please enter a public http(s) RSS URL without credentials.' : '请输入不含账号密码的公开 http(s) RSS 地址。');
+    }
+  };
+
+  const removeCustomRssFeed = (url: string) => {
+    setRssFeedConfig((current) => ({
+      ...current,
+      customFeeds: current.customFeeds.filter((feed) => feed.url !== url),
+    }));
+  };
+
   const handleCreateOrder = async () => {
     setBillingMessage(null);
     if (hasByokPlan && selectedPackageType === 'byok_lifetime') {
@@ -215,7 +286,7 @@ export default function AccountPage() {
       const res = await fetch('/api/billing/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ packageType: selectedPackageType, paymentNote }),
+        body: JSON.stringify({ packageType: selectedPackageType, paymentMethod, paymentNote }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -471,12 +542,27 @@ export default function AccountPage() {
                     {adminUserMessage}
                   </p>
                 )}
+                <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-black text-[var(--color-text)]">邮件投递记录</div>
+                    <div className="text-xxs text-[var(--color-text-muted)]">成功、失败与失败原因会保留在这里。</div>
+                  </div>
+                  <div className="mt-2 max-h-48 space-y-1 overflow-y-auto text-xxs">
+                    {(adminBilling.emailDeliveries || []).length ? adminBilling.emailDeliveries.map((delivery: any) => (
+                      <div key={delivery.id} className="rounded border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-2 py-1.5 text-[var(--color-text-muted)]">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1"><span className={`font-black ${delivery.status === 'sent' ? 'text-[var(--color-success)]' : delivery.status === 'failed' ? 'text-[var(--color-danger)]' : 'text-[var(--color-warning)]'}`}>{delivery.status === 'sent' ? '已发送' : delivery.status === 'failed' ? '发送失败' : '待发送'}</span><span>{delivery.category}</span><span>{delivery.provider || '未选择通道'}</span><span>{new Date(delivery.createdAt).toLocaleString()}</span></div>
+                        <div className="mt-0.5 break-all">{delivery.recipient} · {delivery.subject}</div>
+                        {delivery.error && <div className="mt-0.5 break-all text-[var(--color-danger)]">{delivery.error}</div>}
+                      </div>
+                    )) : <div className="py-2 text-[var(--color-text-muted)]">暂时没有邮件投递记录。</div>}
+                  </div>
+                </div>
                 <div className="mt-3 max-h-[520px] space-y-3 overflow-y-auto pr-1">
                   {adminUsers.map((user: any) => {
                     const credit = ((user.creditBalanceCents || user.creditBalance * 100 || 0) / 100).toFixed(1);
                     const activities = [
                       ...(user.audits || []).map((audit: any) => ({ type: '报告', text: audit.title, date: audit.createdAt })),
-                      ...(user.purchaseOrders || []).map((order: any) => ({ type: '订单', text: `${order.packageName} · ${order.status} · ${(order.amountCents / 100).toFixed(2)} 元`, date: order.createdAt })),
+                      ...(user.purchaseOrders || []).map((order: any) => ({ type: '订单', text: `${order.packageName} · ${order.status} · ${formatOrderAmount(order.amountCents, order.currency)}`, date: order.createdAt })),
                       ...(user.pointTransactions || []).map((tx: any) => ({ type: '点数', text: `${tx.reason} · ${(tx.deltaCents || tx.delta * 100 || 0) / 100} 点`, date: tx.createdAt })),
                     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
                     const isExpanded = Boolean(expandedUserIds[user.id]);
@@ -594,8 +680,8 @@ export default function AccountPage() {
                         : 'border-gray-200 bg-white text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300'
                     }`}
                   >
-                    <div className="font-black">{t('account.pointsPackage')}</div>
-                    <div className="mt-0.5 text-xxs opacity-75">{t('account.useAdminServices')}</div>
+                    <div className="font-black">{pointsPackage?.label || t('account.pointsPackage')}</div>
+                    <div className="mt-0.5 text-xxs opacity-75">{paymentMethod === 'paypal_qr' ? t('account.pointsValuePaypal') : t('account.pointsValueAlipay')}</div>
                   </button>
 	                  <button
 	                    type="button"
@@ -611,25 +697,63 @@ export default function AccountPage() {
 	                        : 'border-gray-200 bg-white text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300'
 	                    }`}
 	                  >
-	                    <div className="font-black">{hasByokPlan ? t('account.byokUnlocked') : t('account.byokPackage')}</div>
-	                    <div className="mt-0.5 text-xxs opacity-75">{hasByokPlan ? t('account.byokUnlocked') : t('account.useOwnServices')}</div>
-	                  </button>
+                    <div className="font-black">{hasByokPlan ? t('account.byokUnlocked') : advancedPackage?.label || t('account.byokPackage')}</div>
+                    <div className="mt-0.5 text-xxs opacity-75">{hasByokPlan ? t('account.byokUnlocked') : t('account.advancedValue')}</div>
+                  </button>
+                </div>
+                <div className="mt-3">
+                  <div className="text-xxs font-bold text-gray-500 dark:text-gray-400">{t('account.paymentMethod')}</div>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod('alipay_qr')}
+                      className={`rounded-lg border px-3 py-2 text-left text-xs font-bold transition active:scale-[0.98] ${
+                        paymentMethod === 'alipay_qr'
+                          ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950/20 dark:text-indigo-300'
+                          : 'border-gray-200 bg-white text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300'
+                      }`}
+                    >
+                      {t('account.alipay')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod('paypal_qr')}
+                      className={`rounded-lg border px-3 py-2 text-left text-xs font-bold transition active:scale-[0.98] ${
+                        paymentMethod === 'paypal_qr'
+                          ? 'border-sky-500 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/20 dark:text-sky-300'
+                          : 'border-gray-200 bg-white text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300'
+                      }`}
+                    >
+                      {t('account.paypal')}
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xxs font-bold text-[var(--color-text-muted)]">{t('account.paymentAmount')}</span>
+                    <span className="text-sm font-black text-[var(--color-primary)]">{selectedPaymentPackage?.displayAmount || '-'}</span>
+                  </div>
+                  <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('account.payExactAmount')}</p>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xxs">
+                  <div className="rounded-lg bg-[var(--color-primary-soft)] px-2.5 py-2 font-semibold text-[var(--color-text)]">{t('account.freeTrial')}</div>
+                  <div className="rounded-lg bg-[var(--color-surface-muted)] px-2.5 py-2 font-semibold text-[var(--color-text)]">{t('account.payAsYouGo')}</div>
                 </div>
                 <div className="mt-4 flex justify-center">
-                  {(selectedPackageType === 'byok_lifetime' ? billing?.alipayByokQrImageUrl : billing?.alipayPointsQrImageUrl || billing?.alipayQrImageUrl) ? (
+                  {(paymentMethod === 'paypal_qr' ? billing?.paypalQrImageUrl : selectedPackageType === 'byok_lifetime' ? billing?.alipayByokQrImageUrl : billing?.alipayPointsQrImageUrl || billing?.alipayQrImageUrl) ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={selectedPackageType === 'byok_lifetime' ? billing?.alipayByokQrImageUrl : billing?.alipayPointsQrImageUrl || billing?.alipayQrImageUrl}
-                      alt={selectedPackageType === 'byok_lifetime' ? '30 元买断支付宝收款二维码' : '6 元点数支付宝收款二维码'}
-                      className="h-48 w-48 rounded-xl border bg-white p-2 object-contain shadow-sm"
+                      src={paymentMethod === 'paypal_qr' ? billing?.paypalQrImageUrl : selectedPackageType === 'byok_lifetime' ? billing?.alipayByokQrImageUrl : billing?.alipayPointsQrImageUrl || billing?.alipayQrImageUrl}
+                      alt={paymentMethod === 'paypal_qr' ? t('account.paypalQr') : t('account.alipayQr')}
+                      className="h-56 w-56 rounded-xl border bg-white p-2 object-contain shadow-sm"
                     />
                   ) : (
-                    <div className="flex h-48 w-48 items-center justify-center rounded-xl border bg-gray-50 text-center text-xs font-bold text-gray-400 dark:border-gray-800 dark:bg-gray-900">
+                    <div className="flex h-56 w-56 items-center justify-center rounded-xl border bg-gray-50 text-center text-xs font-bold text-gray-400 dark:border-gray-800 dark:bg-gray-900">
                       {t('account.paymentPlaceholder')}
                     </div>
                   )}
                 </div>
-                <p className="mt-2 text-xxs text-gray-400">{billing?.alipayQrNote || t('account.paymentHint')}</p>
+                <p className="mt-2 text-xxs text-gray-400">{paymentMethod === 'paypal_qr' ? t('account.paypalPaymentHint') : billing?.alipayQrNote || t('account.paymentHint')}</p>
                 <input
                   value={paymentNote}
                   onChange={(e) => setPaymentNote(e.target.value)}
@@ -640,7 +764,7 @@ export default function AccountPage() {
                   onClick={handleCreateOrder}
                   className="mt-2 w-full rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700 active:scale-[0.98]"
                 >
-                  {t('account.createOrder', undefined, { package: selectedPackageType === 'byok_lifetime' ? t('account.byokPackage') : t('account.pointsPackage') })}
+                  {t('account.createOrder', undefined, { package: selectedPackageLabel })}
                 </button>
                 {billingMessage && <p className="mt-2 text-xs font-semibold text-indigo-600 dark:text-indigo-300">{billingMessage}</p>}
               </div>
@@ -655,7 +779,8 @@ export default function AccountPage() {
                       <div className="font-bold text-gray-950 dark:text-white">{order.user?.email || order.userId}</div>
                       <div className="mt-2 grid gap-1 rounded-lg bg-gray-50 p-2 text-xxs dark:bg-gray-900">
                         <div><span className="font-bold text-gray-600 dark:text-gray-300">订单类型：</span>{order.packageName}</div>
-                        <div><span className="font-bold text-gray-600 dark:text-gray-300">金额：</span>{(order.amountCents / 100).toFixed(2)} 元</div>
+                        <div><span className="font-bold text-gray-600 dark:text-gray-300">金额：</span>{formatOrderAmount(order.amountCents, order.currency)}</div>
+                        <div><span className="font-bold text-gray-600 dark:text-gray-300">付款方式：</span>{order.paymentMethod === 'paypal_qr' ? 'PayPal 收款码' : '支付宝收款码'}</div>
                         <div><span className="font-bold text-gray-600 dark:text-gray-300">付款备注：</span><span className="font-black text-amber-700 dark:text-amber-300">{order.paymentNote || '无付款备注'}</span></div>
                         <div><span className="font-bold text-gray-600 dark:text-gray-300">创建时间：</span>{new Date(order.createdAt).toLocaleString()}</div>
                       </div>
@@ -838,6 +963,101 @@ export default function AccountPage() {
                 </div>
               </div>
 
+              <section className="space-y-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 md:col-span-2">
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h4 className="text-xs font-black text-[var(--color-text)]">{t('rss.settingsTitle')}</h4>
+                    <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('rss.settingsDescription')}</p>
+                  </div>
+                  <span className="w-fit rounded-full bg-[var(--color-primary-soft)] px-2 py-1 text-xxs font-bold text-[var(--color-link)]">
+                    {rssConfigSource === 'admin' ? t('rss.adminDefault') : t('rss.personalConfig')}
+                  </span>
+                </div>
+
+                {apiSettingsLocked ? (
+                  <p className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-2 text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('rss.locked')}</p>
+                ) : null}
+
+                <div className="overflow-x-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-card)]">
+                  <table className="min-w-[620px] w-full text-left text-xxs">
+                    <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] text-[var(--color-text-muted)]">
+                      <tr>
+                        <th className="w-10 px-2 py-2" aria-label="RSS subscription" />
+                        <th className="px-2 py-2 font-bold">{t('rss.source')}</th>
+                        <th className="px-2 py-2 font-bold">{t('rss.region')}</th>
+                        <th className="px-2 py-2 font-bold">{t('rss.availability')}</th>
+                        <th className="px-2 py-2 font-bold">{t('rss.terms')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rssSourceCatalog.map((source) => (
+                        <tr key={source.id} className="border-b border-[var(--color-border)] last:border-0">
+                          <td className="px-2 py-2">
+                            <input
+                              type="checkbox"
+                              checked={rssFeedConfig.catalogIds.includes(source.id)}
+                              disabled={apiSettingsLocked}
+                              onChange={() => toggleRssCatalogSource(source.id)}
+                              className="h-3.5 w-3.5 rounded border-[var(--color-input-border)] text-[var(--color-primary)] focus:ring-[var(--color-primary)] disabled:cursor-not-allowed"
+                            />
+                          </td>
+                          <td className="px-2 py-2 font-bold text-[var(--color-text)]">
+                            <a href={source.websiteUrl} target="_blank" rel="noreferrer" className="hover:text-[var(--color-link)] hover:underline">
+                              {language === 'zh-CN' ? source.nameZh || source.name : source.name}
+                            </a>
+                          </td>
+                          <td className="px-2 py-2 text-[var(--color-text-muted)]">{source.region === 'china' ? t('rss.regionChina') : source.region === 'chinese-language' ? t('rss.regionChineseLanguage') : t('rss.regionInternational')}</td>
+                          <td className="px-2 py-2">
+                            <span className="rounded bg-[var(--color-primary-soft)] px-1.5 py-0.5 font-bold text-[var(--color-link)]">
+                              {source.rssAvailability === 'official_public'
+                                ? t('rss.officialPublic')
+                                : source.rssAvailability === 'official_headline_fallback'
+                                  ? t('rss.officialHeadlineSource')
+                                  : t('rss.officialTerms')}
+                            </span>
+                          </td>
+                          <td className="max-w-64 px-2 py-2 leading-relaxed text-[var(--color-text-muted)]">{language === 'zh-CN' ? source.termsNoteZh || source.termsNote : source.termsNote}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {!apiSettingsLocked ? (
+                  <div className="space-y-2 rounded-lg border border-dashed border-[var(--color-border-strong)] bg-[var(--color-card)] p-3">
+                    <p className="text-xs font-bold text-[var(--color-text)]">{t('rss.customTitle')}</p>
+                    <div className="grid gap-2 sm:grid-cols-[minmax(0,0.7fr)_minmax(0,1.4fr)_auto]">
+                      <input
+                        value={rssCustomName}
+                        onChange={(event) => setRssCustomName(event.target.value)}
+                        placeholder={t('rss.customName')}
+                        className="min-w-0 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] px-3 py-2 text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary-soft)]"
+                      />
+                      <input
+                        type="url"
+                        value={rssCustomUrl}
+                        onChange={(event) => setRssCustomUrl(event.target.value)}
+                        placeholder={t('rss.customUrl')}
+                        className="min-w-0 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] px-3 py-2 text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary-soft)]"
+                      />
+                      <button type="button" onClick={addCustomRssFeed} className="rounded-lg bg-[var(--color-primary)] px-3 py-2 text-xs font-bold text-white transition hover:bg-[var(--color-primary-hover)]">
+                        {t('rss.add')}
+                      </button>
+                    </div>
+                    {rssFeedConfig.customFeeds.length ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {rssFeedConfig.customFeeds.map((feed) => (
+                          <span key={feed.url} className="inline-flex max-w-full items-center gap-1 rounded bg-[var(--color-surface-muted)] px-2 py-1 text-xxs font-semibold text-[var(--color-text-muted)]">
+                            <span className="max-w-44 truncate">{feed.name}</span>
+                            <button type="button" onClick={() => removeCustomRssFeed(feed.url)} className="font-black text-[var(--color-danger)]">{t('rss.remove')}</button>
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </section>
+
               <div className="space-y-1 md:col-span-2">
                 <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   {t('account.theme')}
@@ -854,22 +1074,9 @@ export default function AccountPage() {
                 <p className="text-xxs text-gray-400">{t('language.savedLocally')}</p>
               </div>
 
-              <div className="space-y-1">
-                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  {t('report.outputLanguage', '默认报告语言')}
-                </label>
-                <select
-                  value={reportLanguage}
-                  onChange={(e) => setReportLanguage(normalizeReportLanguage(e.target.value))}
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white"
-                >
-                  {REPORT_LANGUAGE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.value === 'en-US' ? t('report.englishOption') : t('report.chineseOption')}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xxs text-gray-400">{t('account.reportHint')}</p>
+              <div className="space-y-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2">
+                <p className="text-xs font-semibold text-[var(--color-text)]">{t('report.outputLanguage', '报告输出语言')}</p>
+                <p className="text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('account.reportFollowsInterface', '报告会始终跟随当前界面语言；切换界面语言后，下一份报告和后续追问将自动使用相同语言。')}</p>
               </div>
 
               <div className="space-y-1">

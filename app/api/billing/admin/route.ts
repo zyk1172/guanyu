@@ -4,7 +4,7 @@ import { getSuperAdminStatus } from '@/lib/admin';
 import { activateByokPlan, getOrCreateAppSetting, grantPoints } from '@/lib/billing';
 import { cacheDel, CACHE_KEYS } from '@/lib/cache';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
-import { sendEmail } from '@/lib/email';
+import { notifyAccountAccessChanged, notifyCreditsGranted, notifyOrderDecision, sendTrackedEmail } from '@/lib/email';
 import { prisma } from '@/lib/prisma';
 import { encryptSecret } from '@/lib/secret';
 
@@ -37,7 +37,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: '你没有权限管理计费设置。' }, { status: 403 });
   }
 
-  const [setting, orders, users] = await Promise.all([
+  const [setting, orders, users, emailDeliveries] = await Promise.all([
     getOrCreateAppSetting(),
     prisma.purchaseOrder.findMany({
       where: { status: 'pending' },
@@ -71,7 +71,7 @@ export async function GET(request: Request) {
           take: 6,
         },
         purchaseOrders: {
-          select: { id: true, packageName: true, amountCents: true, status: true, paymentNote: true, createdAt: true },
+          select: { id: true, packageName: true, amountCents: true, currency: true, status: true, paymentMethod: true, paymentNote: true, createdAt: true },
           orderBy: { createdAt: 'desc' },
           take: 6,
         },
@@ -84,12 +84,31 @@ export async function GET(request: Request) {
       orderBy: { updatedAt: 'desc' },
       take: 100,
     }),
+    prisma.emailDelivery.findMany({
+      select: {
+        id: true,
+        category: true,
+        recipient: true,
+        subject: true,
+        provider: true,
+        status: true,
+        attempts: true,
+        error: true,
+        createdAt: true,
+        sentAt: true,
+        user: { select: { email: true } },
+        audit: { select: { title: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 30,
+    }),
   ]);
 
   return NextResponse.json({
     setting: safeAppSetting(setting),
     pendingOrders: orders,
     users,
+    emailDeliveries,
   });
 }
 
@@ -112,6 +131,7 @@ export async function PATCH(request: NextRequest) {
       alipayQrImageUrl: String(body.alipayQrImageUrl || '').trim(),
       alipayPointsQrImageUrl: String(body.alipayPointsQrImageUrl || '/alipay-points.jpg').trim(),
       alipayByokQrImageUrl: String(body.alipayByokQrImageUrl || '/alipay-byok.jpg').trim(),
+      paypalQrImageUrl: String(body.paypalQrImageUrl || '/paypal-qr.jpg').trim(),
       alipayQrNote: String(body.alipayQrNote || '').trim() || '6 元购买 30 点；30 元买断后可填写自己的大模型和搜索 API。付款备注请填写账号邮箱、昵称或转账时间。',
     };
     if (String(body.adminLlmApiKey || '').trim()) update.adminLlmApiKeyEncrypted = encryptSecret(String(body.adminLlmApiKey).trim());
@@ -132,6 +152,10 @@ export async function PATCH(request: NextRequest) {
     const points = Number.parseInt(String(body.points || ''), 10);
     const reason = String(body.reason || '管理员手动加点').trim();
     const balance = await grantPoints(userId, points, reason);
+    const target = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+    if (target?.email && points > 0) {
+      await notifyCreditsGranted({ userId, email: target.email, points, balance, reason });
+    }
     return NextResponse.json({ ok: true, balance });
   }
 
@@ -153,6 +177,12 @@ export async function PATCH(request: NextRequest) {
       where: { id: userId },
       data: { isBanned },
       select: { id: true, email: true, isBanned: true },
+    });
+    await notifyAccountAccessChanged({
+      userId: updated.id,
+      email: updated.email,
+      isBanned: updated.isBanned,
+      reason: String(body.reason || '').trim() || undefined,
     });
     return NextResponse.json({ ok: true, user: updated });
   }
@@ -177,7 +207,9 @@ export async function PATCH(request: NextRequest) {
     const target = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
     if (!target?.email) return NextResponse.json({ error: '用户邮箱不存在。' }, { status: 404 });
 
-    await sendEmail({
+    await sendTrackedEmail({
+      category: 'admin_message',
+      userId,
       to: target.email,
       subject,
       text: message,
@@ -188,7 +220,7 @@ export async function PATCH(request: NextRequest) {
 
   if (action === 'confirmOrder') {
     const orderId = String(body.orderId || '');
-    const order = await prisma.purchaseOrder.findUnique({ where: { id: orderId } });
+    const order = await prisma.purchaseOrder.findUnique({ where: { id: orderId }, include: { user: { select: { email: true } } } });
     if (!order) return NextResponse.json({ error: '订单不存在。' }, { status: 404 });
     if (order.status !== 'pending') return NextResponse.json({ error: '订单已经处理过。' }, { status: 400 });
 
@@ -213,12 +245,21 @@ export async function PATCH(request: NextRequest) {
         adminNote,
       },
     });
+    if (order.user.email) {
+      await notifyOrderDecision({
+        userId: order.userId,
+        email: order.user.email,
+        packageName: order.packageName,
+        confirmed: true,
+        adminNote,
+      });
+    }
     return NextResponse.json({ ok: true, order: updated, balance, planType });
   }
 
   if (action === 'rejectOrder') {
     const orderId = String(body.orderId || '');
-    const order = await prisma.purchaseOrder.findUnique({ where: { id: orderId } });
+    const order = await prisma.purchaseOrder.findUnique({ where: { id: orderId }, include: { user: { select: { email: true } } } });
     if (!order) return NextResponse.json({ error: '订单不存在。' }, { status: 404 });
     if (order.status !== 'pending') return NextResponse.json({ error: '订单已经处理过。' }, { status: 400 });
 
@@ -229,6 +270,15 @@ export async function PATCH(request: NextRequest) {
         adminNote: String(body.adminNote || '管理员取消订单').trim(),
       },
     });
+    if (order.user.email) {
+      await notifyOrderDecision({
+        userId: order.userId,
+        email: order.user.email,
+        packageName: order.packageName,
+        confirmed: false,
+        adminNote: updated.adminNote,
+      });
+    }
     return NextResponse.json({ ok: true, order: updated });
   }
 

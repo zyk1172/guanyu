@@ -6,10 +6,12 @@ import Image from 'next/image';
 import { useSession, signOut } from 'next-auth/react';
 import LanguageSwitcher from './LanguageSwitcher';
 import { useUiLanguage } from './LanguageProvider';
+import { getBrandIdentity } from '@/lib/brand-core.mjs';
 
 export default function Header() {
   const { data: session } = useSession();
-  const { t } = useUiLanguage();
+  const { language, t } = useUiLanguage();
+  const brand = getBrandIdentity(language);
   const [isScrolled, setIsScrolled] = useState(false);
 
   useEffect(() => {
@@ -29,15 +31,15 @@ export default function Header() {
         <Link href="/" className="interactive-lift flex items-center gap-2.5 hover:opacity-95 transition">
           <Image
             src="/guanyu-icon.png"
-            alt="观隅"
+            alt={brand.name}
             width={32}
             height={32}
             className="h-8 w-8 rounded-lg object-cover shadow-sm sm:h-8 sm:w-8"
             priority
           />
           <div>
-            <h1 className="text-sm font-bold tracking-tight text-[var(--color-text)] leading-none">观隅</h1>
-            <span className="hidden text-xxs text-[var(--color-text-muted)] font-semibold tracking-wider mt-0.5 sm:block">{t('brand.tagline')}</span>
+            <h1 className="text-sm font-bold tracking-tight text-[var(--color-text)] leading-none">{brand.name}</h1>
+            <span className="hidden text-xxs text-[var(--color-text-muted)] font-semibold tracking-wider mt-0.5 sm:block">{brand.tagline || t('brand.tagline')}</span>
           </div>
         </Link>
 

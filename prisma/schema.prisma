@@ -31,6 +31,7 @@ model User {
   extensionSessions ExtensionSession[]
   extensionLinkCodes ExtensionLinkCode[]
   auditJobs         AuditJob[]
+  emailDeliveries   EmailDelivery[]
 }
 
 model UserSettings {
@@ -52,6 +53,7 @@ model UserSettings {
   defaultIsPublic       Boolean  @default(true)
   defaultSaveResult     Boolean  @default(true)
   defaultEnableCharts   Boolean  @default(true)
+  rssFeedUrlsJson       String   @default("[]")
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 }
@@ -85,6 +87,9 @@ model Audit {
   isPublic                     Boolean  @default(true)
   createdAt                    DateTime @default(now())
   updatedAt                    DateTime @updatedAt
+  completionMarkdown           String?
+  completionGeneratedAt        DateTime?
+  emailDeliveries              EmailDelivery[]
 
   @@index([userId])
   @@index([heatScore])
@@ -107,6 +112,29 @@ model AuditJob {
   @@index([createdAt])
 }
 
+model EmailDelivery {
+  id           String   @id @default(cuid())
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  auditId      String?
+  audit        Audit?   @relation(fields: [auditId], references: [id], onDelete: SetNull)
+  category     String
+  recipient    String
+  subject      String
+  provider     String?
+  status       String   @default("pending") // pending, sent, failed
+  attempts     Int      @default(0)
+  error        String?
+  metadataJson String   @default("{}")
+  sentAt       DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([auditId])
+  @@index([status, createdAt])
+}
+
 model AppSetting {
   id                         String   @id @default("global")
   adminModelName             String   @default("gpt-4o")
@@ -116,9 +144,11 @@ model AppSetting {
   adminSerperApiKeyEncrypted String?
   enableAdminTavilySearch    Boolean  @default(false)
   enableAdminSerperSearch    Boolean  @default(false)
+  adminRssFeedIdsJson        String   @default("[]")
   alipayQrImageUrl           String   @default("/alipay-qr.jpg")
   alipayPointsQrImageUrl     String   @default("/alipay-points.jpg")
   alipayByokQrImageUrl       String   @default("/alipay-byok.jpg")
+  paypalQrImageUrl           String   @default("/paypal-qr.jpg")
   alipayQrNote               String   @default("6 元购买 30 点；30 元买断后可填写自己的大模型和搜索 API。付款备注请填写账号邮箱、昵称或转账时间。")
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
@@ -149,6 +179,7 @@ model PurchaseOrder {
   packageType   String    @default("points_30") // points_30, byok_lifetime
   packageName   String    @default("30 点套餐")
   amountCents   Int       @default(600)
+  currency      String    @default("CNY")
   points        Int       @default(30)
   status        String    @default("pending") // pending, confirmed, rejected
   paymentMethod String    @default("alipay_qr")
@@ -171,6 +202,7 @@ model VerificationCode {
   expiresAt  DateTime
   consumedAt DateTime?
   ipHash     String?
+  attemptCount Int    @default(0)
   createdAt  DateTime  @default(now())
 
   @@index([email])

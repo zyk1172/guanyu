@@ -1,6 +1,7 @@
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { prisma } from '@/lib/prisma';
 import { POST as analyzeNews } from '@/app/api/analyze/route';
+import { notifyReportCompleted } from '@/lib/email';
 import { normalizeReportLanguage, type ReportLanguage } from '@/lib/types';
 
 const MAX_NEWS_CONTENT_LENGTH = 30_000;
@@ -92,6 +93,37 @@ export async function runAnalyzeJob(jobId: string) {
         error: null,
       },
     });
+
+    if (data.auditId) {
+      const audit = await prisma.audit.findUnique({
+        where: { id: data.auditId },
+        select: {
+          id: true,
+          userId: true,
+          title: true,
+          source: true,
+          reportLanguage: true,
+          modelName: true,
+          reasoningDepth: true,
+          createdAt: true,
+          auditResultJson: true,
+          user: { select: { id: true, email: true } },
+        },
+      });
+      if (audit) {
+        let report: unknown = {};
+        try {
+          report = JSON.parse(audit.auditResultJson);
+        } catch {
+          report = {};
+        }
+        await notifyReportCompleted({
+          userEmail: audit.user.email,
+          audit,
+          report,
+        });
+      }
+    }
   } catch (error: any) {
     await prisma.auditJob.update({
       where: { id: jobId },

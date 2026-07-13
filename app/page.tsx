@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import AnalysisForm from '../components/AnalysisForm';
@@ -10,7 +10,9 @@ import ErrorMessage from '../components/ErrorMessage';
 import Header from '../components/Header';
 import { GsapReveal } from '../components/GsapMotion';
 import { useUiLanguage } from '../components/LanguageProvider';
+import RssNewsPanel, { RssHeadline } from '../components/RssNewsPanel';
 import { AnalysisResult, AnalysisMode, ReportLanguage, getReportLanguageLabel, getThinkingDepthLabel } from '../lib/types';
+import { getBrandIdentity } from '../lib/brand-core.mjs';
 
 interface HotAudit {
   id: string;
@@ -38,6 +40,7 @@ interface AuditSubmitData {
 export default function Home() {
   const router = useRouter();
   const { language, t } = useUiLanguage();
+  const brand = getBrandIdentity(language);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -45,6 +48,29 @@ export default function Home() {
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [hotAudits, setHotAudits] = useState<HotAudit[]>([]);
   const [isLoadingHotAudits, setIsLoadingHotAudits] = useState(true);
+  const formColumnRef = useRef<HTMLDivElement | null>(null);
+  const [formColumnHeight, setFormColumnHeight] = useState(748);
+
+  useEffect(() => {
+    const target = formColumnRef.current;
+    if (!target) return;
+    const form = target.querySelector<HTMLElement>('[data-rss-form-height]');
+
+    const updateHeight = () => {
+      const nextHeight = Math.ceil((form || target).getBoundingClientRect().height);
+      if (nextHeight > 0) setFormColumnHeight((current) => current === nextHeight ? current : nextHeight);
+    };
+
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(target);
+    if (form) observer.observe(form);
+    const animationFrame = requestAnimationFrame(updateHeight);
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      observer.disconnect();
+    };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -115,6 +141,31 @@ export default function Home() {
     }
   };
 
+  const handleAnalyzeRssHeadline = async (headline: RssHeadline) => {
+    setError(null);
+    try {
+      const response = await fetch('/api/parse-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: headline.url }),
+      });
+      const article = await response.json().catch(() => ({}));
+      if (!response.ok || !article.content || String(article.content).trim().length < 50) {
+        throw new Error(t('rss.parseFailed'));
+      }
+      await handleAnalyze({
+        title: article.title || headline.title,
+        source: article.source || headline.sourceName,
+        content: article.content,
+        focus: '',
+        mode: 'deep',
+        reportLanguage: language,
+      });
+    } catch (rssError: any) {
+      setError(rssError?.message || t('rss.parseFailed'));
+    }
+  };
+
   const handleRetry = () => {
     if (lastSubmittedData) {
       handleAnalyze(lastSubmittedData);
@@ -136,7 +187,7 @@ export default function Home() {
         <div data-gsap-reveal className="flex flex-col gap-2 border-b border-gray-100 pb-3 dark:border-gray-900 md:flex-row md:items-end md:justify-between">
           <div className="max-w-4xl space-y-2">
             <h1 className="text-xl md:text-2xl font-extrabold tracking-tight text-gray-900 dark:text-white leading-tight">
-              观隅
+              {brand.name}
             </h1>
             <p className="text-sm font-bold text-gray-700 dark:text-gray-200">
               {t('brand.tagline')}
@@ -147,9 +198,20 @@ export default function Home() {
           </div>
         </div>
 
-        {/* 表单、结果与热门审视：桌面端统一单列同宽 */}
-        <div data-gsap-reveal className="mx-auto max-w-5xl space-y-4">
-          <AnalysisForm onSubmit={handleAnalyze} isLoading={isLoading} />
+        {/* 桌面端：新闻审视输入占 3/4，RSS 标题流占 1/4。 */}
+        <div data-gsap-reveal className="mx-auto max-w-6xl space-y-4">
+          <div className="grid items-stretch gap-4 lg:grid-cols-4">
+            <div ref={formColumnRef} className="lg:col-span-3 h-full">
+              <AnalysisForm onSubmit={handleAnalyze} isLoading={isLoading} />
+            </div>
+            <div className="lg:col-span-1 h-full">
+              <RssNewsPanel
+                onAnalyzeHeadline={handleAnalyzeRssHeadline}
+                isAnalyzing={isLoading}
+                desktopHeight={formColumnHeight}
+              />
+            </div>
+          </div>
           {isLoading && <LoadingState />}
           {isLoading && activeJobId && (
             <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs font-semibold text-[var(--color-text-muted)]">
@@ -243,7 +305,7 @@ export default function Home() {
       {/* 极简页脚 */}
       <footer className="relative z-10 border-t border-gray-100 dark:border-gray-900 bg-white dark:bg-gray-950 py-8 mt-16 text-center text-xs text-gray-400 dark:text-gray-500">
         <div className="max-w-6xl mx-auto px-4 space-y-2 font-medium">
-          <p>© 2026 观隅. 保留所有权利。</p>
+          <p>{t('footer.rights', `© 2026 ${brand.name}. All rights reserved.`, { brand: brand.name })}</p>
           <p className="text-xxs">{t('home.disclaimer')}</p>
         </div>
       </footer>

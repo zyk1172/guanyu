@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import {
-  BYOK_PACKAGE_AMOUNT_CENTS,
   DAILY_FREE_REPORT_LIMIT,
-  POINT_PACKAGE_AMOUNT_CENTS,
-  POINT_PACKAGE_POINTS,
+  getPackageDefinition,
   getOrCreateAppSetting,
 } from '@/lib/billing';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
+import { formatPaymentAmount } from '@/lib/payment-core.mjs';
 import { prisma } from '@/lib/prisma';
 
 function todayInShanghai() {
@@ -51,6 +50,10 @@ export async function GET(request: Request) {
 
   const today = todayInShanghai();
   const used = account.freeQuotaDate === today ? account.freeQuotaUsed : 0;
+  const alipayPackage = getPackageDefinition('points_30', 'alipay_qr');
+  const alipayByokPackage = getPackageDefinition('byok_lifetime', 'alipay_qr');
+  const paypalPackage = getPackageDefinition('points_30', 'paypal_qr');
+  const paypalByokPackage = getPackageDefinition('byok_lifetime', 'paypal_qr');
   return NextResponse.json({
     creditBalance: Number((((account.creditBalanceCents && account.creditBalanceCents > 0 ? account.creditBalanceCents : account.creditBalance * 100) / 100)).toFixed(1)),
     planType: account.planType,
@@ -58,19 +61,14 @@ export async function GET(request: Request) {
     freeQuotaLimit: DAILY_FREE_REPORT_LIMIT,
     freeQuotaUsed: used,
     freeQuotaRemaining: Math.max(DAILY_FREE_REPORT_LIMIT - used, 0),
-    package: {
-      amountCents: POINT_PACKAGE_AMOUNT_CENTS,
-      points: POINT_PACKAGE_POINTS,
-      label: '6 元 / 30 点',
-    },
-    byokPackage: {
-      amountCents: BYOK_PACKAGE_AMOUNT_CENTS,
-      points: 0,
-      label: '30 元买断 · 自备 API',
-    },
+    package: { ...alipayPackage, label: '6 元 / 30 点', displayAmount: formatPaymentAmount(alipayPackage.amountCents, alipayPackage.currency) },
+    byokPackage: { ...alipayByokPackage, label: '30 元高级功能解锁', displayAmount: formatPaymentAmount(alipayByokPackage.amountCents, alipayByokPackage.currency) },
+    paypalPackage: { ...paypalPackage, label: '$1 / 20 点', displayAmount: formatPaymentAmount(paypalPackage.amountCents, paypalPackage.currency) },
+    paypalByokPackage: { ...paypalByokPackage, label: '$5 高级功能解锁', displayAmount: formatPaymentAmount(paypalByokPackage.amountCents, paypalByokPackage.currency) },
     alipayQrImageUrl: appSetting.alipayQrImageUrl,
     alipayPointsQrImageUrl: appSetting.alipayPointsQrImageUrl || appSetting.alipayQrImageUrl,
     alipayByokQrImageUrl: appSetting.alipayByokQrImageUrl || appSetting.alipayQrImageUrl,
+    paypalQrImageUrl: appSetting.paypalQrImageUrl || '/paypal-qr.jpg',
     alipayQrNote: appSetting.alipayQrNote,
     recentOrders: orders,
   });

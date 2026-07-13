@@ -20,7 +20,7 @@ const themeScript = `
     if (!/^(newspaper|night|kids)$/.test(theme)) theme = 'newspaper';
     document.documentElement.dataset.theme = theme;
     var language = localStorage.getItem('guanyu-ui-language') || 'zh-CN';
-    if (!/^(zh-CN|en-US)$/.test(language)) language = 'zh-CN';
+    if (!/^(zh-CN|zh-TW|en-US|ja-JP|ko-KR|de-DE|it-IT)$/.test(language)) language = 'zh-CN';
     document.documentElement.dataset.uiLanguage = language;
     document.documentElement.lang = language;
   } catch (error) {

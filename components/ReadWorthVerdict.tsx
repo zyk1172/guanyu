@@ -4,12 +4,14 @@ import React, { useRef } from 'react';
 import gsap from 'gsap';
 import { useGSAP } from '@gsap/react';
 import { ReadWorthLabel } from '../lib/types';
+import { getReadWorthAnimationTokens, getReportText } from '../lib/report-display-core.mjs';
 
 gsap.registerPlugin(useGSAP);
 
 interface ReadWorthVerdictProps {
   label: ReadWorthLabel;
   displayLabel?: string;
+  reportLanguage?: string;
 }
 
 const PALETTE: Record<ReadWorthLabel, {
@@ -44,12 +46,15 @@ const PALETTE: Record<ReadWorthLabel, {
   },
 };
 
-export default function ReadWorthVerdict({ label, displayLabel }: ReadWorthVerdictProps) {
+export default function ReadWorthVerdict({ label, displayLabel, reportLanguage = 'zh-CN' }: ReadWorthVerdictProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const haloRef = useRef<HTMLDivElement | null>(null);
   const sweepRef = useRef<HTMLDivElement | null>(null);
   const charRefs = useRef<HTMLSpanElement[]>([]);
   const palette = PALETTE[label];
+  const labelText = displayLabel || label;
+  const tokens = getReadWorthAnimationTokens(labelText, reportLanguage);
+  const isChinese = reportLanguage.startsWith('zh-');
 
   useGSAP(() => {
     const root = rootRef.current;
@@ -122,28 +127,29 @@ export default function ReadWorthVerdict({ label, displayLabel }: ReadWorthVerdi
     });
 
     return () => mm.revert();
-  }, { scope: rootRef, dependencies: [label], revertOnUpdate: true });
+  }, { scope: rootRef, dependencies: [label, labelText, reportLanguage], revertOnUpdate: true });
 
   return (
     <div
       ref={rootRef}
       data-gsap-hover
-      aria-label={`阅读价值判断：${displayLabel || label}`}
+      aria-label={`${getReportText('readingValue', reportLanguage)}: ${labelText}`}
       className={`relative isolate mx-auto w-full max-w-xl overflow-hidden rounded-2xl border px-5 py-6 text-center shadow-2xl ${palette.frame}`}
     >
       <div ref={haloRef} className={`pointer-events-none absolute inset-[-20%] -z-10 rounded-full blur-3xl ${palette.halo}`} />
       <div ref={sweepRef} className={`pointer-events-none absolute inset-y-0 left-0 w-1/2 -skew-x-12 bg-gradient-to-r ${palette.sweep}`} />
-      <div className={`relative text-4xl font-black leading-none tracking-[0.12em] sm:text-6xl ${palette.text}`}>
-        {(displayLabel || label).split('').map((char, index) => (
+      <div className={`relative font-black leading-tight ${isChinese ? 'mx-auto grid max-w-[8.4rem] grid-cols-2 justify-items-center gap-x-2 gap-y-1 text-4xl tracking-[0.04em] sm:max-w-[12rem] sm:text-6xl' : 'flex flex-wrap justify-center gap-x-2 break-normal text-2xl tracking-normal sm:text-3xl'} ${palette.text}`}>
+        {tokens.map((token, index) => (
+          <React.Fragment key={`${token}-${index}`}>
           <span
-            key={`${char}-${index}`}
             ref={(node) => {
               if (node) charRefs.current[index] = node;
             }}
-            className="inline-block"
+            className={isChinese ? 'inline-block whitespace-nowrap' : 'inline-block whitespace-nowrap'}
           >
-            {char}
+            {token}
           </span>
+          </React.Fragment>
         ))}
       </div>
     </div>
