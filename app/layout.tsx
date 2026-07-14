@@ -3,9 +3,65 @@ import "./globals.css";
 import Providers from "@/components/Providers";
 import { GsapRoot } from "@/components/GsapMotion";
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://guanyu-seven.vercel.app";
+const siteName = "观隅 Guanyu";
+const siteDescription = "观隅（Guanyu）是面向新闻阅读者的叙事审视工具：帮助区分事实、主张、证据与待核验信息，看见新闻没有展开的一角。";
+
 export const metadata: Metadata = {
-  title: "观隅",
-  description: "看见新闻没有展开的一角",
+  metadataBase: new URL(siteUrl),
+  title: {
+    default: "观隅 Guanyu | 新闻叙事审视与证据核验工具",
+    template: "%s | 观隅 Guanyu",
+  },
+  description: siteDescription,
+  applicationName: siteName,
+  category: "News",
+  keywords: [
+    "观隅",
+    "Guanyu",
+    "新闻叙事审视",
+    "新闻分析",
+    "新闻核验",
+    "证据核验",
+    "媒体素养",
+    "新闻阅读",
+  ],
+  alternates: {
+    canonical: "/",
+  },
+  authors: [{ name: "观隅 Guanyu" }],
+  creator: "观隅 Guanyu",
+  publisher: "观隅 Guanyu",
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+      "max-video-preview": -1,
+    },
+  },
+  openGraph: {
+    type: "website",
+    locale: "zh_CN",
+    url: "/",
+    siteName,
+    title: "观隅 Guanyu | 新闻叙事审视与证据核验工具",
+    description: siteDescription,
+    images: [{ url: "/guanyu-icon.png", width: 1200, height: 1200, alt: "观隅 Guanyu" }],
+  },
+  twitter: {
+    card: "summary",
+    title: "观隅 Guanyu | 新闻叙事审视与证据核验工具",
+    description: siteDescription,
+    images: ["/guanyu-icon.png"],
+  },
+  verification: {
+    ...(process.env.GOOGLE_SITE_VERIFICATION ? { google: process.env.GOOGLE_SITE_VERIFICATION } : {}),
+    ...(process.env.BING_SITE_VERIFICATION ? { other: { "msvalidate.01": process.env.BING_SITE_VERIFICATION } } : {}),
+  },
   icons: {
     icon: "/guanyu-icon.png",
     shortcut: "/guanyu-icon.png",
@@ -39,6 +95,28 @@ export default function RootLayout({
   return (
     <html lang="zh-CN" data-theme="newspaper" data-ui-language="zh-CN" suppressHydrationWarning>
       <body className="antialiased">
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "WebApplication",
+              name: siteName,
+              alternateName: ["观隅", "Guanyu"],
+              url: siteUrl,
+              image: `${siteUrl}/guanyu-icon.png`,
+              description: siteDescription,
+              applicationCategory: "NewsApplication",
+              operatingSystem: "Web",
+              inLanguage: ["zh-CN", "en-US"],
+              publisher: {
+                "@type": "Organization",
+                name: siteName,
+                url: siteUrl,
+              },
+            }).replace(/</g, "\\u003c"),
+          }}
+        />
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <Providers>
           <GsapRoot>{children}</GsapRoot>
