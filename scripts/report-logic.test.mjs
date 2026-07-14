@@ -542,6 +542,14 @@ test('Guanyu Card uses a dedicated five-field prompt and rejects malformed outpu
     readingValue: '可以略读',
     extraField: 'not allowed',
   }), 'en-US'), /固定模板/);
+
+  assert.throws(() => parseGuanyuCardContent(JSON.stringify({
+    oneSentenceView: 'a'.repeat(166),
+    mostCredible: 'A fact',
+    largestInformationGap: 'A gap',
+    mostWorthAsking: 'A question?',
+    readingValue: '可以略读',
+  }), 'en-US'), /内容过长/);
 });
 
 test('manual verification recalculates scores from the immutable report baseline', () => {

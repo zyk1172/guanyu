@@ -2,6 +2,7 @@
 
 import { Download, LoaderCircle, Share2, Sparkles, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import QRCode from 'qrcode';
 import { getReadWorthDisplayLabel, normalizeReportLanguage, type ReadWorthLabel, type ReportLanguage } from '@/lib/types';
 
 interface GuanyuCardContent {
@@ -25,8 +26,8 @@ interface ThemePalette {
 }
 
 const COPY = {
-  'zh-CN': { generate: '生成观隅卡', generating: '正在生成观隅卡...', title: '观隅卡', preview: '观隅卡预览', download: '下载 PNG', share: '系统分享', close: '关闭', view: '一句话观隅', credible: '最可信', gap: '最大信息缺口', question: '最值得追问', reading: '阅读价值', unavailable: '当前设备不支持系统分享，请下载 PNG 后分享。', failed: '观隅卡暂时无法生成。' },
-  'en-US': { generate: 'Generate Guanyu Card', generating: 'Generating card...', title: 'Guanyu Card', preview: 'Guanyu Card Preview', download: 'Download PNG', share: 'Share', close: 'Close', view: 'Guanyu view', credible: 'Most credible', gap: 'Largest information gap', question: 'Most worth asking', reading: 'Reading value', unavailable: 'System sharing is unavailable on this device. Download the PNG to share it.', failed: 'The Guanyu Card could not be generated right now.' },
+  'zh-CN': { generate: '生成观隅卡', generating: '正在生成观隅卡...', title: '观隅卡', preview: '观隅卡预览', download: '下载 PNG', share: '系统分享', close: '关闭', view: '一句话观隅', credible: '最可信', gap: '最大信息缺口', question: '最值得追问', reading: '阅读价值', scan: '扫码查看完整报告', unavailable: '当前设备不支持系统分享，请下载 PNG 后分享。', failed: '观隅卡暂时无法生成。' },
+  'en-US': { generate: 'Generate Guanyu Card', generating: 'Generating card...', title: 'Guanyu Card', preview: 'Guanyu Card Preview', download: 'Download PNG', share: 'Share', close: 'Close', view: 'Guanyu view', credible: 'Most credible', gap: 'Largest information gap', question: 'Most worth asking', reading: 'Reading value', scan: 'SCAN FOR FULL REPORT', unavailable: 'System sharing is unavailable on this device. Download the PNG to share it.', failed: 'The Guanyu Card could not be generated right now.' },
 } as const;
 
 function textFor(language: ReportLanguage) {
@@ -37,24 +38,30 @@ function escaped(value: string) {
   return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[character] || character));
 }
 
-function wrap(value: string, maxChars: number, maxLines: number) {
+function usesCjkWordFlow(language: ReportLanguage) {
+  return language.startsWith('zh-') || language === 'ja-JP' || language === 'ko-KR';
+}
+
+function wrap(value: string, maxChars: number, maxLines: number, language: ReportLanguage, truncate = false) {
   const source = String(value || '').replace(/\s+/g, ' ').trim();
+  const cjk = usesCjkWordFlow(language);
+  const tokens = cjk ? Array.from(source) : source.split(' ').filter(Boolean);
   const lines: string[] = [];
   let line = '';
-  for (const token of Array.from(source)) {
-    const isSpace = token === ' ';
-    if (line.length >= maxChars && !isSpace) {
+  for (const token of tokens) {
+    const candidate = line ? `${line}${cjk ? '' : ' '}${token}` : token;
+    if (candidate.length > maxChars && line) {
       lines.push(line.trim());
       line = token;
-      if (lines.length === maxLines - 1) break;
     } else {
-      line += token;
+      line = candidate;
     }
   }
-  if (lines.length < maxLines && line.trim()) lines.push(line.trim());
-  const used = lines.join('').length;
-  if (used < source.replace(/\s/g, '').length && lines.length) lines[lines.length - 1] = `${lines[lines.length - 1].replace(/[…。,.!?]$/, '')}…`;
-  return lines.slice(0, maxLines);
+  if (line.trim()) lines.push(line.trim());
+  if (lines.length <= maxLines) return lines;
+  const visible = lines.slice(0, maxLines);
+  if (truncate) visible[visible.length - 1] = `${visible[visible.length - 1]}…`;
+  return visible;
 }
 
 function svgText(lines: string[], x: number, y: number, options: { size: number; lineHeight: number; fill: string; weight?: number; anchor?: string }) {
@@ -84,11 +91,11 @@ function verdictColor(label: ReadWorthLabel, colors: ThemePalette) {
   return colors.muted;
 }
 
-function createSvg(title: string, card: GuanyuCardContent, language: ReportLanguage, colors: ThemePalette) {
+function createSvg(title: string, card: GuanyuCardContent, language: ReportLanguage, colors: ThemePalette, qrDataUrl: string) {
   const copy = textFor(language);
   const verdict = verdictColor(card.readingValue, colors);
-  const titleLines = wrap(title, language.startsWith('zh-') ? 16 : 29, 2);
-  const viewLines = wrap(card.oneSentenceView, language.startsWith('zh-') ? 26 : 47, 3);
+  const titleLines = wrap(title, usesCjkWordFlow(language) ? 18 : 34, 2, language, true);
+  const viewLines = wrap(card.oneSentenceView, usesCjkWordFlow(language) ? 31 : 57, 3, language);
   const signals = [
     [copy.credible, card.mostCredible, colors.success, '01'],
     [copy.gap, card.largestInformationGap, colors.warning, '02'],
@@ -96,14 +103,14 @@ function createSvg(title: string, card: GuanyuCardContent, language: ReportLangu
   ] as const;
 
   const signalSvg = signals.map(([label, content, color, index], itemIndex) => {
-    const y = 682 + itemIndex * 148;
-    const lines = wrap(content, language.startsWith('zh-') ? 29 : 50, 2);
+    const y = 625 + itemIndex * 145;
+    const lines = wrap(content, usesCjkWordFlow(language) ? 34 : 58, 3, language);
     return `<g>
       <line x1="74" y1="${y - 16}" x2="1006" y2="${y - 16}" stroke="${colors.border}" stroke-width="2" opacity="0.72" />
       <circle cx="103" cy="${y + 28}" r="25" fill="${color}" opacity="0.92" />
       <text x="103" y="${y + 37}" fill="#fff" font-family="Arial,sans-serif" font-size="20" font-weight="800" text-anchor="middle">${index}</text>
-      ${svgText([label], 150, y + 18, { size: 30, lineHeight: 36, fill: colors.text, weight: 800 })}
-      ${svgText(lines, 150, y + 57, { size: 22, lineHeight: 31, fill: colors.muted, weight: 500 })}
+      ${svgText([label], 150, y + 18, { size: 27, lineHeight: 33, fill: colors.text, weight: 800 })}
+      ${svgText(lines, 150, y + 55, { size: 20, lineHeight: 28, fill: colors.muted, weight: 500 })}
     </g>`;
   }).join('');
 
@@ -115,23 +122,26 @@ function createSvg(title: string, card: GuanyuCardContent, language: ReportLangu
     <text x="540" y="151" fill="${colors.primary}" font-family="Arial,sans-serif" font-size="18" font-weight="700" letter-spacing="5" text-anchor="middle">GUANYU CARD</text>
     <line x1="310" y1="130" x2="410" y2="130" stroke="${colors.primary}" stroke-width="2" opacity="0.7" />
     <line x1="670" y1="130" x2="770" y2="130" stroke="${colors.primary}" stroke-width="2" opacity="0.7" />
-    <rect x="70" y="190" width="940" height="176" rx="16" fill="${colors.bg}" stroke="${colors.border}" stroke-width="2" />
+    <rect x="70" y="190" width="940" height="164" rx="16" fill="${colors.bg}" stroke="${colors.border}" stroke-width="2" />
     <text x="101" y="232" fill="${colors.primary}" font-family="Arial,sans-serif" font-size="16" font-weight="800" letter-spacing="2">NEWS TITLE</text>
-    ${svgText(titleLines, 101, 286, { size: 39, lineHeight: 51, fill: colors.text, weight: 800 })}
-    <rect x="70" y="394" width="940" height="234" rx="16" fill="${colors.bg}" stroke="${colors.primary}" stroke-width="2" />
-    <text x="101" y="440" fill="${colors.primary}" font-family="Arial,sans-serif" font-size="16" font-weight="800" letter-spacing="2">${escaped(copy.view.toUpperCase())}</text>
-    <text x="101" y="493" fill="${colors.primary}" font-family="Georgia,'Songti SC',serif" font-size="31" font-weight="800">“</text>
-    ${svgText(viewLines, 143, 493, { size: 27, lineHeight: 38, fill: colors.text, weight: 650 })}
-    <text x="936" y="574" fill="${colors.primary}" font-family="Georgia,serif" font-size="96" font-weight="800" opacity="0.18">”</text>
+    ${svgText(titleLines, 101, 280, { size: 35, lineHeight: 46, fill: colors.text, weight: 800 })}
+    <rect x="70" y="378" width="940" height="220" rx="16" fill="${colors.bg}" stroke="${colors.primary}" stroke-width="2" />
+    <text x="101" y="424" fill="${colors.primary}" font-family="Arial,sans-serif" font-size="16" font-weight="800" letter-spacing="2">${escaped(copy.view.toUpperCase())}</text>
+    <text x="101" y="473" fill="${colors.primary}" font-family="Georgia,'Songti SC',serif" font-size="29" font-weight="800">“</text>
+    ${svgText(viewLines, 138, 473, { size: 24, lineHeight: 34, fill: colors.text, weight: 650 })}
+    <text x="936" y="552" fill="${colors.primary}" font-family="Georgia,serif" font-size="88" font-weight="800" opacity="0.18">”</text>
     ${signalSvg}
-    <rect x="70" y="1144" width="940" height="88" rx="14" fill="${verdict}" opacity="0.14" stroke="${verdict}" stroke-width="2" />
-    <circle cx="117" cy="1188" r="20" fill="${verdict}" />
-    <text x="117" y="1196" fill="#fff" font-family="Arial,sans-serif" font-size="18" font-weight="800" text-anchor="middle">✓</text>
-    <text x="152" y="1180" fill="${colors.muted}" font-family="Arial,sans-serif" font-size="15" font-weight="800" letter-spacing="2">${escaped(copy.reading.toUpperCase())}</text>
-    <text x="152" y="1214" fill="${colors.text}" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC',Arial,sans-serif" font-size="29" font-weight="800">${escaped(getReadWorthDisplayLabel(card.readingValue, language))}</text>
-    <line x1="70" y1="1261" x2="1010" y2="1261" stroke="${colors.border}" stroke-width="2" />
-    <text x="540" y="1294" fill="${colors.text}" font-family="Georgia,'Songti SC',serif" font-size="34" font-weight="800" text-anchor="middle">观隅</text>
-    <text x="540" y="1318" fill="${colors.primary}" font-family="Arial,sans-serif" font-size="13" font-weight="800" letter-spacing="3" text-anchor="middle">AI NARRATIVE AUDIT</text>
+    <rect x="70" y="1060" width="940" height="84" rx="14" fill="${verdict}" opacity="0.14" stroke="${verdict}" stroke-width="2" />
+    <circle cx="117" cy="1102" r="19" fill="${verdict}" />
+    <text x="117" y="1109" fill="#fff" font-family="Arial,sans-serif" font-size="17" font-weight="800" text-anchor="middle">✓</text>
+    <text x="152" y="1096" fill="${colors.muted}" font-family="Arial,sans-serif" font-size="14" font-weight="800" letter-spacing="2">${escaped(copy.reading.toUpperCase())}</text>
+    <text x="152" y="1127" fill="${colors.text}" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC',Arial,sans-serif" font-size="26" font-weight="800">${escaped(getReadWorthDisplayLabel(card.readingValue, language))}</text>
+    <line x1="70" y1="1170" x2="1010" y2="1170" stroke="${colors.border}" stroke-width="2" />
+    <text x="390" y="1218" fill="${colors.text}" font-family="Georgia,'Songti SC',serif" font-size="33" font-weight="800" text-anchor="middle">观隅</text>
+    <text x="390" y="1246" fill="${colors.primary}" font-family="Arial,sans-serif" font-size="12" font-weight="800" letter-spacing="3" text-anchor="middle">AI NARRATIVE AUDIT</text>
+    <rect x="844" y="1172" width="120" height="120" rx="10" fill="#ffffff" stroke="${colors.border}" stroke-width="1.5" />
+    <image href="${qrDataUrl}" x="854" y="1182" width="100" height="100" preserveAspectRatio="xMidYMid meet" />
+    <text x="904" y="1298" fill="${colors.muted}" font-family="Arial,sans-serif" font-size="9" font-weight="800" letter-spacing="1" text-anchor="middle">${escaped(copy.scan)}</text>
   </svg>`;
 }
 
@@ -178,7 +188,14 @@ export default function GuanyuCardButton({ auditId, title, reportLanguage }: { a
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || copy.failed);
       const colors = paletteFromDocument();
-      const svg = createSvg(title, payload.card as GuanyuCardContent, language, colors);
+      const reportUrl = new URL(`/audits/${encodeURIComponent(auditId)}`, window.location.origin).toString();
+      const qrDataUrl = await QRCode.toDataURL(reportUrl, {
+        width: 180,
+        margin: 1,
+        errorCorrectionLevel: 'M',
+        color: { dark: '#191817', light: '#ffffff' },
+      });
+      const svg = createSvg(title, payload.card as GuanyuCardContent, language, colors, qrDataUrl);
       const png = await svgToPng(svg);
       pngRef.current = png;
       setPreviewUrl((previous) => {
