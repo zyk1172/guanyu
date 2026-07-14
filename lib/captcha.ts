@@ -122,31 +122,41 @@ export async function verifyCaptcha(challengeId: string, answer: string, ip: str
   return consumed.count === 1;
 }
 
-export async function createEmailVerificationCode(email: string, ip: string) {
+export type EmailCodePurpose = 'register_email' | 'login_email' | 'password_reset';
+
+export async function createEmailVerificationCode(
+  email: string,
+  ip: string,
+  purpose: EmailCodePurpose = 'register_email'
+) {
   const code = createNumericCode(6);
   const windowStart = new Date(Date.now() - 10 * 60 * 1000);
   await prisma.$transaction(async (tx) => {
     const ipHash = hashForStorage(ip);
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`guanyu-register-email:${email}`}))`;
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`guanyu-register-ip:${ipHash}`}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`guanyu-${purpose}-email:${email}`}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`guanyu-${purpose}-ip:${ipHash}`}))`;
     const [emailCount, ipCount] = await Promise.all([
-      tx.verificationCode.count({ where: { email, purpose: 'register_email', createdAt: { gte: windowStart } } }),
-      tx.verificationCode.count({ where: { ipHash, purpose: 'register_email', createdAt: { gte: windowStart } } }),
+      tx.verificationCode.count({ where: { email, purpose, createdAt: { gte: windowStart } } }),
+      tx.verificationCode.count({ where: { ipHash, purpose, createdAt: { gte: windowStart } } }),
     ]);
     if (emailCount >= 3) throw new Error('该邮箱验证码发送过于频繁，请稍后再试。');
     if (ipCount >= 5) throw new Error('当前网络请求验证码过于频繁，请稍后再试。');
     await tx.verificationCode.create({
-      data: { email, codeHash: hashCode(code), purpose: 'register_email', expiresAt: new Date(Date.now() + 10 * 60 * 1000), ipHash },
+      data: { email, codeHash: hashCode(code), purpose, expiresAt: new Date(Date.now() + 10 * 60 * 1000), ipHash },
     });
   });
   return code;
 }
 
-export async function verifyEmailCode(email: string, code: string, _ip?: string) {
+export async function verifyEmailCode(
+  email: string,
+  code: string,
+  purpose: EmailCodePurpose = 'register_email'
+) {
   const records = await prisma.verificationCode.findMany({
     where: {
       email,
-      purpose: 'register_email',
+      purpose,
       consumedAt: null,
       expiresAt: { gt: new Date() },
     },
@@ -163,11 +173,11 @@ export async function verifyEmailCode(email: string, code: string, _ip?: string)
     return consumed.count === 1;
   }
   await prisma.verificationCode.updateMany({
-    where: { email, purpose: 'register_email', consumedAt: null, expiresAt: { gt: new Date() }, attemptCount: { lt: 5 } },
+    where: { email, purpose, consumedAt: null, expiresAt: { gt: new Date() }, attemptCount: { lt: 5 } },
     data: { attemptCount: { increment: 1 } },
   });
   await prisma.verificationCode.updateMany({
-    where: { email, purpose: 'register_email', consumedAt: null, attemptCount: { gte: 5 } },
+    where: { email, purpose, consumedAt: null, attemptCount: { gte: 5 } },
     data: { consumedAt: new Date() },
   });
   return false;

@@ -72,6 +72,11 @@ export default function AccountPage() {
   const [billing, setBilling] = useState<any>(null);
   const [billingMessage, setBillingMessage] = useState<string | null>(null);
   const [paymentNote, setPaymentNote] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
   const [feedbackType, setFeedbackType] = useState('bug');
   const [feedbackMessage, setFeedbackMessage] = useState('');
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
@@ -335,6 +340,40 @@ export default function AccountPage() {
     }
   };
 
+  const handleChangePassword = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setPasswordMessage(null);
+    if (newPassword.length < 8) {
+      setPasswordMessage(t('auth.passwordMinEight'));
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      setPasswordMessage(t('auth.passwordMismatch'));
+      return;
+    }
+    setIsChangingPassword(true);
+    try {
+      const response = await fetch('/api/account/password', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword, newPassword, confirmPassword: confirmNewPassword }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setPasswordMessage(data.error || t('account.passwordChangeFailed'));
+        return;
+      }
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+      setPasswordMessage(data.message || t('account.passwordChanged'));
+    } catch {
+      setPasswordMessage(t('account.passwordChangeFailed'));
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
   const handleConfirmOrder = async (orderId: string) => {
     try {
       const res = await fetch('/api/billing/admin', {
@@ -548,6 +587,45 @@ export default function AccountPage() {
                 </span>
               </div>
             </div>
+            <form onSubmit={handleChangePassword} className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
+              <div>
+                <h4 className="text-sm font-black text-[var(--color-text)]">{t('account.passwordTitle')}</h4>
+                <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('account.passwordDescription')}</p>
+              </div>
+              <div className="mt-3 grid gap-2">
+                <input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                  placeholder={t('account.currentPassword')}
+                  autoComplete="current-password"
+                  className="rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] px-3 py-2 text-xs text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-text-subtle)] focus:border-[var(--color-primary)]"
+                />
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  placeholder={t('account.newPassword')}
+                  autoComplete="new-password"
+                  className="rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] px-3 py-2 text-xs text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-text-subtle)] focus:border-[var(--color-primary)]"
+                />
+                <input
+                  type="password"
+                  value={confirmNewPassword}
+                  onChange={(event) => setConfirmNewPassword(event.target.value)}
+                  placeholder={t('account.confirmNewPassword')}
+                  autoComplete="new-password"
+                  className="rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] px-3 py-2 text-xs text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-text-subtle)] focus:border-[var(--color-primary)]"
+                />
+              </div>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xxs text-[var(--color-text-muted)]">{t('account.passwordHint')}</p>
+                <button type="submit" disabled={isChangingPassword} className="rounded-lg bg-[var(--color-primary)] px-3 py-2 text-xs font-black text-white transition hover:bg-[var(--color-primary-hover)] disabled:cursor-not-allowed disabled:opacity-60">
+                  {isChangingPassword ? t('account.passwordChanging') : t('account.changePassword')}
+                </button>
+              </div>
+              {passwordMessage && <p className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-2 text-xs font-semibold text-[var(--color-text)]" role="status">{passwordMessage}</p>}
+            </form>
             {isSuperAdmin && adminBilling && (
               <div className="mt-5 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface-muted)] p-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

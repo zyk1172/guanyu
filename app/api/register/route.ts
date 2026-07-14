@@ -6,7 +6,6 @@ import { isSuperAdminIdentity } from '@/lib/admin-core.mjs';
 import { verifyEmailCode } from '@/lib/captcha';
 import { sendWelcomeEmail } from '@/lib/email';
 import { assertSameOrigin, assertSecureAccountTransport } from '@/lib/request-security';
-import { getClientIp } from '@/lib/rate-limit';
 
 async function readRegistration(request: NextRequest) {
   const contentType = request.headers.get('content-type') || '';
@@ -68,7 +67,7 @@ export async function POST(request: NextRequest) {
     if (existing) {
       return errorResponse('该邮箱暂时无法用于注册，请尝试登录或使用其他邮箱。', wantsJson, 400);
     }
-    const emailCodeOk = await verifyEmailCode(email, emailCode, getClientIp(request));
+    const emailCodeOk = await verifyEmailCode(email, emailCode, 'register_email');
     if (!emailCodeOk) {
       return errorResponse('邮箱验证码错误或已过期，请重新获取。', wantsJson);
     }

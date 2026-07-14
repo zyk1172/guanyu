@@ -16,7 +16,7 @@ export interface SendEmailInput {
 }
 
 export interface TrackedEmailInput extends SendEmailInput {
-  category: 'report_completed' | 'account_banned' | 'account_unbanned' | 'credits_granted' | 'order_confirmed' | 'order_rejected' | 'welcome' | 'register_code' | 'admin_message' | 'order_submitted' | 'feedback_submitted';
+  category: 'report_completed' | 'account_banned' | 'account_unbanned' | 'credits_granted' | 'order_confirmed' | 'order_rejected' | 'welcome' | 'register_code' | 'login_code' | 'password_reset' | 'password_changed' | 'admin_message' | 'order_submitted' | 'feedback_submitted';
   userId?: string | null;
   auditId?: string | null;
   metadata?: Record<string, unknown>;
@@ -226,6 +226,37 @@ export async function sendRegisterCodeEmail(email: string, code: string) {
         <p style="color:#6b7280">验证码 10 分钟内有效。如果不是您本人操作，请忽略此邮件。</p>
       </div>
     `,
+  });
+}
+
+export async function sendLoginCodeEmail(email: string, code: string) {
+  return sendTrackedEmail({
+    category: 'login_code',
+    to: email,
+    subject: '观隅登录验证码',
+    text: `你的观隅登录验证码是 ${code}，10 分钟内有效。若不是你本人操作，请忽略此邮件。`,
+    html: `<div style="margin:0;padding:28px 16px;background:#f2ead9;font-family:Arial,'PingFang SC','Microsoft YaHei',sans-serif;color:#2d251b;line-height:1.75"><main style="max-width:620px;margin:0 auto;background:#fffdf7;border:1px solid #dfcfad;border-radius:14px;padding:26px"><h1 style="margin:0 0 12px;font-size:22px">观隅登录验证码</h1><p style="margin:0">你的本次登录验证码为：</p><div style="margin:16px 0;font-size:30px;font-weight:900;letter-spacing:6px;color:#7a4f22">${escapeHtml(code)}</div><p style="margin:0;color:#5f5546">验证码 10 分钟内有效。若不是你本人操作，请忽略此邮件，不要将验证码提供给任何人。</p></main></div>`,
+  });
+}
+
+export async function sendPasswordResetCodeEmail(email: string, code: string) {
+  return sendTrackedEmail({
+    category: 'password_reset',
+    to: email,
+    subject: '观隅密码重置验证码',
+    text: `你正在重置观隅账号密码。验证码是 ${code}，10 分钟内有效。若不是你本人操作，请忽略此邮件。`,
+    html: `<div style="margin:0;padding:28px 16px;background:#f2ead9;font-family:Arial,'PingFang SC','Microsoft YaHei',sans-serif;color:#2d251b;line-height:1.75"><main style="max-width:620px;margin:0 auto;background:#fffdf7;border:1px solid #dfcfad;border-radius:14px;padding:26px"><h1 style="margin:0 0 12px;font-size:22px">重置观隅账号密码</h1><p style="margin:0">你正在申请重置密码。本次验证码为：</p><div style="margin:16px 0;font-size:30px;font-weight:900;letter-spacing:6px;color:#7a4f22">${escapeHtml(code)}</div><p style="margin:0;color:#5f5546">验证码 10 分钟内有效。若不是你本人操作，请忽略此邮件；旧密码不会因这封邮件而改变。</p></main></div>`,
+  });
+}
+
+export async function notifyPasswordChanged(input: { userId: string; email: string }) {
+  return sendTrackedEmail({
+    category: 'password_changed',
+    userId: input.userId,
+    to: input.email,
+    subject: '观隅账号密码已修改',
+    text: '你的观隅账号密码刚刚被修改。若不是你本人操作，请立即通过找回密码流程重置密码并联系管理员。',
+    html: `<div style="margin:0;padding:28px 16px;background:#f2ead9;font-family:Arial,'PingFang SC','Microsoft YaHei',sans-serif;color:#2d251b;line-height:1.75"><main style="max-width:620px;margin:0 auto;background:#fffdf7;border:1px solid #dfcfad;border-radius:14px;padding:26px"><h1 style="margin:0 0 12px;font-size:22px">账号密码已修改</h1><p style="margin:0">你的观隅账号密码刚刚被修改。</p><p style="margin:14px 0 0;color:#5f5546">若不是你本人操作，请立即通过找回密码流程重置密码，并联系管理员核查账号安全。</p><p style="margin:20px 0 0"><a href="${appUrl('/login')}" style="display:inline-block;background:#7a4f22;color:#fff;text-decoration:none;padding:10px 14px;border-radius:8px;font-weight:700">前往登录</a></p></main></div>`,
   });
 }
 
