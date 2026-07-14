@@ -2,16 +2,11 @@ import { after, NextResponse } from 'next/server';
 import { getSuperAdminStatus } from '@/lib/admin';
 import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { cacheDel, cacheDelByPrefix, cacheGet, cacheSet, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
+import { cacheDelByPrefix, CACHE_KEYS } from '@/lib/cache';
 import { getClientIp, reserveAuditViewCount } from '@/lib/rate-limit';
 
-type AuditRecord = NonNullable<Awaited<ReturnType<typeof prisma.audit.findUnique>>>;
-
-async function invalidateAuditCaches(id: string) {
-  await Promise.all([
-    cacheDel(CACHE_KEYS.audit(id)),
-    cacheDelByPrefix(CACHE_KEYS.hotAuditsPrefix),
-  ]);
+async function invalidateAuditCaches() {
+  await cacheDelByPrefix(CACHE_KEYS.hotAuditsPrefix);
 }
 
 export async function GET(
@@ -37,9 +32,10 @@ export async function GET(
       return NextResponse.json({ error: '你没有权限查看这条审视记录。' }, { status: 403 });
     }
 
-    const cacheKey = CACHE_KEYS.audit(id);
-    const audit = await cacheGet<AuditRecord>(cacheKey) || currentAudit;
-    if (audit === currentAudit) await cacheSet(cacheKey, currentAudit, CACHE_TTL.audit);
+    // Authorization already requires a database read above. Returning that same
+    // authoritative record avoids a Redis invalidation race after a user records
+    // a verification outcome, which previously resurfaced stale report JSON.
+    const audit = currentAudit;
 
     // A ranking signal is recorded once per authenticated account or network
     // identity every 24 hours, rather than once per reload.
@@ -110,7 +106,7 @@ export async function PATCH(
       },
     });
 
-    await invalidateAuditCaches(id);
+    await invalidateAuditCaches();
     return NextResponse.json(updatedAudit);
   } catch (error: any) {
     console.error('PATCH audit error:', error);
@@ -147,7 +143,7 @@ export async function DELETE(
       where: { id },
     });
 
-    await invalidateAuditCaches(id);
+    await invalidateAuditCaches();
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error('DELETE audit error:', error);

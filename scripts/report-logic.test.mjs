@@ -47,6 +47,9 @@ import { createCaptchaText, isCaptchaTextSafe } from '../lib/captcha-core.mjs';
 import { getEmailProviderPlan } from '../lib/email-delivery-core.mjs';
 import { buildAiCompletionPrompt, validateCompletionMarkdown } from '../lib/ai-completion-core.mjs';
 import { applyManualVerification } from '../lib/manual-verification-core.mjs';
+import { shouldBootstrapRuntimeSchema } from '../lib/runtime-schema-core.mjs';
+import { hashPassword, verifyPassword } from '../lib/password-core.mjs';
+import { createHash } from 'node:crypto';
 import {
   ACTIVE_ANALYSIS_JOB_STORAGE_KEY,
   getAnalysisJobResolution,
@@ -149,6 +152,23 @@ test('background analysis resumes from a stored job and prioritizes an available
     { kind: 'failed', error: 'provider failed' }
   );
   assert.deepEqual(getAnalysisJobResolution({ status: 'running' }), { kind: 'pending' });
+});
+
+test('runtime schema bootstrap is opt-in so ordinary serverless requests never run DDL', () => {
+  assert.equal(shouldBootstrapRuntimeSchema(undefined), false);
+  assert.equal(shouldBootstrapRuntimeSchema('false'), false);
+  assert.equal(shouldBootstrapRuntimeSchema('true'), true);
+});
+
+test('legacy account passwords can log in once and are marked for scrypt upgrade', () => {
+  const password = 'existing-account-password';
+  const legacyHash = createHash('sha256').update(password).digest('hex');
+  assert.deepEqual(verifyPassword(password, legacyHash), { valid: true, needsUpgrade: true });
+  assert.deepEqual(verifyPassword('wrong-password', legacyHash), { valid: false, needsUpgrade: false });
+
+  const upgradedHash = hashPassword(password);
+  assert.match(upgradedHash, /^scrypt\$/);
+  assert.deepEqual(verifyPassword(password, upgradedHash), { valid: true, needsUpgrade: false });
 });
 
 test('verification roadmap uses a per-report session key for restored search actions', () => {
@@ -504,6 +524,7 @@ test('manual verification recalculates scores from the immutable report baseline
     speculationRisk: 57,
   });
   assert.equal(first.report.manualVerifications.length, 1);
+  assert.equal(first.readingValue, '可以略读');
   assert.match(first.report.evidenceVerificationSummary.pendingVerificationClaims[0], /已找到可核验材料/);
 
   const changed = applyManualVerification(first.report, { index: 0, outcome: 'unverified', updatedAt: '2026-07-14T00:01:00.000Z' });

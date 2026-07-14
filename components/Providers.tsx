@@ -10,7 +10,7 @@ export interface ProvidersProps {
 
 export default function Providers({ children }: ProvidersProps) {
   return (
-    <SessionProvider>
+    <SessionProvider refetchOnWindowFocus={false}>
       <LanguageProvider>
         <ThemeProvider>{children}</ThemeProvider>
       </LanguageProvider>

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
@@ -15,6 +15,7 @@ export default function AuditDetailsPage() {
   const auditId = typeof params?.id === 'string' ? params.id : null;
   const { data: session } = useSession();
   const { language, t } = useUiLanguage();
+  const tRef = useRef(t);
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -22,12 +23,16 @@ export default function AuditDetailsPage() {
   const [isAuthor, setIsAuthor] = useState(false);
   const [canManage, setCanManage] = useState(false);
 
-  const fetchAuditDetails = async () => {
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
+
+  const fetchAuditDetails = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
       if (!auditId) {
-        setError(t('audit.invalidId'));
+        setError(tRef.current('audit.invalidId'));
         return;
       }
 
@@ -36,11 +41,11 @@ export default function AuditDetailsPage() {
 
       if (!res.ok) {
         if (res.status === 403) {
-          setError(t('audit.noPermission'));
+          setError(tRef.current('audit.noPermission'));
         } else if (res.status === 404) {
-          setError(t('audit.notFound'));
+          setError(tRef.current('audit.notFound'));
         } else {
-          setError(data.error || t('audit.fetchFailed'));
+          setError(data.error || tRef.current('audit.fetchFailed'));
         }
         return;
       }
@@ -49,22 +54,22 @@ export default function AuditDetailsPage() {
       setCanManage(Boolean(data.canManage));
       
       // 判断当前用户是否是这条审视的创建者
-      if (session?.user && data.userId === (session.user as any).id) {
-        setIsAuthor(true);
-      }
     } catch (err) {
       console.error(err);
-      setError(t('audit.networkError'));
+      setError(tRef.current('audit.networkError'));
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [auditId]);
 
   useEffect(() => {
-    if (auditId) {
-      fetchAuditDetails();
-    }
-  }, [auditId, session, t]);
+    void fetchAuditDetails();
+  }, [fetchAuditDetails]);
+
+  useEffect(() => {
+    const currentUserId = (session?.user as any)?.id;
+    setIsAuthor(Boolean(currentUserId && auditRecord?.userId === currentUserId));
+  }, [auditRecord?.userId, session?.user]);
 
   const togglePublic = async () => {
     if (!auditRecord) return;

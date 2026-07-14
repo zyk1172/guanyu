@@ -2,52 +2,15 @@ import type { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { getToken } from 'next-auth/jwt';
 import type { NextRequest } from 'next/server';
-import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import { prisma } from '@/lib/prisma';
 import { clearLoginAttempts, reserveLoginAttempt } from '@/lib/rate-limit';
+import { hashPassword, verifyPassword } from '@/lib/password-core.mjs';
+
+export { hashPassword, verifyPassword };
 
 export interface CurrentUser {
   id: string;
   email?: string | null;
-}
-
-const PASSWORD_PREFIX = 'scrypt';
-const LEGACY_SHA256_PATTERN = /^[a-f0-9]{64}$/i;
-
-function isLegacyPasswordLoginEnabled() {
-  return process.env.ALLOW_LEGACY_PASSWORD_LOGIN === 'true';
-}
-
-export function hashPassword(password: string): string {
-  const salt = randomBytes(16).toString('base64url');
-  const digest = scryptSync(password, salt, 64).toString('base64url');
-  return `${PASSWORD_PREFIX}$${salt}$${digest}`;
-}
-
-export function verifyPassword(password: string, storedValue: string) {
-  if (storedValue.startsWith(`${PASSWORD_PREFIX}$`)) {
-    const [, salt, encodedDigest] = storedValue.split('$');
-    if (!salt || !encodedDigest) return { valid: false, needsUpgrade: false };
-    const expected = Buffer.from(encodedDigest, 'base64url');
-    const actual = scryptSync(password, salt, 64);
-    return {
-      valid: expected.length === actual.length && timingSafeEqual(expected, actual),
-      needsUpgrade: false,
-    };
-  }
-
-  // A legacy verifier is opt-in only during a controlled password-reset or
-  // migration window. New rows are always scrypt, and production defaults to
-  // rejecting the fast unsalted format.
-  if (!LEGACY_SHA256_PATTERN.test(storedValue) || !isLegacyPasswordLoginEnabled()) {
-    return { valid: false, needsUpgrade: false };
-  }
-  const expected = Buffer.from(storedValue, 'hex');
-  const actual = Buffer.from(createHash('sha256').update(password).digest('hex'), 'hex');
-  return {
-    valid: expected.length === actual.length && timingSafeEqual(expected, actual),
-    needsUpgrade: true,
-  };
 }
 
 export const authOptions: NextAuthOptions = {

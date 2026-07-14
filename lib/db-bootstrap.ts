@@ -1,8 +1,16 @@
 import { prisma } from '@/lib/prisma';
+import { shouldBootstrapRuntimeSchema } from '@/lib/runtime-schema-core.mjs';
 
 let schemaPromise: Promise<void> | null = null;
 
 export function ensureRuntimeSchema() {
+  // Schema changes must be applied by an explicit deployment/bootstrap step.
+  // Running DDL in every cold serverless function can serialize normal requests
+  // behind the Postgres advisory lock and exhaust the Vercel function timeout.
+  if (!shouldBootstrapRuntimeSchema(process.env.GUANYU_RUNTIME_SCHEMA_BOOTSTRAP)) {
+    return Promise.resolve();
+  }
+
   if (!schemaPromise) {
     schemaPromise = (async () => {
       // Serverless functions can cold-start in parallel. PostgreSQL's
