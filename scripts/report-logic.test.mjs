@@ -543,13 +543,14 @@ test('Guanyu Card uses a dedicated five-field prompt and rejects malformed outpu
     extraField: 'not allowed',
   }), 'en-US'), /固定模板/);
 
-  assert.throws(() => parseGuanyuCardContent(JSON.stringify({
+  const longCard = parseGuanyuCardContent(JSON.stringify({
     oneSentenceView: 'a'.repeat(166),
     mostCredible: 'A fact',
     largestInformationGap: 'A gap',
     mostWorthAsking: 'A question?',
     readingValue: '可以略读',
-  }), 'en-US'), /内容过长/);
+  }), 'en-US');
+  assert.equal(longCard.oneSentenceView.length, 166);
 });
 
 test('manual verification recalculates scores from the immutable report baseline', () => {
@@ -562,6 +563,7 @@ test('manual verification recalculates scores from the immutable report baseline
       evidenceStrength: 45,
       speculationRisk: 60,
     },
+    readingValueReason: '原始理由：关键数据存在缺口，阅读时应区分报道事实与待核验信息。',
     verificationRoadmap: [
       { question: '核对机场运行记录', materialType: '数据', whyItMatters: '用于确认事件是否发生', priority: '高' },
       { question: '核对官方声明', materialType: '当事方回应', whyItMatters: '用于比较各方说法', priority: '中' },
@@ -579,6 +581,8 @@ test('manual verification recalculates scores from the immutable report baseline
   });
   assert.equal(first.report.manualVerifications.length, 1);
   assert.equal(first.readingValue, '可以略读');
+  assert.equal(first.report.readingValueReason, '原始理由：关键数据存在缺口，阅读时应区分报道事实与待核验信息。');
+  assert.match(first.report.readingValueVerificationReason, /已找到可核验材料/);
   assert.match(first.report.evidenceVerificationSummary.pendingVerificationClaims[0], /已找到可核验材料/);
 
   const changed = applyManualVerification(first.report, { index: 0, outcome: 'unverified', updatedAt: '2026-07-14T00:01:00.000Z' });
@@ -590,6 +594,8 @@ test('manual verification recalculates scores from the immutable report baseline
     speculationRisk: 63,
   });
   assert.equal(changed.report.manualVerifications.length, 1);
+  assert.equal(changed.report.readingValueReason, '原始理由：关键数据存在缺口，阅读时应区分报道事实与待核验信息。');
+  assert.match(changed.report.readingValueVerificationReason, /暂未找到可核验材料/);
   assert.match(changed.report.evidenceVerificationSummary.unableToVerifyClaims[0], /暂未找到可核验材料/);
 });
 

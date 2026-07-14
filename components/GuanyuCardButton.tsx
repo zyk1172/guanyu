@@ -42,7 +42,7 @@ function usesCjkWordFlow(language: ReportLanguage) {
   return language.startsWith('zh-') || language === 'ja-JP' || language === 'ko-KR';
 }
 
-function wrap(value: string, maxChars: number, maxLines: number, language: ReportLanguage, truncate = false) {
+function wrapLines(value: string, maxChars: number, language: ReportLanguage) {
   const source = String(value || '').replace(/\s+/g, ' ').trim();
   const cjk = usesCjkWordFlow(language);
   const tokens = cjk ? Array.from(source) : source.split(' ').filter(Boolean);
@@ -58,10 +58,36 @@ function wrap(value: string, maxChars: number, maxLines: number, language: Repor
     }
   }
   if (line.trim()) lines.push(line.trim());
+  return lines;
+}
+
+function wrap(value: string, maxChars: number, maxLines: number, language: ReportLanguage, truncate = false) {
+  const lines = wrapLines(value, maxChars, language);
   if (lines.length <= maxLines) return lines;
   const visible = lines.slice(0, maxLines);
   if (truncate) visible[visible.length - 1] = `${visible[visible.length - 1]}…`;
   return visible;
+}
+
+function scaledFont(value: number, scale: number) {
+  return Math.max(8, Number((value * scale).toFixed(2)));
+}
+
+function getTypographyScale(title: string, card: GuanyuCardContent, language: ReportLanguage) {
+  const cjk = usesCjkWordFlow(language);
+  const fields = [
+    { value: title, chars: cjk ? 18 : 34, lines: 2 },
+    { value: card.oneSentenceView, chars: cjk ? 31 : 57, lines: 3 },
+    { value: card.mostCredible, chars: cjk ? 34 : 58, lines: 3 },
+    { value: card.largestInformationGap, chars: cjk ? 34 : 58, lines: 3 },
+    { value: card.mostWorthAsking, chars: cjk ? 34 : 58, lines: 3 },
+  ];
+
+  for (let scale = 1; scale >= 0.42; scale -= 0.04) {
+    const fits = fields.every((field) => wrapLines(field.value, Math.floor(field.chars / scale), language).length <= field.lines);
+    if (fits) return Number(scale.toFixed(2));
+  }
+  return 0.42;
 }
 
 function svgText(lines: string[], x: number, y: number, options: { size: number; lineHeight: number; fill: string; weight?: number; anchor?: string }) {
@@ -94,8 +120,11 @@ function verdictColor(label: ReadWorthLabel, colors: ThemePalette) {
 function createSvg(title: string, card: GuanyuCardContent, language: ReportLanguage, colors: ThemePalette, qrDataUrl: string) {
   const copy = textFor(language);
   const verdict = verdictColor(card.readingValue, colors);
-  const titleLines = wrap(title, usesCjkWordFlow(language) ? 18 : 34, 2, language, true);
-  const viewLines = wrap(card.oneSentenceView, usesCjkWordFlow(language) ? 31 : 57, 3, language);
+  const typographyScale = getTypographyScale(title, card, language);
+  const scaledChars = (value: number) => Math.floor(value / typographyScale);
+  const font = (value: number) => scaledFont(value, typographyScale);
+  const titleLines = wrap(title, scaledChars(usesCjkWordFlow(language) ? 18 : 34), 2, language, true);
+  const viewLines = wrap(card.oneSentenceView, scaledChars(usesCjkWordFlow(language) ? 31 : 57), 3, language);
   const signals = [
     [copy.credible, card.mostCredible, colors.success, '01'],
     [copy.gap, card.largestInformationGap, colors.warning, '02'],
@@ -104,13 +133,13 @@ function createSvg(title: string, card: GuanyuCardContent, language: ReportLangu
 
   const signalSvg = signals.map(([label, content, color, index], itemIndex) => {
     const y = 625 + itemIndex * 145;
-    const lines = wrap(content, usesCjkWordFlow(language) ? 34 : 58, 3, language);
+    const lines = wrap(content, scaledChars(usesCjkWordFlow(language) ? 34 : 58), 3, language);
     return `<g>
       <line x1="74" y1="${y - 16}" x2="1006" y2="${y - 16}" stroke="${colors.border}" stroke-width="2" opacity="0.72" />
       <circle cx="103" cy="${y + 28}" r="25" fill="${color}" opacity="0.92" />
-      <text x="103" y="${y + 37}" fill="#fff" font-family="Arial,sans-serif" font-size="20" font-weight="800" text-anchor="middle">${index}</text>
-      ${svgText([label], 150, y + 18, { size: 27, lineHeight: 33, fill: colors.text, weight: 800 })}
-      ${svgText(lines, 150, y + 55, { size: 20, lineHeight: 28, fill: colors.muted, weight: 500 })}
+      <text x="103" y="${y + 37}" fill="#fff" font-family="Arial,sans-serif" font-size="${font(20)}" font-weight="800" text-anchor="middle">${index}</text>
+      ${svgText([label], 150, y + 18, { size: font(27), lineHeight: font(33), fill: colors.text, weight: 800 })}
+      ${svgText(lines, 150, y + 55, { size: font(20), lineHeight: font(28), fill: colors.muted, weight: 500 })}
     </g>`;
   }).join('');
 
@@ -118,30 +147,30 @@ function createSvg(title: string, card: GuanyuCardContent, language: ReportLangu
     <rect width="1080" height="1350" fill="${colors.bg}" />
     <rect x="28" y="28" width="1024" height="1294" rx="24" fill="${colors.surface}" stroke="${colors.border}" stroke-width="4" />
     <rect x="50" y="50" width="980" height="1250" rx="18" fill="none" stroke="${colors.border}" stroke-width="1.5" stroke-dasharray="8 8" opacity="0.85" />
-    <text x="540" y="113" fill="${colors.text}" font-family="Georgia,'Songti SC',serif" font-size="48" font-weight="800" text-anchor="middle">观隅卡</text>
-    <text x="540" y="151" fill="${colors.primary}" font-family="Arial,sans-serif" font-size="18" font-weight="700" letter-spacing="5" text-anchor="middle">GUANYU CARD</text>
+    <text x="540" y="113" fill="${colors.text}" font-family="Georgia,'Songti SC',serif" font-size="${font(48)}" font-weight="800" text-anchor="middle">观隅卡</text>
+    <text x="540" y="151" fill="${colors.primary}" font-family="Arial,sans-serif" font-size="${font(18)}" font-weight="700" letter-spacing="${font(5)}" text-anchor="middle">GUANYU CARD</text>
     <line x1="310" y1="130" x2="410" y2="130" stroke="${colors.primary}" stroke-width="2" opacity="0.7" />
     <line x1="670" y1="130" x2="770" y2="130" stroke="${colors.primary}" stroke-width="2" opacity="0.7" />
     <rect x="70" y="190" width="940" height="164" rx="16" fill="${colors.bg}" stroke="${colors.border}" stroke-width="2" />
-    <text x="101" y="232" fill="${colors.primary}" font-family="Arial,sans-serif" font-size="16" font-weight="800" letter-spacing="2">NEWS TITLE</text>
-    ${svgText(titleLines, 101, 280, { size: 35, lineHeight: 46, fill: colors.text, weight: 800 })}
+    <text x="101" y="232" fill="${colors.primary}" font-family="Arial,sans-serif" font-size="${font(16)}" font-weight="800" letter-spacing="${font(2)}">NEWS TITLE</text>
+    ${svgText(titleLines, 101, 280, { size: font(35), lineHeight: font(46), fill: colors.text, weight: 800 })}
     <rect x="70" y="378" width="940" height="220" rx="16" fill="${colors.bg}" stroke="${colors.primary}" stroke-width="2" />
-    <text x="101" y="424" fill="${colors.primary}" font-family="Arial,sans-serif" font-size="16" font-weight="800" letter-spacing="2">${escaped(copy.view.toUpperCase())}</text>
-    <text x="101" y="473" fill="${colors.primary}" font-family="Georgia,'Songti SC',serif" font-size="29" font-weight="800">“</text>
-    ${svgText(viewLines, 138, 473, { size: 24, lineHeight: 34, fill: colors.text, weight: 650 })}
-    <text x="936" y="552" fill="${colors.primary}" font-family="Georgia,serif" font-size="88" font-weight="800" opacity="0.18">”</text>
+    <text x="101" y="424" fill="${colors.primary}" font-family="Arial,sans-serif" font-size="${font(16)}" font-weight="800" letter-spacing="${font(2)}">${escaped(copy.view.toUpperCase())}</text>
+    <text x="101" y="473" fill="${colors.primary}" font-family="Georgia,'Songti SC',serif" font-size="${font(29)}" font-weight="800">“</text>
+    ${svgText(viewLines, 138, 473, { size: font(24), lineHeight: font(34), fill: colors.text, weight: 650 })}
+    <text x="936" y="552" fill="${colors.primary}" font-family="Georgia,serif" font-size="${font(88)}" font-weight="800" opacity="0.18">”</text>
     ${signalSvg}
     <rect x="70" y="1060" width="940" height="84" rx="14" fill="${verdict}" opacity="0.14" stroke="${verdict}" stroke-width="2" />
     <circle cx="117" cy="1102" r="19" fill="${verdict}" />
-    <text x="117" y="1109" fill="#fff" font-family="Arial,sans-serif" font-size="17" font-weight="800" text-anchor="middle">✓</text>
-    <text x="152" y="1096" fill="${colors.muted}" font-family="Arial,sans-serif" font-size="14" font-weight="800" letter-spacing="2">${escaped(copy.reading.toUpperCase())}</text>
-    <text x="152" y="1127" fill="${colors.text}" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC',Arial,sans-serif" font-size="26" font-weight="800">${escaped(getReadWorthDisplayLabel(card.readingValue, language))}</text>
+    <text x="117" y="1109" fill="#fff" font-family="Arial,sans-serif" font-size="${font(17)}" font-weight="800" text-anchor="middle">✓</text>
+    <text x="152" y="1096" fill="${colors.muted}" font-family="Arial,sans-serif" font-size="${font(14)}" font-weight="800" letter-spacing="${font(2)}">${escaped(copy.reading.toUpperCase())}</text>
+    <text x="152" y="1127" fill="${colors.text}" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC',Arial,sans-serif" font-size="${font(26)}" font-weight="800">${escaped(getReadWorthDisplayLabel(card.readingValue, language))}</text>
     <line x1="70" y1="1170" x2="1010" y2="1170" stroke="${colors.border}" stroke-width="2" />
-    <text x="390" y="1218" fill="${colors.text}" font-family="Georgia,'Songti SC',serif" font-size="33" font-weight="800" text-anchor="middle">观隅</text>
-    <text x="390" y="1246" fill="${colors.primary}" font-family="Arial,sans-serif" font-size="12" font-weight="800" letter-spacing="3" text-anchor="middle">AI NARRATIVE AUDIT</text>
+    <text x="390" y="1218" fill="${colors.text}" font-family="Georgia,'Songti SC',serif" font-size="${font(33)}" font-weight="800" text-anchor="middle">观隅</text>
+    <text x="390" y="1246" fill="${colors.primary}" font-family="Arial,sans-serif" font-size="${font(12)}" font-weight="800" letter-spacing="${font(3)}" text-anchor="middle">AI NARRATIVE AUDIT</text>
     <rect x="844" y="1172" width="120" height="120" rx="10" fill="#ffffff" stroke="${colors.border}" stroke-width="1.5" />
     <image href="${qrDataUrl}" x="854" y="1182" width="100" height="100" preserveAspectRatio="xMidYMid meet" />
-    <text x="904" y="1298" fill="${colors.muted}" font-family="Arial,sans-serif" font-size="9" font-weight="800" letter-spacing="1" text-anchor="middle">${escaped(copy.scan)}</text>
+    <text x="904" y="1298" fill="${colors.muted}" font-family="Arial,sans-serif" font-size="${font(9)}" font-weight="800" letter-spacing="${font(1)}" text-anchor="middle">${escaped(copy.scan)}</text>
   </svg>`;
 }
 

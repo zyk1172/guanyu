@@ -9,6 +9,7 @@ import {
   EvidenceGrade,
   QuickAnalysisResult,
   ReadWorthLabel,
+  ManualVerificationRecord,
   ManualVerificationOutcome,
   getReportLanguageLabel,
   getReadWorthDisplayLabel,
@@ -457,14 +458,33 @@ function compactAside(total: number, limit: number, reportLanguage = 'zh-CN') {
   return <span className="text-xxs font-semibold text-gray-400">{!reportLanguage.startsWith('zh-') ? `Showing ${limit} of ${total}; the complete report is available in Markdown.` : `已优先显示 ${limit}/${total} 条，完整内容见 Markdown`}</span>;
 }
 
-function ReadingValueSection({ label, reason, reportLanguage }: { label: ReadWorthLabel; reason?: string; reportLanguage?: string }) {
+function ReadingValueSection({ label, reason, manualVerifications = [], reportLanguage }: { label: ReadWorthLabel; reason?: string; manualVerifications?: ManualVerificationRecord[]; reportLanguage?: string }) {
   const language = normalizeReportLanguage(reportLanguage);
+  const verifiedCount = manualVerifications.filter((item) => item.outcome === 'verified').length;
+  const unverifiedCount = manualVerifications.filter((item) => item.outcome === 'unverified').length;
+  const hasVerificationUpdate = verifiedCount + unverifiedCount > 0;
+  const originalReason = String(reason || '').trim();
+  const legacyVerificationOnlyReason = language.startsWith('zh-')
+    ? originalReason.startsWith('已根据 ') && originalReason.includes('用户核验标记重新计算')
+    : originalReason.startsWith('Recalculated from ') && originalReason.includes('user verification marks');
+  const visibleReason = legacyVerificationOnlyReason
+    ? (!language.startsWith('zh-') ? 'This judgment combines information completeness, evidence strength, narrative steering, and unresolved verification questions.' : '该判断综合信息完整度、证据强度、叙事倾向性和待核验问题得出。')
+    : originalReason;
   return (
     <Section title={getReportText('readingValue', language)}>
       <div data-verification-pulse className="grid gap-3 md:grid-cols-[minmax(240px,280px)_minmax(0,1fr)]">
         <ReadWorthVerdict label={label} displayLabel={getReadWorthDisplayLabel(label, language)} reportLanguage={language} />
         <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm leading-relaxed text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300">
-          {line(reason, !language.startsWith('zh-') ? 'This judgment combines information completeness, evidence strength, narrative steering, and unresolved verification questions.' : '该判断综合信息完整度、证据强度、叙事倾向性和待核验问题得出。')}
+          {line(visibleReason, !language.startsWith('zh-') ? 'This judgment combines information completeness, evidence strength, narrative steering, and unresolved verification questions.' : '该判断综合信息完整度、证据强度、叙事倾向性和待核验问题得出。')}
+          {hasVerificationUpdate && (
+            <p className="mt-2 border-t border-[var(--color-border)] pt-2 text-xs font-semibold leading-relaxed">
+              <span className="text-[var(--color-text-muted)]">{language.startsWith('zh-') ? '核验更新：' : 'Verification update: '}</span>
+              {verifiedCount > 0 && <span className="text-[var(--color-success)]">{language.startsWith('zh-') ? `已找到可核验材料 ${verifiedCount} 项` : `${verifiedCount} item${verifiedCount === 1 ? '' : 's'} marked material found`}</span>}
+              {verifiedCount > 0 && unverifiedCount > 0 && <span className="text-[var(--color-text-subtle)]"> · </span>}
+              {unverifiedCount > 0 && <span className="text-[var(--color-warning)]">{language.startsWith('zh-') ? `暂未找到可核验材料 ${unverifiedCount} 项` : `${unverifiedCount} item${unverifiedCount === 1 ? '' : 's'} marked not verified`}</span>}
+              <span className="text-[var(--color-text-muted)]">{language.startsWith('zh-') ? '；指数已据此调整。' : '; the indicators were adjusted accordingly.'}</span>
+            </p>
+          )}
         </div>
       </div>
     </Section>
@@ -1022,7 +1042,7 @@ function DeepReportView({ report, originalContent, qaMessages, displayLimit, aud
           <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900 md:col-span-2"><div className="font-black">{text('readerImpression')}</div><p className="mt-1 leading-relaxed">{report.sourceInterpretation.likelyReaderImpression}</p></div>
         </div>
       </Section>
-      <ReadingValueSection label={report.readingValue} reason={report.readingValueReason} reportLanguage={report.meta.reportLanguage} />
+      <ReadingValueSection label={report.readingValue} reason={report.readingValueReason} manualVerifications={report.manualVerifications} reportLanguage={report.meta.reportLanguage} />
       <Section title={text('readerGuide')}><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{report.normalReaderGuide}</p></Section>
       <Section title={text('oneSentence')}><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.oneSentenceConclusion}</p></Section>
       <ScoresSection report={report} />

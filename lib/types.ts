@@ -429,6 +429,8 @@ export interface DeepAnalysisResult {
   manualVerifications?: ManualVerificationRecord[];
   manualVerificationBaseline?: ReportScores;
   manualVerificationNotes?: string[];
+  readingValueBaseReason?: string;
+  readingValueVerificationReason?: string;
   questionsToAsk: string[];
   cannotConclude: string[];
   onlineVerification: OnlineVerification;
