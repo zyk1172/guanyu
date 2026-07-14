@@ -72,6 +72,10 @@ export default function AccountPage() {
   const [billing, setBilling] = useState<any>(null);
   const [billingMessage, setBillingMessage] = useState<string | null>(null);
   const [paymentNote, setPaymentNote] = useState('');
+  const [feedbackType, setFeedbackType] = useState('bug');
+  const [feedbackMessage, setFeedbackMessage] = useState('');
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+  const [feedbackStatus, setFeedbackStatus] = useState<string | null>(null);
   const [adminBilling, setAdminBilling] = useState<any>(null);
   const [adminUserSearch, setAdminUserSearch] = useState('');
   const [expandedUserIds, setExpandedUserIds] = useState<Record<string, boolean>>({});
@@ -298,6 +302,36 @@ export default function AccountPage() {
       await fetchBilling();
     } catch {
       setBillingMessage('创建订单失败，请稍后重试。');
+    }
+  };
+
+  const handleSubmitFeedback = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setFeedbackStatus(null);
+    const message = feedbackMessage.trim();
+    if (message.length < 5) {
+      setFeedbackStatus(t('account.feedbackTooShort'));
+      return;
+    }
+
+    setIsSubmittingFeedback(true);
+    try {
+      const response = await fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: feedbackType, message }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setFeedbackStatus(data.error || t('account.feedbackFailed'));
+        return;
+      }
+      setFeedbackMessage('');
+      setFeedbackStatus(data.message || t('account.feedbackSent'));
+    } catch {
+      setFeedbackStatus(t('account.feedbackFailed'));
+    } finally {
+      setIsSubmittingFeedback(false);
     }
   };
 
@@ -641,6 +675,58 @@ export default function AccountPage() {
             )}
           </div>
           <div className="space-y-4">
+            <form onSubmit={handleSubmitFeedback} className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-5 shadow-[var(--shadow-card)]">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-black text-[var(--color-text)]">{t('account.feedbackTitle')}</h3>
+                  <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('account.feedbackDescription')}</p>
+                </div>
+                <span className="rounded-full bg-[var(--color-primary-soft)] px-2 py-1 text-xxs font-black text-[var(--color-link)]">{t('account.feedbackEmailBadge')}</span>
+              </div>
+              <div className="mt-3 grid gap-3">
+                <label className="grid gap-1 text-xxs font-black text-[var(--color-text-muted)]">
+                  {t('account.feedbackType')}
+                  <select
+                    value={feedbackType}
+                    onChange={(event) => setFeedbackType(event.target.value)}
+                    className="rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] px-3 py-2 text-xs font-semibold text-[var(--color-text)] outline-none transition focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary-soft)]"
+                  >
+                    <option value="bug">{t('account.feedbackTypeBug')}</option>
+                    <option value="feature">{t('account.feedbackTypeFeature')}</option>
+                    <option value="report">{t('account.feedbackTypeReport')}</option>
+                    <option value="billing">{t('account.feedbackTypeBilling')}</option>
+                    <option value="other">{t('account.feedbackTypeOther')}</option>
+                  </select>
+                </label>
+                <label className="grid gap-1 text-xxs font-black text-[var(--color-text-muted)]">
+                  {t('account.feedbackContent')}
+                  <textarea
+                    value={feedbackMessage}
+                    onChange={(event) => setFeedbackMessage(event.target.value)}
+                    rows={5}
+                    maxLength={4000}
+                    placeholder={t('account.feedbackPlaceholder')}
+                    className="resize-y rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] px-3 py-2 text-xs leading-relaxed text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-text-subtle)] focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary-soft)]"
+                  />
+                  <span className="text-right font-medium text-[var(--color-text-subtle)]">{feedbackMessage.length}/4000</span>
+                </label>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('account.feedbackHint')}</p>
+                <button
+                  type="submit"
+                  disabled={isSubmittingFeedback}
+                  className="rounded-lg bg-[var(--color-primary)] px-3 py-2 text-xs font-black text-white transition hover:bg-[var(--color-primary-hover)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isSubmittingFeedback ? t('account.feedbackSubmitting') : t('account.feedbackSubmit')}
+                </button>
+              </div>
+              {feedbackStatus && (
+                <p className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs font-semibold text-[var(--color-text)]" role="status">
+                  {feedbackStatus}
+                </p>
+              )}
+            </form>
             <div className="bg-white dark:bg-gray-950 p-6 rounded-xl border border-gray-150 dark:border-gray-900 shadow-sm space-y-4">
               <h3 className="text-sm font-bold text-gray-900 dark:text-white border-b border-gray-100 dark:border-gray-900 pb-2">
                 {t('account.billing')}

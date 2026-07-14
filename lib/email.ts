@@ -16,7 +16,7 @@ export interface SendEmailInput {
 }
 
 export interface TrackedEmailInput extends SendEmailInput {
-  category: 'report_completed' | 'account_banned' | 'account_unbanned' | 'credits_granted' | 'order_confirmed' | 'order_rejected' | 'welcome' | 'register_code' | 'admin_message' | 'order_submitted';
+  category: 'report_completed' | 'account_banned' | 'account_unbanned' | 'credits_granted' | 'order_confirmed' | 'order_rejected' | 'welcome' | 'register_code' | 'admin_message' | 'order_submitted' | 'feedback_submitted';
   userId?: string | null;
   auditId?: string | null;
   metadata?: Record<string, unknown>;
@@ -512,4 +512,75 @@ export async function notifyOrderDecision(input: {
     text: [message, input.adminNote ? `管理员说明：${input.adminNote}` : ''].filter(Boolean).join('\n'),
     html: `<div style="margin:0;padding:28px 16px;background:#f2ead9;font-family:Arial,'PingFang SC','Microsoft YaHei',sans-serif;color:#2d251b;line-height:1.75"><main style="max-width:620px;margin:0 auto;background:#fffdf7;border:1px solid #dfcfad;border-radius:14px;padding:26px"><h1 style="margin:0 0 12px;font-size:22px">${escapeHtml(subject)}</h1><p style="margin:0">${escapeHtml(message)}</p>${input.adminNote ? `<p style="margin:16px 0 0;padding:12px;border-left:3px solid #b98c4c;background:#f8f0df">管理员说明：${escapeHtml(input.adminNote)}</p>` : ''}<p style="margin:20px 0 0"><a href="${appUrl('/account')}" style="display:inline-block;background:#7a4f22;color:#fff;text-decoration:none;padding:10px 14px;border-radius:8px;font-weight:700">打开账号管理</a></p></main></div>`,
   });
+}
+
+export async function notifyAdminsFeedback(input: {
+  userId: string;
+  userEmail?: string | null;
+  userName?: string | null;
+  category: string;
+  message: string;
+  submittedAt?: Date | string;
+}) {
+  const recipients = await adminNotifyRecipients();
+  if (recipients.length === 0) return { delivered: false, provider: 'no-recipient', recipientCount: 0 };
+
+  const submittedAt = new Date(input.submittedAt || new Date()).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+  const accountLabel = input.userName
+    ? `${input.userName} <${input.userEmail || input.userId}>`
+    : (input.userEmail || input.userId);
+  const subject = `观隅用户反馈：${input.category}`;
+  const text = [
+    '收到一条新的观隅用户反馈。',
+    `反馈类型：${input.category}`,
+    `反馈用户：${accountLabel}`,
+    `账号 ID：${input.userId}`,
+    `提交时间：${submittedAt}`,
+    '',
+    '反馈内容：',
+    input.message,
+    '',
+    `管理入口：${appUrl('/account')}`,
+  ].join('\n');
+  const html = `
+    <div style="margin:0;padding:28px 16px;background:#f2ead9;font-family:Arial,'PingFang SC','Microsoft YaHei',sans-serif;color:#2d251b;line-height:1.75">
+      <main style="max-width:680px;margin:0 auto;background:#fffdf7;border:1px solid #dfcfad;border-radius:14px;padding:26px">
+        <p style="margin:0 0 6px;color:#7a4f22;font-size:12px;font-weight:800;letter-spacing:1px">GUANYU FEEDBACK</p>
+        <h1 style="margin:0 0 16px;font-size:22px">收到新的用户反馈</h1>
+        <table style="border-collapse:collapse;width:100%;font-size:14px">
+          <tbody>
+            <tr><td style="padding:8px;border:1px solid #e1d2b1;font-weight:700;width:104px">反馈类型</td><td style="padding:8px;border:1px solid #e1d2b1">${escapeHtml(input.category)}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #e1d2b1;font-weight:700">反馈用户</td><td style="padding:8px;border:1px solid #e1d2b1">${escapeHtml(accountLabel)}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #e1d2b1;font-weight:700">账号 ID</td><td style="padding:8px;border:1px solid #e1d2b1;word-break:break-all">${escapeHtml(input.userId)}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #e1d2b1;font-weight:700">提交时间</td><td style="padding:8px;border:1px solid #e1d2b1">${escapeHtml(submittedAt)}</td></tr>
+          </tbody>
+        </table>
+        <section style="margin-top:18px;padding:16px;background:#f8f0df;border-left:4px solid #7a4f22;border-radius:8px">
+          <div style="margin:0 0 7px;font-size:14px;font-weight:800">反馈内容</div>
+          <div style="white-space:pre-wrap;word-break:break-word;color:#3f3529">${escapeHtml(input.message)}</div>
+        </section>
+        <p style="margin:20px 0 0"><a href="${appUrl('/account')}" style="display:inline-block;background:#7a4f22;color:#fff;text-decoration:none;padding:10px 14px;border-radius:8px;font-weight:700">打开账号管理</a></p>
+      </main>
+    </div>
+  `;
+
+  const results = await Promise.all(recipients.map((recipient) => sendTrackedEmail({
+    category: 'feedback_submitted',
+    to: recipient,
+    userId: input.userId,
+    subject,
+    text,
+    html,
+    metadata: {
+      recipientRole: 'administrator',
+      feedbackCategory: input.category,
+      creatorEmail: input.userEmail || null,
+    },
+  })));
+
+  return {
+    delivered: results.some((result) => result.delivered),
+    provider: results.find((result) => result.delivered)?.provider || 'none',
+    recipientCount: recipients.length,
+  };
 }

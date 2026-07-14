@@ -12,6 +12,8 @@ const EXTENSION_LINK_WINDOW_MS = 10 * 60 * 1000;
 const EXTENSION_LINK_WINDOW_LIMIT = 12;
 const COMPLETION_WINDOW_MS = 5 * 60 * 1000;
 const COMPLETION_WINDOW_LIMIT = 3;
+const FEEDBACK_WINDOW_MS = 30 * 60 * 1000;
+const FEEDBACK_WINDOW_LIMIT = 3;
 const URL_PARSE_WINDOW_MS = 5 * 60 * 1000;
 const URL_PARSE_WINDOW_LIMIT = 10;
 const AUDIT_VIEW_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -280,5 +282,19 @@ export async function reserveCompletionAttempt(userId: string) {
       throw new Error('AI 补全操作过于频繁，请 5 分钟后再试。');
     }
     await tx.rateLimitEvent.create({ data: { userId, action: 'completion' } });
+  });
+}
+
+export async function reserveFeedbackAttempt(userId: string) {
+  const windowStart = new Date(Date.now() - FEEDBACK_WINDOW_MS);
+  return prisma.$transaction(async (tx) => {
+    await acquireUserActionLock(tx, `guanyu-feedback:${userId}`);
+    const count = await tx.rateLimitEvent.count({
+      where: { userId, action: 'feedback', createdAt: { gte: windowStart } },
+    });
+    if (count >= FEEDBACK_WINDOW_LIMIT) {
+      throw new Error('反馈提交过于频繁，请 30 分钟后再试。');
+    }
+    return tx.rateLimitEvent.create({ data: { userId, action: 'feedback' } });
   });
 }
