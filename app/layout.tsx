@@ -3,7 +3,7 @@ import "./globals.css";
 import Providers from "@/components/Providers";
 import { GsapRoot } from "@/components/GsapMotion";
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://guanyu-seven.vercel.app";
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://www.guanyu.dynv6.net";
 const siteName = "观隅 Guanyu";
 const siteDescription = "观隅（Guanyu）是面向新闻阅读者的叙事审视工具：帮助区分事实、主张、证据与待核验信息，看见新闻没有展开的一角。";
 
