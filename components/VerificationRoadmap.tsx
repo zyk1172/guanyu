@@ -1,9 +1,10 @@
 'use client';
 
 import { CheckCircle2, ExternalLink, LoaderCircle, Search, ShieldAlert } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ManualVerificationOutcome, ManualVerificationRecord, VerificationRoadmapTask } from '@/lib/types';
 import { formatMaterialType, formatPriority } from '@/lib/report-display-core.mjs';
+import { getVerificationRoadmapStorageKey } from '@/lib/analysis-job-client-core.mjs';
 
 interface VerificationRoadmapProps {
   auditId?: string;
@@ -88,12 +89,24 @@ export default function VerificationRoadmap({
     () => new Map(manualVerifications.map((item) => [item.index, item])),
     [manualVerifications]
   );
+  const itemCount = items.length;
+
+  useEffect(() => {
+    if (!auditId || typeof window === 'undefined') return;
+    const restoredIndex = Array.from({ length: itemCount }, (_, index) => index).findIndex((index) => {
+      const storageKey = getVerificationRoadmapStorageKey(auditId, index);
+      return storageKey ? window.sessionStorage.getItem(storageKey) === 'opened' : false;
+    });
+    setOpenedIndex(restoredIndex >= 0 ? restoredIndex : null);
+  }, [auditId, itemCount]);
 
   const openSearch = (item: VerificationRoadmapTask, index: number) => {
     const query = buildSearchQuery(item, title, source);
-    window.open(`https://www.google.com/search?${new URLSearchParams({ q: query }).toString()}`, '_blank', 'noopener,noreferrer');
+    const storageKey = getVerificationRoadmapStorageKey(auditId, index);
+    if (storageKey) window.sessionStorage.setItem(storageKey, 'opened');
     setOpenedIndex(index);
     setError(null);
+    window.open(`https://www.google.com/search?${new URLSearchParams({ q: query }).toString()}`, '_blank', 'noopener,noreferrer');
   };
 
   const saveOutcome = async (index: number, outcome: ManualVerificationOutcome) => {
@@ -108,6 +121,8 @@ export default function VerificationRoadmap({
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || copy.updateFailed);
+      const storageKey = getVerificationRoadmapStorageKey(auditId, index);
+      if (storageKey) window.sessionStorage.removeItem(storageKey);
       onUpdated?.(data.result, outcome);
       setOpenedIndex(null);
     } catch (requestError) {

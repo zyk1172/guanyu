@@ -47,6 +47,12 @@ import { createCaptchaText, isCaptchaTextSafe } from '../lib/captcha-core.mjs';
 import { getEmailProviderPlan } from '../lib/email-delivery-core.mjs';
 import { buildAiCompletionPrompt, validateCompletionMarkdown } from '../lib/ai-completion-core.mjs';
 import { applyManualVerification } from '../lib/manual-verification-core.mjs';
+import {
+  ACTIVE_ANALYSIS_JOB_STORAGE_KEY,
+  getAnalysisJobResolution,
+  getVerificationRoadmapStorageKey,
+  normalizeActiveAnalysisJobId,
+} from '../lib/analysis-job-client-core.mjs';
 
 test('extracts People Daily body date before unrelated old dates', () => {
   const html = `
@@ -126,6 +132,32 @@ test('read worth verdict uses only productized labels', () => {
     const verdict = computeReadWorthCore({ scores });
     assert.equal(labels.has(verdict.label), true);
   }
+});
+
+test('background analysis resumes from a stored job and prioritizes an available report', () => {
+  assert.equal(ACTIVE_ANALYSIS_JOB_STORAGE_KEY, 'guanyu.active-analysis-job-id');
+  assert.equal(normalizeActiveAnalysisJobId(' job_123 '), 'job_123');
+  assert.equal(normalizeActiveAnalysisJobId(''), null);
+  assert.equal(normalizeActiveAnalysisJobId('bad value'), null);
+
+  assert.deepEqual(
+    getAnalysisJobResolution({ status: 'failed', auditId: 'audit_ready', error: 'stale failure text' }),
+    { kind: 'completed', auditId: 'audit_ready' }
+  );
+  assert.deepEqual(
+    getAnalysisJobResolution({ status: 'failed', error: 'provider failed' }),
+    { kind: 'failed', error: 'provider failed' }
+  );
+  assert.deepEqual(getAnalysisJobResolution({ status: 'running' }), { kind: 'pending' });
+});
+
+test('verification roadmap uses a per-report session key for restored search actions', () => {
+  assert.equal(
+    getVerificationRoadmapStorageKey('audit_abc', 2),
+    'guanyu.verification-roadmap.audit_abc.2'
+  );
+  assert.equal(getVerificationRoadmapStorageKey('', 2), null);
+  assert.equal(getVerificationRoadmapStorageKey('audit_abc', -1), null);
 });
 
 test('tavily request uses basic search by default to preserve free credits', () => {

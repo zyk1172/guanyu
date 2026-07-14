@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import AnalysisForm from '../components/AnalysisForm';
@@ -13,6 +13,11 @@ import { useUiLanguage } from '../components/LanguageProvider';
 import RssNewsPanel, { RssHeadline } from '../components/RssNewsPanel';
 import { AnalysisResult, AnalysisMode, ReportLanguage, getReportLanguageLabel, getThinkingDepthLabel } from '../lib/types';
 import { getBrandIdentity } from '../lib/brand-core.mjs';
+import {
+  ACTIVE_ANALYSIS_JOB_STORAGE_KEY,
+  getAnalysisJobResolution,
+  normalizeActiveAnalysisJobId,
+} from '../lib/analysis-job-client-core.mjs';
 
 interface HotAudit {
   id: string;
@@ -50,6 +55,87 @@ export default function Home() {
   const [isLoadingHotAudits, setIsLoadingHotAudits] = useState(true);
   const formColumnRef = useRef<HTMLDivElement | null>(null);
   const [formColumnHeight, setFormColumnHeight] = useState(748);
+  const activePollingJobRef = useRef<string | null>(null);
+  const pageIsMountedRef = useRef(true);
+
+  const storeActiveJob = useCallback((jobId: string) => {
+    if (typeof window !== 'undefined') window.sessionStorage.setItem(ACTIVE_ANALYSIS_JOB_STORAGE_KEY, jobId);
+    setActiveJobId(jobId);
+  }, []);
+
+  const clearActiveJob = useCallback(() => {
+    if (typeof window !== 'undefined') window.sessionStorage.removeItem(ACTIVE_ANALYSIS_JOB_STORAGE_KEY);
+    setActiveJobId(null);
+  }, []);
+
+  const pollAnalysisJob = useCallback(async (jobId: string) => {
+    const normalizedJobId = normalizeActiveAnalysisJobId(jobId);
+    if (!normalizedJobId || activePollingJobRef.current === normalizedJobId) return;
+
+    activePollingJobRef.current = normalizedJobId;
+    let terminalFailure = false;
+    if (pageIsMountedRef.current) {
+      setIsLoading(true);
+      setError(null);
+      setActiveJobId(normalizedJobId);
+    }
+
+    try {
+      for (let attempt = 0; attempt < 180; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, attempt < 10 ? 1500 : 3000));
+        const statusResponse = await fetch(`/api/analyze/jobs/${normalizedJobId}`, { cache: 'no-store' });
+        const statusData = await statusResponse.json().catch(() => ({}));
+        if (!statusResponse.ok) {
+          throw new Error(statusData.error || '读取审视任务状态失败。');
+        }
+
+        const resolution = getAnalysisJobResolution(statusData);
+        if (resolution.kind === 'completed') {
+          clearActiveJob();
+          router.push(`/audits/${resolution.auditId}`);
+          return;
+        }
+        if (resolution.kind === 'failed') {
+          terminalFailure = true;
+          clearActiveJob();
+          throw new Error(resolution.error);
+        }
+      }
+    } catch (pollError: any) {
+      if (!pageIsMountedRef.current) return;
+      setError(terminalFailure
+        ? (pollError?.message || '审视任务生成失败。')
+        : '审视仍在后台生成，状态暂时无法读取。返回此页面后会继续恢复任务。');
+    } finally {
+      if (activePollingJobRef.current === normalizedJobId) activePollingJobRef.current = null;
+      if (pageIsMountedRef.current) setIsLoading(false);
+    }
+  }, [clearActiveJob, router]);
+
+  useEffect(() => {
+    pageIsMountedRef.current = true;
+    return () => {
+      pageIsMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const resumeStoredJob = () => {
+      if (typeof window === 'undefined') return;
+      const jobId = normalizeActiveAnalysisJobId(window.sessionStorage.getItem(ACTIVE_ANALYSIS_JOB_STORAGE_KEY));
+      if (!jobId) return;
+      storeActiveJob(jobId);
+      void pollAnalysisJob(jobId);
+    };
+
+    const resumeWhenVisible = () => {
+      if (document.visibilityState === 'visible') resumeStoredJob();
+    };
+
+    resumeStoredJob();
+    document.addEventListener('visibilitychange', resumeWhenVisible);
+    return () => document.removeEventListener('visibilitychange', resumeWhenVisible);
+  }, [pollAnalysisJob, storeActiveJob]);
 
   useEffect(() => {
     const target = formColumnRef.current;
@@ -97,7 +183,7 @@ export default function Home() {
     setError(null);
     setResult(null);
     setLastSubmittedData(data);
-    setActiveJobId(null);
+    clearActiveJob();
 
     try {
       const response = await fetch('/api/analyze/jobs', {
@@ -114,25 +200,8 @@ export default function Home() {
 
       const jobId = resData.jobId;
       if (!jobId) throw new Error('服务端未返回审视任务 ID。');
-      setActiveJobId(jobId);
-
-      for (let attempt = 0; attempt < 180; attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, attempt < 10 ? 1500 : 3000));
-        const statusResponse = await fetch(`/api/analyze/jobs/${jobId}`, { cache: 'no-store' });
-        const statusData = await statusResponse.json().catch(() => ({}));
-        if (!statusResponse.ok) {
-          throw new Error(statusData.error || '读取审视任务状态失败。');
-        }
-        if (statusData.status === 'completed' && statusData.auditId) {
-          router.push(`/audits/${statusData.auditId}`);
-          return;
-        }
-        if (statusData.status === 'failed') {
-          throw new Error(statusData.error || '审视任务生成失败。');
-        }
-      }
-
-      throw new Error('审视仍在后台生成，请稍后到“我的审视”查看。');
+      storeActiveJob(jobId);
+      await pollAnalysisJob(jobId);
     } catch (err: any) {
       console.error(err);
       setError(err?.message || '网络连接或请求处理出错，请重试。');
@@ -167,6 +236,10 @@ export default function Home() {
   };
 
   const handleRetry = () => {
+    if (activeJobId) {
+      void pollAnalysisJob(activeJobId);
+      return;
+    }
     if (lastSubmittedData) {
       handleAnalyze(lastSubmittedData);
     }
@@ -213,7 +286,7 @@ export default function Home() {
             </div>
           </div>
           {isLoading && <LoadingState />}
-          {isLoading && activeJobId && (
+          {activeJobId && (
             <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs font-semibold text-[var(--color-text-muted)]">
               {t('home.backgroundJob')}
             </div>
