@@ -1,12 +1,15 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import gsap from 'gsap';
+import { useGSAP } from '@gsap/react';
 import {
   AnalysisResult,
   DeepAnalysisResult,
   EvidenceGrade,
   QuickAnalysisResult,
   ReadWorthLabel,
+  ManualVerificationOutcome,
   getReportLanguageLabel,
   getReadWorthDisplayLabel,
   normalizeReportLanguage,
@@ -18,6 +21,7 @@ import AuditCharts from './AuditCharts';
 import { GsapReveal } from './GsapMotion';
 import InteractiveQA, { ChatMessage } from './InteractiveQA';
 import ReadWorthVerdict from './ReadWorthVerdict';
+import VerificationRoadmap from './VerificationRoadmap';
 import { computeReadWorth } from '../lib/readWorth';
 import {
   formatAnalysisMode,
@@ -35,9 +39,12 @@ import {
   getReportText,
 } from '../lib/report-display-core.mjs';
 
+gsap.registerPlugin(useGSAP);
+
 interface AnalysisResultProps {
   result: AnalysisResult;
   auditId?: string;
+  canUpdateVerification?: boolean;
   originalContent?: string;
   auditMeta?: {
     title?: string;
@@ -166,6 +173,11 @@ function Section({ title, children, aside }: { title: string; children: React.Re
 function line(value: unknown, fallback = '当前材料不足，无法形成可靠判断') {
   const text = value === undefined || value === null ? '' : String(value).trim();
   return text && text !== '未提供' && text !== '暂无' ? text : fallback;
+}
+
+function manualVerificationLabel(outcome: ManualVerificationOutcome, reportLanguage = 'zh-CN') {
+  if (reportLanguage.startsWith('zh')) return outcome === 'verified' ? '已标记：找到可核验材料' : '已标记：暂未找到可核验材料';
+  return outcome === 'verified' ? 'Marked: checkable material found' : 'Marked: no checkable material found';
 }
 
 function isUsefulOnlineSource(source: any) {
@@ -448,7 +460,7 @@ function ReadingValueSection({ label, reason, reportLanguage }: { label: ReadWor
   const language = normalizeReportLanguage(reportLanguage);
   return (
     <Section title={getReportText('readingValue', language)}>
-      <div className="grid gap-3 md:grid-cols-[minmax(240px,280px)_minmax(0,1fr)]">
+      <div data-verification-pulse className="grid gap-3 md:grid-cols-[minmax(240px,280px)_minmax(0,1fr)]">
         <ReadWorthVerdict label={label} displayLabel={getReadWorthDisplayLabel(label, language)} reportLanguage={language} />
         <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm leading-relaxed text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300">
           {line(reason, !language.startsWith('zh-') ? 'This judgment combines information completeness, evidence strength, narrative steering, and unresolved verification questions.' : '该判断综合信息完整度、证据强度、叙事倾向性和待核验问题得出。')}
@@ -479,7 +491,7 @@ function ScoresSection({ report, quick = false }: { report: QuickAnalysisResult 
     <Section title={text('coreScores')} aside={<span className="text-xxs font-semibold text-gray-400">{text('scoreDisclaimer')}</span>}>
       <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
         {rows.map(([name, value, help]) => (
-          <div key={String(name)} className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">
+          <div key={String(name)} data-verification-pulse className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">
             <div className="text-xxs font-bold text-gray-500 dark:text-gray-400">{String(name)}</div>
             <div className="mt-1 text-2xl font-black text-gray-950 dark:text-white">{Number(value)}/100</div>
             <div className="mt-1 text-xxs leading-relaxed text-gray-500 dark:text-gray-400">{String(help)}</div>
@@ -662,7 +674,10 @@ function markdownForEnglish(report: QuickAnalysisResult | DeepAnalysisResult, or
     ...bullets(report.evidenceVerificationSummary.pendingVerificationClaims.map((item) => `Needs external verification: ${item}`), 'en-US'),
     ...bullets(report.evidenceVerificationSummary.unableToVerifyClaims.map((item) => `Unable to verify: ${formatUnconfirmedItem(item)}`), 'en-US'),
     '', '## 13. Verification roadmap',
-    ...report.verificationRoadmap.map((item) => `- **${item.question}**: ${formatMaterialType(item.materialType, 'en-US')}; ${formatPriority(item.priority, 'en-US')}; why it matters: ${item.whyItMatters}`),
+    ...report.verificationRoadmap.map((item, index) => {
+      const record = report.manualVerifications?.find((entry) => entry.index === index);
+      return `- **${item.question}**: ${formatMaterialType(item.materialType, 'en-US')}; ${formatPriority(item.priority, 'en-US')}; why it matters: ${item.whyItMatters}${record ? `; user verification: ${manualVerificationLabel(record.outcome, 'en-US')}` : ''}`;
+    }),
     '', ...webVerificationMarkdown(report).slice(2),
     '## 14. Questions to ask next', '', ...bullets(report.questionsToAsk, 'en-US'),
     '', '## 15. Conclusions not yet supported', '', ...bullets(report.cannotConclude, 'en-US'),
@@ -822,7 +837,10 @@ function markdownFor(report: QuickAnalysisResult | DeepAnalysisResult, originalC
     ...bullets(report.evidenceVerificationSummary.unableToVerifyClaims.map((item) => `暂无法确认：${item}`)),
     '',
     '## 13. 验证路线图',
-    ...report.verificationRoadmap.map((item) => `- **${item.question}**：材料类型 ${item.materialType}；优先级 ${item.priority}；重要性：${item.whyItMatters}`),
+    ...report.verificationRoadmap.map((item, index) => {
+      const record = report.manualVerifications?.find((entry) => entry.index === index);
+      return `- **${item.question}**：材料类型 ${item.materialType}；优先级 ${item.priority}；重要性：${item.whyItMatters}${record ? `；用户核验：${manualVerificationLabel(record.outcome, 'zh-CN')}` : ''}`;
+    }),
     '',
     '### 联网核验结果',
     ...(webVerificationMarkdown(report).slice(2)),
@@ -977,7 +995,7 @@ function QuickReportView({ report, originalContent, qaMessages }: { report: Quic
   );
 }
 
-function DeepReportView({ report, originalContent, qaMessages, displayLimit, auditId }: { report: DeepAnalysisResult; originalContent?: string; qaMessages: ChatMessage[]; displayLimit: number; auditId?: string }) {
+function DeepReportView({ report, originalContent, qaMessages, displayLimit, auditId, canUpdateVerification, onVerificationUpdated }: { report: DeepAnalysisResult; originalContent?: string; qaMessages: ChatMessage[]; displayLimit: number; auditId?: string; canUpdateVerification?: boolean; onVerificationUpdated?: (result: unknown, outcome: ManualVerificationOutcome) => void }) {
   const reportLanguage = normalizeReportLanguage(report.meta.reportLanguage);
   const text = (key: string) => getReportText(key, reportLanguage);
   const keyFindings = limitedItems(report.keyFindings, displayLimit);
@@ -1006,7 +1024,7 @@ function DeepReportView({ report, originalContent, qaMessages, displayLimit, aud
       <Section title={text('readerGuide')}><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{report.normalReaderGuide}</p></Section>
       <Section title={text('oneSentence')}><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.oneSentenceConclusion}</p></Section>
       <ScoresSection report={report} />
-      <AuditCharts {...chartProps(report)} reportLanguage={reportLanguage} />
+      <div data-verification-pulse><AuditCharts {...chartProps(report)} reportLanguage={reportLanguage} /></div>
       <Section title={text('conclusionLayers')}>
         <div className="grid gap-2 md:grid-cols-3">
           {[
@@ -1052,7 +1070,16 @@ function DeepReportView({ report, originalContent, qaMessages, displayLimit, aud
         </div>
       </Section>
       <Section title={text('roadmap')} aside={compactAside(report.verificationRoadmap.length, displayLimit, reportLanguage)}>
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">{verificationRoadmap.map((item, index) => <article key={`${item.question}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs dark:border-gray-850 dark:bg-gray-900"><div className="font-bold text-gray-950 dark:text-white">{item.question}</div><p className="mt-1 text-gray-600 dark:text-gray-300">{item.whyItMatters}</p><div className="mt-2 flex gap-1.5"><Badge className="border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-900/30 dark:bg-indigo-950/20 dark:text-indigo-300">{formatMaterialType(item.materialType, reportLanguage)}</Badge><Badge className={riskClass(item.priority)}>{formatPriority(item.priority, reportLanguage)}</Badge></div></article>)}</div>
+        <VerificationRoadmap
+          auditId={auditId}
+          canUpdate={canUpdateVerification}
+          items={verificationRoadmap}
+          manualVerifications={report.manualVerifications}
+          reportLanguage={reportLanguage}
+          title={report.meta.title}
+          source={report.meta.source}
+          onUpdated={onVerificationUpdated}
+        />
       </Section>
       <Section title={text('webVerification')}><WebVerificationView report={report} /></Section>
       <Section title={text('questions')} aside={compactAside(report.questionsToAsk.length, displayLimit, reportLanguage)}><ul className="grid grid-cols-1 gap-2 md:grid-cols-2">{questions.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs font-semibold leading-relaxed text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300">{item}</li>)}</ul></Section>
@@ -1079,19 +1106,58 @@ function DeepReportView({ report, originalContent, qaMessages, displayLimit, aud
   );
 }
 
-export default function AnalysisResultView({ result: rawResult, auditId, originalContent, auditMeta }: AnalysisResultProps) {
-  const result = useNormalizedResult(rawResult, auditMeta);
+export default function AnalysisResultView({ result: rawResult, auditId, originalContent, auditMeta, canUpdateVerification = false }: AnalysisResultProps) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [workingResult, setWorkingResult] = useState<AnalysisResult>(rawResult);
+  const [verificationPulse, setVerificationPulse] = useState(0);
+  const [verificationNotice, setVerificationNotice] = useState<string | null>(null);
+  const result = useNormalizedResult(workingResult, auditMeta);
   const [qaMessages, setQaMessages] = useState<ChatMessage[]>([]);
   const readWorth = result.read_worth || computeReadWorth(result);
   const readingLimit = 12;
 
-  return (
-    <GsapReveal className="space-y-4 sm:space-y-5" y={18} stagger={0.055}>
-      {isQuick(result)
-        ? <QuickReportView report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} />
-        : <DeepReportView report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} displayLimit={readingLimit} auditId={auditId} />}
+  useEffect(() => {
+    setWorkingResult(rawResult);
+  }, [rawResult]);
 
-      {auditId && <InteractiveQA auditId={auditId} messages={qaMessages} onMessagesChange={setQaMessages} />}
-    </GsapReveal>
+  useGSAP(() => {
+    if (!verificationPulse || !rootRef.current) return;
+    const targets = Array.from(rootRef.current.querySelectorAll<HTMLElement>('[data-verification-pulse]'));
+    const toast = rootRef.current.querySelector<HTMLElement>('[data-verification-toast]');
+    const timeline = gsap.timeline({ defaults: { ease: 'power3.out' } });
+    if (targets.length) {
+      timeline.fromTo(targets, { y: 0, scale: 1, boxShadow: '0 0 0 rgba(0,0,0,0)' }, {
+        y: -2,
+        scale: 1.008,
+        boxShadow: '0 0 0 3px color-mix(in srgb, var(--color-primary) 20%, transparent)',
+        duration: 0.24,
+        stagger: 0.055,
+        yoyo: true,
+        repeat: 1,
+        clearProps: 'transform,boxShadow',
+      });
+    }
+    if (toast) timeline.fromTo(toast, { autoAlpha: 0, y: 8 }, { autoAlpha: 1, y: 0, duration: 0.24 }, '-=0.12');
+  }, { scope: rootRef, dependencies: [verificationPulse], revertOnUpdate: true });
+
+  const handleVerificationUpdated = (nextResult: unknown, outcome: ManualVerificationOutcome) => {
+    setWorkingResult(nextResult as AnalysisResult);
+    setVerificationNotice(outcome === 'verified'
+      ? (result.meta.reportLanguage.startsWith('zh-') ? '已记录“验证存在”，核心指数与阅读价值已重新计算。' : 'Material found was recorded. Core scores and reading value were recalculated.')
+      : (result.meta.reportLanguage.startsWith('zh-') ? '已记录“无法验证”，核心指数与阅读价值已重新计算。' : 'Not verified was recorded. Core scores and reading value were recalculated.'));
+    setVerificationPulse((value) => value + 1);
+  };
+
+  return (
+    <div ref={rootRef} className="space-y-3">
+      {verificationNotice && <div data-verification-toast role="status" className="rounded-lg border border-[var(--color-success)]/35 bg-[color-mix(in_srgb,var(--color-success)_10%,var(--color-surface))] px-3 py-2 text-xs font-bold text-[var(--color-success)]">{verificationNotice}</div>}
+      <GsapReveal className="space-y-4 sm:space-y-5" y={18} stagger={0.055}>
+        {isQuick(result)
+          ? <QuickReportView report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} />
+          : <DeepReportView report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} displayLimit={readingLimit} auditId={auditId} canUpdateVerification={canUpdateVerification} onVerificationUpdated={handleVerificationUpdated} />}
+
+        {auditId && <InteractiveQA auditId={auditId} messages={qaMessages} onMessagesChange={setQaMessages} />}
+      </GsapReveal>
+    </div>
   );
 }

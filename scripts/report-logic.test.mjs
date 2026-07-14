@@ -46,6 +46,7 @@ import {
 import { createCaptchaText, isCaptchaTextSafe } from '../lib/captcha-core.mjs';
 import { getEmailProviderPlan } from '../lib/email-delivery-core.mjs';
 import { buildAiCompletionPrompt, validateCompletionMarkdown } from '../lib/ai-completion-core.mjs';
+import { applyManualVerification } from '../lib/manual-verification-core.mjs';
 
 test('extracts People Daily body date before unrelated old dates', () => {
   const html = `
@@ -443,6 +444,46 @@ test('English reading-value animation keeps whole words together', () => {
   assert.deepEqual(getReadWorthAnimationTokens('Skimmable', 'en-US'), ['Skimmable']);
   assert.deepEqual(getReadWorthAnimationTokens('Not Worth Reading', 'en-US'), ['Not', 'Worth', 'Reading']);
   assert.deepEqual(getReadWorthAnimationTokens('可以略读', 'zh-CN'), ['可以', '略读']);
+});
+
+test('manual verification recalculates scores from the immutable report baseline', () => {
+  const report = {
+    meta: { reportLanguage: 'zh-CN' },
+    scores: {
+      credibility: 60,
+      informationCompleteness: 50,
+      narrativeBias: 55,
+      evidenceStrength: 45,
+      speculationRisk: 60,
+    },
+    verificationRoadmap: [
+      { question: '核对机场运行记录', materialType: '数据', whyItMatters: '用于确认事件是否发生', priority: '高' },
+      { question: '核对官方声明', materialType: '当事方回应', whyItMatters: '用于比较各方说法', priority: '中' },
+    ],
+    evidenceVerificationSummary: { pendingVerificationClaims: [], unableToVerifyClaims: [] },
+  };
+
+  const first = applyManualVerification(report, { index: 0, outcome: 'verified', updatedAt: '2026-07-14T00:00:00.000Z' });
+  assert.deepEqual(first.scores, {
+    credibility: 61,
+    informationCompleteness: 52,
+    narrativeBias: 55,
+    evidenceStrength: 48,
+    speculationRisk: 57,
+  });
+  assert.equal(first.report.manualVerifications.length, 1);
+  assert.match(first.report.evidenceVerificationSummary.pendingVerificationClaims[0], /已找到可核验材料/);
+
+  const changed = applyManualVerification(first.report, { index: 0, outcome: 'unverified', updatedAt: '2026-07-14T00:01:00.000Z' });
+  assert.deepEqual(changed.scores, {
+    credibility: 59,
+    informationCompleteness: 48,
+    narrativeBias: 56,
+    evidenceStrength: 43,
+    speculationRisk: 63,
+  });
+  assert.equal(changed.report.manualVerifications.length, 1);
+  assert.match(changed.report.evidenceVerificationSummary.unableToVerifyClaims[0], /暂未找到可核验材料/);
 });
 
 test('RSS catalog provides five international and three Chinese official headline feeds', () => {

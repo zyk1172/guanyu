@@ -65,6 +65,7 @@ export async function GET(
 
     return NextResponse.json({
       ...audit,
+      canManage: currentAudit.userId === userId || isSuperAdmin,
       viewCount: audit.viewCount + (shouldCountView ? 1 : 0),
       heatScore: audit.heatScore + (shouldCountView ? 1 : 0),
     });

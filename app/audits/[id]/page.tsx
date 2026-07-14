@@ -20,6 +20,7 @@ export default function AuditDetailsPage() {
   const [error, setError] = useState<string | null>(null);
   const [auditRecord, setAuditRecord] = useState<any | null>(null);
   const [isAuthor, setIsAuthor] = useState(false);
+  const [canManage, setCanManage] = useState(false);
 
   const fetchAuditDetails = async () => {
     setIsLoading(true);
@@ -45,6 +46,7 @@ export default function AuditDetailsPage() {
       }
 
       setAuditRecord(data);
+      setCanManage(Boolean(data.canManage));
       
       // 判断当前用户是否是这条审视的创建者
       if (session?.user && data.userId === (session.user as any).id) {
@@ -194,6 +196,7 @@ export default function AuditDetailsPage() {
                 viewCount: auditRecord.viewCount,
                 isPublic: auditRecord.isPublic,
               }}
+              canUpdateVerification={canManage}
             />
           </div>
         ) : (

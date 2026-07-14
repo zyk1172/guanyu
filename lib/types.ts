@@ -340,6 +340,15 @@ export interface VerificationRoadmapTask {
   priority: '高' | '中' | '低';
 }
 
+export type ManualVerificationOutcome = 'verified' | 'unverified';
+
+export interface ManualVerificationRecord {
+  index: number;
+  question: string;
+  outcome: ManualVerificationOutcome;
+  updatedAt: string;
+}
+
 export interface OnlineVerificationSource {
   title: string;
   url: string;
@@ -417,6 +426,9 @@ export interface DeepAnalysisResult {
   alternativeExplanations: AlternativeExplanationItem[];
   evidenceVerificationSummary: EvidenceVerificationSummary;
   verificationRoadmap: VerificationRoadmapTask[];
+  manualVerifications?: ManualVerificationRecord[];
+  manualVerificationBaseline?: ReportScores;
+  manualVerificationNotes?: string[];
   questionsToAsk: string[];
   cannotConclude: string[];
   onlineVerification: OnlineVerification;

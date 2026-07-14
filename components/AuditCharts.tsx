@@ -117,7 +117,7 @@ export default function AuditCharts({
   }));
 
   return (
-    <div data-gsap-reveal className="grid grid-cols-1 gap-3 md:grid-cols-2">
+    <div data-gsap-reveal data-verification-pulse className="grid grid-cols-1 gap-3 md:grid-cols-2">
       <ChartCard
         title={text('chartCoreMetrics')}
         note={text('chartStructureScore')}
