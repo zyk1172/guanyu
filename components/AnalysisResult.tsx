@@ -18,6 +18,7 @@ import {
   VerificationStatusCode,
 } from '../lib/types';
 import AuditCharts from './AuditCharts';
+import GuanyuCardButton from './GuanyuCardButton';
 import { GsapReveal } from './GsapMotion';
 import InteractiveQA, { ChatMessage } from './InteractiveQA';
 import ReadWorthVerdict from './ReadWorthVerdict';
@@ -938,7 +939,7 @@ function AiCompletionButton({ auditId, reportLanguage }: { auditId: string; repo
   );
 }
 
-function DownloadButton({ report, originalContent, qaMessages, auditId }: { report: QuickAnalysisResult | DeepAnalysisResult; originalContent?: string; qaMessages: ChatMessage[]; auditId?: string }) {
+function DownloadButton({ report, originalContent, qaMessages, auditId, canGenerateCard = false }: { report: QuickAnalysisResult | DeepAnalysisResult; originalContent?: string; qaMessages: ChatMessage[]; auditId?: string; canGenerateCard?: boolean }) {
   const reportLanguage = normalizeReportLanguage(report.meta.reportLanguage);
   const download = () => {
     const blob = new Blob([markdownFor(report, originalContent, qaMessages)], { type: 'text/markdown;charset=utf-8' });
@@ -958,6 +959,7 @@ function DownloadButton({ report, originalContent, qaMessages, auditId }: { repo
         {getReportText('exportMarkdown', reportLanguage)}
       </button>
       {auditId && <AiCompletionButton auditId={auditId} reportLanguage={reportLanguage} />}
+      {auditId && canGenerateCard && <GuanyuCardButton auditId={auditId} title={report.meta.title} reportLanguage={reportLanguage} />}
     </div>
   );
 }
@@ -1101,7 +1103,7 @@ function DeepReportView({ report, originalContent, qaMessages, displayLimit, aud
         </div>
       </Section>
       <OriginalContentPanel originalContent={originalContent} reportLanguage={reportLanguage} />
-      <DownloadButton report={report} originalContent={originalContent} qaMessages={qaMessages} auditId={auditId} />
+      <DownloadButton report={report} originalContent={originalContent} qaMessages={qaMessages} auditId={auditId} canGenerateCard={canUpdateVerification} />
     </>
   );
 }

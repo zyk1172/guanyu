@@ -1,5 +1,8 @@
 import Link from 'next/link';
+import { getServerSession } from 'next-auth';
+import { redirect } from 'next/navigation';
 import Header from '@/components/Header';
+import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { getReportLanguageLabel, getThinkingDepthLabel } from '@/lib/types';
@@ -8,6 +11,8 @@ import { UiText } from '@/components/LanguageProvider';
 export const dynamic = 'force-dynamic';
 
 export default async function PublicAuditsPage() {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) redirect('/login');
   await ensureRuntimeSchema();
   const audits = await prisma.audit.findMany({
     where: { isPublic: true },

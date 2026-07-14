@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import AnalysisForm from '../components/AnalysisForm';
 import AnalysisResultView from '../components/AnalysisResult';
@@ -44,6 +45,7 @@ interface AuditSubmitData {
 
 export default function Home() {
   const router = useRouter();
+  const { status: sessionStatus } = useSession();
   const { language, t } = useUiLanguage();
   const brand = getBrandIdentity(language);
   const [isLoading, setIsLoading] = useState(false);
@@ -53,6 +55,7 @@ export default function Home() {
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [hotAudits, setHotAudits] = useState<HotAudit[]>([]);
   const [isLoadingHotAudits, setIsLoadingHotAudits] = useState(true);
+  const [showBrowseGate, setShowBrowseGate] = useState(false);
   const formColumnRef = useRef<HTMLDivElement | null>(null);
   const [formColumnHeight, setFormColumnHeight] = useState(748);
   const activePollingJobRef = useRef<string | null>(null);
@@ -357,11 +360,15 @@ export default function Home() {
                 ))
               )}
             </div>
-            {hotAudits.length > 0 && (
+            {hotAudits.length > 0 && (sessionStatus === 'authenticated' ? (
               <Link href="/audits" className="mt-3 block rounded-lg border border-gray-200 px-3 py-2 text-center text-xs font-bold text-gray-700 transition hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-900">
                 {t('home.more')}
               </Link>
-            )}
+            ) : (
+              <button type="button" onClick={() => setShowBrowseGate(true)} className="mt-3 block w-full rounded-lg border border-gray-200 px-3 py-2 text-center text-xs font-bold text-gray-700 transition hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-900">
+                {t('home.more')}
+              </button>
+            ))}
           </section>
 
           <section className="rounded-xl border border-gray-100 bg-white p-4 text-xs leading-relaxed text-gray-500 shadow-sm dark:border-gray-800 dark:bg-gray-950 dark:text-gray-400">
@@ -374,6 +381,20 @@ export default function Home() {
           </section>
         </div>
       </GsapReveal>
+
+      {showBrowseGate && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={language.startsWith('zh-') ? '登录后继续浏览' : 'Sign in to continue browsing'}>
+          <section className="w-full max-w-sm rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-5 shadow-2xl">
+            <h2 className="text-base font-black text-[var(--color-text)]">{language.startsWith('zh-') ? '登录后浏览全部公开报告' : 'Sign in to browse all public reports'}</h2>
+            <p className="mt-2 text-sm leading-relaxed text-[var(--color-text-muted)]">{language.startsWith('zh-') ? '注册或登录后，可查看更多公开报告并管理自己的审视记录。' : 'Create an account or sign in to view more public reports and manage your own reviews.'}</p>
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button type="button" onClick={() => setShowBrowseGate(false)} className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-xs font-bold text-[var(--color-text-muted)] transition hover:bg-[var(--color-card-hover)]">{language.startsWith('zh-') ? '暂不' : 'Not now'}</button>
+              <Link href="/register" className="rounded-lg border border-[var(--color-border-strong)] px-3 py-2 text-xs font-bold text-[var(--color-text)] transition hover:bg-[var(--color-card-hover)]">{language.startsWith('zh-') ? '注册' : 'Register'}</Link>
+              <Link href="/login" className="rounded-lg bg-[var(--color-primary)] px-3 py-2 text-xs font-bold text-white transition hover:bg-[var(--color-primary-hover)]">{language.startsWith('zh-') ? '登录' : 'Sign in'}</Link>
+            </div>
+          </section>
+        </div>
+      )}
 
       {/* 极简页脚 */}
       <footer className="relative z-10 border-t border-gray-100 dark:border-gray-900 bg-white dark:bg-gray-950 py-8 mt-16 text-center text-xs text-gray-400 dark:text-gray-500">

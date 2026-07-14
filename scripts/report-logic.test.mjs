@@ -46,6 +46,7 @@ import {
 import { createCaptchaText, isCaptchaTextSafe } from '../lib/captcha-core.mjs';
 import { getEmailProviderPlan } from '../lib/email-delivery-core.mjs';
 import { buildAiCompletionPrompt, validateCompletionMarkdown } from '../lib/ai-completion-core.mjs';
+import { buildGuanyuCardPrompt, parseGuanyuCardContent } from '../lib/guanyu-card-core.mjs';
 import { applyManualVerification } from '../lib/manual-verification-core.mjs';
 import { shouldBootstrapRuntimeSchema } from '../lib/runtime-schema-core.mjs';
 import { hashPassword, verifyPassword } from '../lib/password-core.mjs';
@@ -496,6 +497,51 @@ test('English reading-value animation keeps whole words together', () => {
   assert.deepEqual(getReadWorthAnimationTokens('Skimmable', 'en-US'), ['Skimmable']);
   assert.deepEqual(getReadWorthAnimationTokens('Not Worth Reading', 'en-US'), ['Not', 'Worth', 'Reading']);
   assert.deepEqual(getReadWorthAnimationTokens('可以略读', 'zh-CN'), ['可以', '略读']);
+});
+
+test('Guanyu Card uses a dedicated five-field prompt and rejects malformed output', () => {
+  const prompt = buildGuanyuCardPrompt({
+    title: 'Example article',
+    source: 'Example News',
+    reportLanguage: 'en-US',
+    report: {
+      oneSentenceConclusion: 'The article gives a useful event account but leaves its source data unclear.',
+      readingValue: '可以略读',
+      keyFindings: [{ title: 'Source gap', content: 'The evacuation figure is attributed to one source.' }],
+      questionsToAsk: ['Which primary record supports the evacuation figure?'],
+    },
+  });
+
+  assert.match(prompt.system, /exactly these five keys/i);
+  assert.match(prompt.system, /oneSentenceView/);
+  assert.doesNotMatch(prompt.system, /Nine-Lens/i);
+  assert.match(prompt.user, /Example article/);
+
+  assert.deepEqual(
+    parseGuanyuCardContent(JSON.stringify({
+      oneSentenceView: 'Check the source trail behind the headline figure.',
+      mostCredible: 'The article directly documents the event location.',
+      largestInformationGap: 'The evacuation total has no linked primary record.',
+      mostWorthAsking: 'Which agency published the underlying evacuation count?',
+      readingValue: '可以略读',
+    }), 'en-US'),
+    {
+      oneSentenceView: 'Check the source trail behind the headline figure.',
+      mostCredible: 'The article directly documents the event location.',
+      largestInformationGap: 'The evacuation total has no linked primary record.',
+      mostWorthAsking: 'Which agency published the underlying evacuation count?',
+      readingValue: '可以略读',
+    }
+  );
+
+  assert.throws(() => parseGuanyuCardContent(JSON.stringify({
+    oneSentenceView: 'A view',
+    mostCredible: 'A fact',
+    largestInformationGap: 'A gap',
+    mostWorthAsking: 'A question?',
+    readingValue: '可以略读',
+    extraField: 'not allowed',
+  }), 'en-US'), /固定模板/);
 });
 
 test('manual verification recalculates scores from the immutable report baseline', () => {
