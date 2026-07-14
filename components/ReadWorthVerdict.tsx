@@ -138,18 +138,17 @@ export default function ReadWorthVerdict({ label, displayLabel, reportLanguage =
     >
       <div ref={haloRef} className={`pointer-events-none absolute inset-[-20%] -z-10 rounded-full blur-3xl ${palette.halo}`} />
       <div ref={sweepRef} className={`pointer-events-none absolute inset-y-0 left-0 w-1/2 -skew-x-12 bg-gradient-to-r ${palette.sweep}`} />
-      <div className={`relative font-black leading-tight ${isChinese ? 'mx-auto grid w-[10rem] grid-cols-[repeat(2,minmax(0,1fr))] justify-items-center gap-x-2 gap-y-1 text-4xl tracking-[0.04em] sm:w-[14rem] sm:text-5xl' : 'flex flex-wrap justify-center gap-x-2 break-normal text-2xl tracking-normal sm:text-3xl'} ${palette.text}`}>
+      <div className={`relative font-black leading-tight ${isChinese ? 'mx-auto grid w-fit grid-cols-1 justify-items-center gap-y-1 text-4xl tracking-[0.04em] sm:text-5xl' : 'flex flex-wrap justify-center gap-x-2 break-normal text-2xl tracking-normal sm:text-3xl'} ${palette.text}`}>
         {tokens.map((token, index) => (
-          <React.Fragment key={`${token}-${index}`}>
           <span
+            key={`${token}-${index}`}
             ref={(node) => {
               if (node) charRefs.current[index] = node;
             }}
-            className={isChinese ? 'inline-block whitespace-nowrap' : 'inline-block whitespace-nowrap'}
+            className="inline-block whitespace-nowrap"
           >
             {token}
           </span>
-          </React.Fragment>
         ))}
       </div>
     </div>

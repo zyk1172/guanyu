@@ -46,7 +46,7 @@ import {
 import { createCaptchaText, isCaptchaTextSafe } from '../lib/captcha-core.mjs';
 import { getEmailProviderPlan } from '../lib/email-delivery-core.mjs';
 import { buildAiCompletionPrompt, validateCompletionMarkdown } from '../lib/ai-completion-core.mjs';
-import { buildGuanyuCardPrompt, parseGuanyuCardContent } from '../lib/guanyu-card-core.mjs';
+import { buildGuanyuCardFallback, buildGuanyuCardPrompt, parseGuanyuCardContent } from '../lib/guanyu-card-core.mjs';
 import { applyManualVerification } from '../lib/manual-verification-core.mjs';
 import { shouldBootstrapRuntimeSchema } from '../lib/runtime-schema-core.mjs';
 import { hashPassword, verifyPassword } from '../lib/password-core.mjs';
@@ -344,7 +344,7 @@ test('all non-Chinese report languages have a strict target-language guard', () 
   assert.match(getLanguageRepairErrorMessage('it-IT'), /italiano/i);
 });
 
-test('Chinese four-character reading labels render in a two-by-two token layout', () => {
+test('Chinese reading labels group two characters per vertical row', () => {
   assert.deepEqual(getReadWorthAnimationTokens('不值一读', 'zh-CN'), ['不值', '一读']);
   assert.deepEqual(getReadWorthAnimationTokens('值得细读', 'zh-CN'), ['值得', '细读']);
   assert.deepEqual(getReadWorthAnimationTokens('暂无法判断', 'zh-CN'), ['暂无', '法判', '断']);
@@ -499,7 +499,7 @@ test('English reading-value animation keeps whole words together', () => {
   assert.deepEqual(getReadWorthAnimationTokens('可以略读', 'zh-CN'), ['可以', '略读']);
 });
 
-test('Guanyu Card uses a dedicated five-field prompt and rejects malformed output', () => {
+test('Guanyu Card uses a dedicated five-field prompt and recovers JSON wrapped with model prose', () => {
   const prompt = buildGuanyuCardPrompt({
     title: 'Example article',
     source: 'Example News',
@@ -534,14 +534,31 @@ test('Guanyu Card uses a dedicated five-field prompt and rejects malformed outpu
     }
   );
 
-  assert.throws(() => parseGuanyuCardContent(JSON.stringify({
+  assert.deepEqual(parseGuanyuCardContent(JSON.stringify({
     oneSentenceView: 'A view',
     mostCredible: 'A fact',
     largestInformationGap: 'A gap',
     mostWorthAsking: 'A question?',
     readingValue: '可以略读',
     extraField: 'not allowed',
-  }), 'en-US'), /固定模板/);
+  }), 'en-US'), {
+    oneSentenceView: 'A view',
+    mostCredible: 'A fact',
+    largestInformationGap: 'A gap',
+    mostWorthAsking: 'A question?',
+    readingValue: '可以略读',
+  });
+
+  assert.equal(
+    parseGuanyuCardContent(`Here is the card:\n\n${JSON.stringify({
+      oneSentenceView: 'A view',
+      mostCredible: 'A fact',
+      largestInformationGap: 'A gap',
+      mostWorthAsking: 'A question?',
+      readingValue: 'Skimmable',
+    })}`, 'en-US').readingValue,
+    '可以略读'
+  );
 
   const longCard = parseGuanyuCardContent(JSON.stringify({
     oneSentenceView: 'a'.repeat(166),
@@ -551,6 +568,27 @@ test('Guanyu Card uses a dedicated five-field prompt and rejects malformed outpu
     readingValue: '可以略读',
   }), 'en-US');
   assert.equal(longCard.oneSentenceView.length, 166);
+});
+
+test('Guanyu Card fallback remains shareable from persisted report fields', () => {
+  assert.deepEqual(buildGuanyuCardFallback({
+    reportLanguage: 'zh-CN',
+    report: {
+      oneSentenceConclusion: '原文给出了事件经过，但关键统计口径仍需核对。',
+      readingValue: '可以略读',
+      quickSignals: {
+        mostCredibleInfo: '事件地点与时间有原文明确表述。',
+        biggestGap: '原文没有附上统计口径。',
+      },
+      questionsToAsk: ['统计数字对应的原始记录是什么？'],
+    },
+  }), {
+    oneSentenceView: '原文给出了事件经过，但关键统计口径仍需核对。',
+    mostCredible: '事件地点与时间有原文明确表述。',
+    largestInformationGap: '原文没有附上统计口径。',
+    mostWorthAsking: '统计数字对应的原始记录是什么？',
+    readingValue: '可以略读',
+  });
 });
 
 test('manual verification recalculates scores from the immutable report baseline', () => {

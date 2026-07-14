@@ -70,7 +70,7 @@ function wrap(value: string, maxChars: number, maxLines: number, language: Repor
 }
 
 function scaledFont(value: number, scale: number) {
-  return Math.max(8, Number((value * scale).toFixed(2)));
+  return Math.max(5, Number((value * scale).toFixed(2)));
 }
 
 function getTypographyScale(title: string, card: GuanyuCardContent, language: ReportLanguage) {
@@ -83,11 +83,11 @@ function getTypographyScale(title: string, card: GuanyuCardContent, language: Re
     { value: card.mostWorthAsking, chars: cjk ? 34 : 58, lines: 3 },
   ];
 
-  for (let scale = 1; scale >= 0.42; scale -= 0.04) {
+  for (let scale = 1; scale >= 0.18; scale -= 0.04) {
     const fits = fields.every((field) => wrapLines(field.value, Math.floor(field.chars / scale), language).length <= field.lines);
     if (fits) return Number(scale.toFixed(2));
   }
-  return 0.42;
+  return 0.18;
 }
 
 function svgText(lines: string[], x: number, y: number, options: { size: number; lineHeight: number; fill: string; weight?: number; anchor?: string }) {
