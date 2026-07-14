@@ -3,6 +3,7 @@ import { getSuperAdminStatus } from '@/lib/admin';
 import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { cacheDel, cacheDelByPrefix, cacheGet, cacheSet, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
+import { getClientIp, reserveAuditViewCount } from '@/lib/rate-limit';
 
 type AuditRecord = NonNullable<Awaited<ReturnType<typeof prisma.audit.findUnique>>>;
 
@@ -40,8 +41,15 @@ export async function GET(
     const audit = await cacheGet<AuditRecord>(cacheKey) || currentAudit;
     if (audit === currentAudit) await cacheSet(cacheKey, currentAudit, CACHE_TTL.audit);
 
-    // 浏览计数在响应后异步入库，不阻塞详情返回
-    after(async () => {
+    // A ranking signal is recorded once per authenticated account or network
+    // identity every 24 hours, rather than once per reload.
+    let shouldCountView = false;
+    try {
+      shouldCountView = await reserveAuditViewCount(userId ? `user:${userId}` : `ip:${getClientIp(request)}`, id);
+    } catch (error) {
+      console.error('Reserve audit view count failed:', id, error);
+    }
+    if (shouldCountView) after(async () => {
       try {
         await prisma.audit.update({
           where: { id },
@@ -57,8 +65,8 @@ export async function GET(
 
     return NextResponse.json({
       ...audit,
-      viewCount: audit.viewCount + 1,
-      heatScore: audit.heatScore + 1,
+      viewCount: audit.viewCount + (shouldCountView ? 1 : 0),
+      heatScore: audit.heatScore + (shouldCountView ? 1 : 0),
     });
   } catch (error: any) {
     console.error('GET audit details error:', error);

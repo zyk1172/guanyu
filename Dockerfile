@@ -1,4 +1,4 @@
-ARG NODE_IMAGE=node:22-alpine
+ARG NODE_IMAGE=node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2
 
 FROM ${NODE_IMAGE} AS builder
 
@@ -15,7 +15,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
-ENV HOSTNAME=0.0.0.0
+ENV APP_BIND_ADDRESS=0.0.0.0
 
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/node_modules ./node_modules
@@ -27,4 +27,4 @@ COPY --from=builder /app/next.config.ts ./
 RUN mkdir -p /app/data
 
 EXPOSE 3000
-CMD ["sh", "-c", "./node_modules/.bin/prisma db push --skip-generate && npm run start"]
+CMD ["sh", "-c", "./node_modules/.bin/prisma db push --skip-generate && ./node_modules/.bin/next start --port ${PORT:-3000} --hostname ${APP_BIND_ADDRESS:-0.0.0.0}"]

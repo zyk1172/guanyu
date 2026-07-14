@@ -5,6 +5,7 @@ const SESSION_MAX_AGE = 30 * 24 * 60 * 60;
 
 function shouldUseSecureCookie() {
   return (
+    process.env.NODE_ENV === 'production' ||
     process.env.NEXTAUTH_URL?.startsWith('https://') ||
     process.env.VERCEL === '1' ||
     Boolean(process.env.VERCEL_URL)

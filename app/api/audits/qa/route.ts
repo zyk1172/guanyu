@@ -147,17 +147,29 @@ ${recentHistory.map((h: any) => `${h.role === 'user' ? '用户' : 'AI'}: ${Strin
 
     const canUseOwnApi = account?.role === 'super_admin' || isByokPlan(account?.planType);
     const useOwnApi = canUseOwnApi && Boolean(userSettings?.llmApiKeyEncrypted);
+    if (isByokPlan(account?.planType) && (!useOwnApi || !userSettings?.llmBaseUrl || !userSettings.defaultModelName)) {
+      return NextResponse.json({ error: '买断账号请先在账号管理中保存自己的大模型名称、接口地址和 API Key；追问不会回退使用管理员模型。' }, { status: 400 });
+    }
     const apiKey = useOwnApi
       ? decryptSecret(userSettings!.llmApiKeyEncrypted!)
       : appSetting.adminLlmApiKeyEncrypted
         ? decryptSecret(appSetting.adminLlmApiKeyEncrypted)
         : process.env.OPENAI_API_KEY;
-    const baseURL = useOwnApi
+    const baseURL = isByokPlan(account?.planType)
+      ? userSettings!.llmBaseUrl
+      : useOwnApi
       ? (userSettings?.llmBaseUrl || appSetting.adminLlmBaseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1')
       : (appSetting.adminLlmBaseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1');
-    const modelName = useOwnApi
+    const modelName = isByokPlan(account?.planType)
+      ? userSettings!.defaultModelName
+      : useOwnApi
       ? (userSettings?.defaultModelName || auditRecord.modelName || appSetting.adminModelName || process.env.OPENAI_MODEL_DEFAULT || 'gpt-4o')
       : (appSetting.adminModelName || process.env.OPENAI_MODEL_DEFAULT || auditRecord.modelName || 'gpt-4o');
+    const configuredAdminBaseURL = process.env.OPENAI_BASE_URL;
+    const allowPrivateAdminEndpoint = !useOwnApi
+      && process.env.ALLOW_PRIVATE_ADMIN_LLM === 'true'
+      && Boolean(configuredAdminBaseURL)
+      && baseURL.replace(/\/$/, '') === configuredAdminBaseURL!.replace(/\/$/, '');
 
     if (!apiKey) {
       return NextResponse.json({ error: '未配置可用的大模型 API Key，请联系管理员配置全局模型，或使用买断账号保存个人模型密钥。' }, { status: 500 });
@@ -189,7 +201,8 @@ ${recentHistory.map((h: any) => `${h.role === 'user' ? '用户' : 'AI'}: ${Strin
         }),
         timeoutMs: 100_000,
         maxBytes: 4 * 1024 * 1024,
-        requireHttps: process.env.NODE_ENV === 'production',
+        requireHttps: process.env.NODE_ENV === 'production' && !allowPrivateAdminEndpoint,
+        allowPrivateAddress: allowPrivateAdminEndpoint,
       });
     } catch (fetchError: any) {
       const isTimeout = fetchError?.name === 'TimeoutError' || fetchError?.name === 'AbortError' || /超时|timeout/i.test(String(fetchError?.message || ''));

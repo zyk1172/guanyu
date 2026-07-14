@@ -123,7 +123,7 @@ docker-compose.qnap.yml
 特点：
 
 - `guanyu` 使用 `network_mode: host`
-- 应用监听 NAS 的 `5000` 端口
+- 应用只作为 HTTPS 反向代理的上游监听 NAS 的 `5000` 端口
 - PostgreSQL 只绑定 NAS 本机 `127.0.0.1:55432`
 - PostgreSQL 持久化到 `/share/SSD/container/guanyu/postgres`
 - 适合 NAS 上已有 NewAPI 监听 `3000` 的场景
@@ -147,14 +147,17 @@ docker compose -f docker-compose.qnap.yml --env-file .env.qnap up -d
 QNAP 访问地址：
 
 ```text
-http://<NAS-IP>:5000
+https://你的观隅域名
 ```
 
-如果 NAS 拉 Docker Hub 很慢，可以在 `.env.qnap` 中覆盖镜像：
+在 Container Station 或 QNAP 反向代理中，将 HTTPS 域名转发至 `http://127.0.0.1:5000`，并只让反向代理保留对外入口。`.env.qnap` 必须配置匹配该域名的 `NEXTAUTH_URL=https://...` 与 `TRUST_PROXY_HEADERS=true`。生产环境直接以 `http://<NAS-IP>:5000` 登录会被拒绝，避免密码和会话 Cookie 经局域网明文传输。
+
+基础镜像已按 digest 固定。不要在 `.env.qnap` 覆盖 `NODE_IMAGE`；更新镜像时应显式更新 Dockerfile 的 digest 并重建验证。
+
+如果 NAS 本机运行受管理员控制的 NewAPI，可保留 `OPENAI_BASE_URL=http://127.0.0.1:3000/v1`，并仅在确认该地址不可被普通用户修改时设置：
 
 ```dotenv
-NODE_IMAGE=node:22-alpine
-POSTGRES_IMAGE=postgres:18.2
+ALLOW_PRIVATE_ADMIN_LLM=true
 ```
 
 Postgres 18 的持久化目录需要挂载到 `/var/lib/postgresql`，真实数据会位于：

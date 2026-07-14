@@ -10,6 +10,7 @@ type SafeOutboundOptions = {
   timeoutMs?: number;
   maxBytes?: number;
   requireHttps?: boolean;
+  allowPrivateAddress?: boolean;
 };
 
 export type SafeOutboundResponse = {
@@ -52,11 +53,19 @@ function isBlockedIpv6(value: string) {
   const normalized = value.toLowerCase();
   const mapped = mappedIpv4(normalized);
   if (mapped) return isBlockedIpv4(mapped);
-  return normalized === '::' || normalized === '::1'
+  // Treat transition and deprecated local-use ranges as non-public too. A
+  // global-unicast-looking wrapper can otherwise carry an internal IPv4
+  // destination (for example 6to4) past the outbound boundary.
+  return normalized === '::' || normalized === '::1' || normalized.startsWith('::')
     || normalized.startsWith('fc') || normalized.startsWith('fd')
-    || /^fe[89ab]/.test(normalized)
+    // fe80::/10 is link-local and fec0::/10 is the deprecated site-local
+    // range. Neither is globally routable.
+    || /^fe[89a-f]/.test(normalized)
     || normalized.startsWith('ff')
-    || normalized.startsWith('2001:db8');
+    || normalized.startsWith('2001:db8')
+    || normalized.startsWith('2002:')
+    || /^2001:0(?::|$)/.test(normalized)
+    || normalized.startsWith('64:ff9b:');
 }
 
 function isBlockedAddress(address: string) {
@@ -64,7 +73,7 @@ function isBlockedAddress(address: string) {
   return type === 4 ? isBlockedIpv4(address) : type === 6 ? isBlockedIpv6(address) : true;
 }
 
-export async function assertPublicOutboundUrl(input: string, options: { requireHttps?: boolean } = {}) {
+export async function assertPublicOutboundUrl(input: string, options: { requireHttps?: boolean; allowPrivateAddress?: boolean } = {}) {
   let target: URL;
   try {
     target = new URL(input);
@@ -91,7 +100,7 @@ export async function assertPublicOutboundUrl(input: string, options: { requireH
   const addresses = type
     ? [{ address: hostname, family: type }]
     : await lookup(hostname, { all: true, verbatim: true });
-  if (addresses.length === 0 || addresses.some((entry) => isBlockedAddress(entry.address))) {
+  if (addresses.length === 0 || (!options.allowPrivateAddress && addresses.some((entry) => isBlockedAddress(entry.address)))) {
     throw new UnsafeOutboundUrlError('外部服务地址解析到了受限制的网络地址。');
   }
   return { target, addresses };
@@ -103,7 +112,10 @@ export async function assertPublicOutboundUrl(input: string, options: { requireH
  * private target after a DNS-rebinding response.
  */
 export async function safeOutboundRequest(input: string | URL, options: SafeOutboundOptions = {}): Promise<SafeOutboundResponse> {
-  const { target, addresses } = await assertPublicOutboundUrl(String(input), { requireHttps: options.requireHttps });
+  const { target, addresses } = await assertPublicOutboundUrl(String(input), {
+    requireHttps: options.requireHttps,
+    allowPrivateAddress: options.allowPrivateAddress,
+  });
   const address = addresses.find((entry) => entry.family === 4) || addresses[0];
   const transport = target.protocol === 'https:' ? httpsRequest : httpRequest;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;

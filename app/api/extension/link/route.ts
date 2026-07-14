@@ -6,11 +6,6 @@ import { getClientIp, reserveExtensionLinkAttempt } from '@/lib/rate-limit';
 
 export async function POST(request: Request) {
   await ensureRuntimeSchema();
-  try {
-    await reserveExtensionLinkAttempt(getClientIp(request));
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || '插件连接尝试过于频繁，请稍后再试。' }, { status: 429 });
-  }
   const body = await request.json().catch(() => ({}));
   const code = normalizeExtensionCode(String(body.code || ''));
   const browser = String(body.browser || '').trim().slice(0, 80);
@@ -18,6 +13,11 @@ export async function POST(request: Request) {
 
   if (!/^[A-F0-9]{32}$/.test(code)) {
     return NextResponse.json({ error: '插件连接码格式无效。' }, { status: 400 });
+  }
+  try {
+    await reserveExtensionLinkAttempt(getClientIp(request), code);
+  } catch (error: any) {
+    return NextResponse.json({ error: error?.message || '插件连接尝试过于频繁，请稍后再试。' }, { status: 429 });
   }
 
   const codeHash = hashExtensionSecret(code);

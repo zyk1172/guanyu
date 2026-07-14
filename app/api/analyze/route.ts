@@ -433,6 +433,7 @@ async function callChatCompletions(params: {
   userPrompt: string;
   timeoutMs?: number;
   maxTokens?: number;
+  allowPrivateAdminEndpoint?: boolean;
 }) {
   let response: { status: number; body: Buffer };
   try {
@@ -454,7 +455,8 @@ async function callChatCompletions(params: {
       }),
       timeoutMs: params.timeoutMs ?? getAnalysisTimeoutMs(process.env.GUANYU_LLM_TIMEOUT_MS),
       maxBytes: 8 * 1024 * 1024,
-      requireHttps: process.env.NODE_ENV === 'production',
+      requireHttps: process.env.NODE_ENV === 'production' && !params.allowPrivateAdminEndpoint,
+      allowPrivateAddress: params.allowPrivateAdminEndpoint,
     });
   } catch (error: any) {
     const isTimeout = error?.name === 'TimeoutError' || error?.name === 'AbortError' || /超时|timeout/i.test(String(error?.message || ''));
@@ -568,6 +570,11 @@ export async function POST(request: Request) {
     }
     usageReservation = await reserveAnalysisUsage(currentUser.id, actualAnalysisMode);
     const usagePlan = usageReservation;
+    const configuredAdminBaseURL = process.env.OPENAI_BASE_URL;
+    const allowPrivateAdminEndpoint = usagePlan.source !== 'byok'
+      && process.env.ALLOW_PRIVATE_ADMIN_LLM === 'true'
+      && Boolean(configuredAdminBaseURL)
+      && modelConfig.baseURL.replace(/\/$/, '') === configuredAdminBaseURL!.replace(/\/$/, '');
     const searchOptions = buildSearchOptions({ usageSource: usagePlan.source, userSettings, appSetting, reportLanguage: actualReportLanguage });
 
     const searchQuery = [title, source, truncatedContent.slice(0, 120)].filter(Boolean).join(' ').slice(0, 240);
@@ -609,6 +616,7 @@ export async function POST(request: Request) {
       system,
       userPrompt,
       maxTokens: outputTokenBudget,
+      allowPrivateAdminEndpoint,
     });
 
     if (!llmResult.ok && llmResult.status >= 500) {
@@ -622,6 +630,7 @@ export async function POST(request: Request) {
         userPrompt: fallbackPrompt.user,
         timeoutMs: 75_000,
         maxTokens: outputTokenBudget,
+        allowPrivateAdminEndpoint,
       });
     }
 
@@ -651,6 +660,7 @@ export async function POST(request: Request) {
           userPrompt: fallbackPrompt.user,
           timeoutMs: 75_000,
           maxTokens: outputTokenBudget,
+          allowPrivateAdminEndpoint,
         });
         if (fallbackResult.ok && fallbackResult.message) {
           parsedJSON = parseAssistantJSON(fallbackResult.message);
@@ -672,6 +682,7 @@ export async function POST(request: Request) {
         userPrompt: buildReportLanguageJsonRepairPrompt(parsedJSON, actualReportLanguage),
         timeoutMs: 90_000,
         maxTokens: outputTokenBudget,
+        allowPrivateAdminEndpoint,
       });
       if (!localizedResult.ok || !localizedResult.message) {
         await releaseReservation();

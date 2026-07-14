@@ -12,6 +12,11 @@ export interface CurrentUser {
 }
 
 const PASSWORD_PREFIX = 'scrypt';
+const LEGACY_SHA256_PATTERN = /^[a-f0-9]{64}$/i;
+
+function isLegacyPasswordLoginEnabled() {
+  return process.env.ALLOW_LEGACY_PASSWORD_LOGIN === 'true';
+}
 
 export function hashPassword(password: string): string {
   const salt = randomBytes(16).toString('base64url');
@@ -31,7 +36,12 @@ export function verifyPassword(password: string, storedValue: string) {
     };
   }
 
-  // Existing SHA-256 rows stay usable once, then are upgraded after a valid login.
+  // A legacy verifier is opt-in only during a controlled password-reset or
+  // migration window. New rows are always scrypt, and production defaults to
+  // rejecting the fast unsalted format.
+  if (!LEGACY_SHA256_PATTERN.test(storedValue) || !isLegacyPasswordLoginEnabled()) {
+    return { valid: false, needsUpgrade: false };
+  }
   const expected = Buffer.from(storedValue, 'hex');
   const actual = Buffer.from(createHash('sha256').update(password).digest('hex'), 'hex');
   return {
@@ -63,15 +73,12 @@ export const authOptions: NextAuthOptions = {
           where: { email },
         });
 
-        if (!user) throw new Error('账号不存在，请先完成邮箱验证注册。');
-
-        if (user.isBanned) {
-          throw new Error('账号已被管理员暂停使用，请联系管理员。');
-        }
+        const invalidCredentials = '邮箱或密码不正确，或账号暂不可用。';
+        if (!user || user.isBanned) throw new Error(invalidCredentials);
 
         const password = verifyPassword(credentials.password, user.password);
         if (!password.valid) {
-          throw new Error('密码错误');
+          throw new Error(invalidCredentials);
         }
 
         if (password.needsUpgrade) {

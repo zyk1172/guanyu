@@ -236,7 +236,6 @@ function appUrl(path = '/') {
 
 async function adminNotifyRecipients() {
   const configuredValues = [
-    'zykhs@icloud.com',
     process.env.ADMIN_NOTIFY_EMAILS,
     process.env.SUPER_ADMIN_EMAILS,
     process.env.ALIYUN_DM_REPLY_TO,

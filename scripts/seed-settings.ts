@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import crypto, { randomBytes, scryptSync } from 'crypto';
 import { PrismaClient } from '@prisma/client';
 
 const ALGORITHM = 'aes-256-gcm';
@@ -23,6 +23,12 @@ const tag = cipher.getAuthTag();
 const encryptedStr = [iv.toString('base64'), tag.toString('base64'), encrypted.toString('base64')].join('.');
 
 const prisma = new PrismaClient();
+function hashPassword(password: string) {
+  const salt = randomBytes(16).toString('base64url');
+  const digest = scryptSync(password, salt, 64).toString('base64url');
+  return `scrypt$${salt}$${digest}`;
+}
+
 async function main() {
   // Delete any existing settings and user
   await prisma.userSettings.deleteMany({
@@ -36,7 +42,7 @@ async function main() {
   const user = await prisma.user.create({
     data: {
       email: 'demo@news.local',
-      password: '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9',
+      password: hashPassword(process.env.SEED_DEMO_PASSWORD || 'change-this-demo-password'),
     },
   });
   console.log('User created, id:', user.id);

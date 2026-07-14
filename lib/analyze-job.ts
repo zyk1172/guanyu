@@ -1,5 +1,6 @@
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { prisma } from '@/lib/prisma';
+import { releaseAnalyzeJobAdmission, reserveAnalyzeJobAdmission } from '@/lib/rate-limit';
 import { POST as analyzeNews } from '@/app/api/analyze/route';
 import { notifyReportCompleted } from '@/lib/email';
 import { normalizeReportLanguage, type ReportLanguage } from '@/lib/types';
@@ -34,13 +35,19 @@ export async function createAnalyzeJob(userId: string, input: Partial<AnalyzeJob
     throw new Error('新闻正文太短，最少需要 50 个字符。');
   }
 
-  return prisma.auditJob.create({
-    data: {
-      userId,
-      status: 'pending',
-      inputJson: JSON.stringify(normalizedInput),
-    },
-  });
+  const admission = await reserveAnalyzeJobAdmission(userId);
+  try {
+    return await prisma.auditJob.create({
+      data: {
+        userId,
+        status: 'pending',
+        inputJson: JSON.stringify({ ...normalizedInput, admissionEventId: admission.id }),
+      },
+    });
+  } catch (error) {
+    await releaseAnalyzeJobAdmission(userId, admission.id);
+    throw error;
+  }
 }
 
 export async function runAnalyzeJob(jobId: string) {
@@ -53,16 +60,18 @@ export async function runAnalyzeJob(jobId: string) {
     return;
   }
 
-  const job = await prisma.auditJob.findUnique({ where: { id: jobId } });
-  if (!job || job.status === 'completed') return;
-
-  await prisma.auditJob.update({
-    where: { id: jobId },
+  const claim = await prisma.auditJob.updateMany({
+    where: { id: jobId, status: 'pending' },
     data: { status: 'running', error: null },
   });
+  if (claim.count !== 1) return;
+
+  const job = await prisma.auditJob.findUnique({ where: { id: jobId } });
+  if (!job) return;
 
   try {
-    const input = JSON.parse(job.inputJson);
+    const storedInput = JSON.parse(job.inputJson);
+    const { admissionEventId, ...input } = storedInput;
     const analyzeRequest = new Request('https://guanyu.internal/api/analyze', {
       method: 'POST',
       headers: {
@@ -78,6 +87,7 @@ export async function runAnalyzeJob(jobId: string) {
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
+      await releaseAnalyzeJobAdmission(job.userId, admissionEventId);
       await prisma.auditJob.update({
         where: { id: jobId },
         data: { status: 'failed', error: data.error || `审视生成失败 (${response.status})` },
@@ -125,6 +135,10 @@ export async function runAnalyzeJob(jobId: string) {
       }
     }
   } catch (error: any) {
+    try {
+      const storedInput = JSON.parse(job.inputJson);
+      await releaseAnalyzeJobAdmission(job.userId, storedInput.admissionEventId);
+    } catch {}
     await prisma.auditJob.update({
       where: { id: jobId },
       data: { status: 'failed', error: error?.message || '审视任务执行失败。' },

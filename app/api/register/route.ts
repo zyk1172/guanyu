@@ -5,7 +5,7 @@ import { setSessionCookie } from '@/lib/session-cookie';
 import { isSuperAdminIdentity } from '@/lib/admin-core.mjs';
 import { verifyEmailCode } from '@/lib/captcha';
 import { sendWelcomeEmail } from '@/lib/email';
-import { assertSameOrigin } from '@/lib/request-security';
+import { assertSameOrigin, assertSecureAccountTransport } from '@/lib/request-security';
 import { getClientIp } from '@/lib/rate-limit';
 
 async function readRegistration(request: NextRequest) {
@@ -46,6 +46,7 @@ export async function POST(request: NextRequest) {
     const { email, password, confirmPassword, emailCode, wantsJson } = await readRegistration(request);
     try {
       assertSameOrigin(request);
+      assertSecureAccountTransport(request);
     } catch (error: any) {
       return errorResponse(error?.message || '跨站请求已被拒绝。', wantsJson, 403);
     }
@@ -65,7 +66,7 @@ export async function POST(request: NextRequest) {
 
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
-      return errorResponse('该邮箱已经注册，请直接登录。', wantsJson, 409);
+      return errorResponse('该邮箱暂时无法用于注册，请尝试登录或使用其他邮箱。', wantsJson, 400);
     }
     const emailCodeOk = await verifyEmailCode(email, emailCode, getClientIp(request));
     if (!emailCodeOk) {

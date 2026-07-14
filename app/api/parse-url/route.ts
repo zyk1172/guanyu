@@ -3,6 +3,7 @@ import * as cheerio from 'cheerio';
 import type { AnyNode } from 'domhandler';
 import { extractPublishedDate, normalizeDate } from '@/lib/publishedDate.mjs';
 import { assertPublicOutboundUrl, safeOutboundRequest } from '@/lib/safe-outbound';
+import { requireClientIp, reservePublicUrlParseAttempt } from '@/lib/rate-limit';
 
 export const maxDuration = 30;
 export const runtime = 'nodejs';
@@ -534,6 +535,11 @@ function extractText($el: cheerio.Cheerio<AnyNode>, $: cheerio.CheerioAPI): stri
 
 export async function POST(request: Request) {
   try {
+    try {
+      await reservePublicUrlParseAttempt(requireClientIp(request));
+    } catch (error: any) {
+      return NextResponse.json({ error: error?.message || '网页解析请求过于频繁，请稍后再试。' }, { status: 429 });
+    }
     const body = await request.json();
     const { url } = body;
 

@@ -12,6 +12,10 @@ const EXTENSION_LINK_WINDOW_MS = 10 * 60 * 1000;
 const EXTENSION_LINK_WINDOW_LIMIT = 12;
 const COMPLETION_WINDOW_MS = 5 * 60 * 1000;
 const COMPLETION_WINDOW_LIMIT = 3;
+const URL_PARSE_WINDOW_MS = 5 * 60 * 1000;
+const URL_PARSE_WINDOW_LIMIT = 10;
+const AUDIT_VIEW_WINDOW_MS = 24 * 60 * 60 * 1000;
+const LOGIN_SOURCE_WINDOW_LIMIT = 30;
 
 async function acquireUserActionLock(
   tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
@@ -26,6 +30,14 @@ export function getClientIp(request: Request) {
   const forwarded = request.headers.get('x-forwarded-for');
   if (forwarded) return forwarded.split(',')[0]?.trim() || 'unknown';
   return request.headers.get('x-real-ip') || 'unknown';
+}
+
+export function requireClientIp(request: Request) {
+  const ip = getClientIp(request);
+  if (ip === 'direct-client' && process.env.NODE_ENV === 'production') {
+    throw new Error('服务器未配置可信反向代理，无法安全限流公开请求。');
+  }
+  return ip;
 }
 
 export function hashForStorage(value: string) {
@@ -116,24 +128,48 @@ function loginAttemptKey(email: string) {
   return `login:${hashForStorage(email.trim().toLowerCase())}`;
 }
 
-export async function reserveLoginAttempt(email: string) {
+function loginSourceAttemptKey(ip: string) {
+  return `login-source:${hashForStorage(ip)}`;
+}
+
+export async function reserveLoginAttempt(email: string, ip?: string) {
   const key = loginAttemptKey(email);
+  const sourceKey = ip ? loginSourceAttemptKey(ip) : null;
   const windowStart = new Date(Date.now() - LOGIN_WINDOW_MS);
   await prisma.$transaction(async (tx) => {
     await acquireUserActionLock(tx, `guanyu-login:${key}`);
-    const recentAttempts = await tx.verificationCode.count({
-      where: { email: key, purpose: 'login_attempt', createdAt: { gte: windowStart } },
-    });
+    if (sourceKey) await acquireUserActionLock(tx, `guanyu-login:${sourceKey}`);
+    const [recentAttempts, sourceAttempts] = await Promise.all([
+      tx.verificationCode.count({
+        where: { email: key, purpose: 'login_attempt', createdAt: { gte: windowStart } },
+      }),
+      sourceKey
+        ? tx.verificationCode.count({
+            where: { email: sourceKey, purpose: 'login_source_attempt', createdAt: { gte: windowStart } },
+          })
+        : Promise.resolve(0),
+    ]);
     if (recentAttempts >= LOGIN_WINDOW_LIMIT) {
       throw new Error('登录尝试过于频繁，请 15 分钟后再试。');
     }
-    await tx.verificationCode.create({
-      data: {
-        email: key,
-        codeHash: crypto.randomUUID(),
-        purpose: 'login_attempt',
-        expiresAt: new Date(Date.now() + LOGIN_WINDOW_MS),
-      },
+    if (sourceAttempts >= LOGIN_SOURCE_WINDOW_LIMIT) {
+      throw new Error('当前网络登录请求过于频繁，请 15 分钟后再试。');
+    }
+    await tx.verificationCode.createMany({
+      data: [
+        {
+          email: key,
+          codeHash: crypto.randomUUID(),
+          purpose: 'login_attempt',
+          expiresAt: new Date(Date.now() + LOGIN_WINDOW_MS),
+        },
+        ...(sourceKey ? [{
+          email: sourceKey,
+          codeHash: crypto.randomUUID(),
+          purpose: 'login_source_attempt',
+          expiresAt: new Date(Date.now() + LOGIN_WINDOW_MS),
+        }] : []),
+      ],
     });
   });
 }
@@ -144,8 +180,12 @@ export async function clearLoginAttempts(email: string) {
   });
 }
 
-export async function reserveExtensionLinkAttempt(ip: string) {
-  const key = `extension-link:${hashForStorage(ip)}`;
+export async function reserveExtensionLinkAttempt(ip: string, code: string) {
+  // A deployment without a trusted proxy cannot expose the TCP peer address
+  // through the Fetch Request API. Binding this budget to the one-time code as
+  // well prevents arbitrary invalid codes from exhausting every user's link
+  // exchange bucket in that configuration.
+  const key = `extension-link:${hashForStorage(`${ip}:${code}`)}`;
   const windowStart = new Date(Date.now() - EXTENSION_LINK_WINDOW_MS);
   await prisma.$transaction(async (tx) => {
     await acquireUserActionLock(tx, `guanyu-extension:${key}`);
@@ -163,6 +203,69 @@ export async function reserveExtensionLinkAttempt(ip: string) {
         expiresAt: new Date(Date.now() + EXTENSION_LINK_WINDOW_MS),
       },
     });
+  });
+}
+
+export async function reservePublicUrlParseAttempt(ip: string) {
+  const key = `parse-url:${hashForStorage(ip)}`;
+  const windowStart = new Date(Date.now() - URL_PARSE_WINDOW_MS);
+  await prisma.$transaction(async (tx) => {
+    await acquireUserActionLock(tx, `guanyu-parse-url:${key}`);
+    const count = await tx.verificationCode.count({
+      where: { email: key, purpose: 'parse_url_attempt', createdAt: { gte: windowStart } },
+    });
+    if (count >= URL_PARSE_WINDOW_LIMIT) {
+      throw new Error('网页解析请求过于频繁，请 5 分钟后再试。');
+    }
+    await tx.verificationCode.create({
+      data: {
+        email: key,
+        codeHash: crypto.randomUUID(),
+        purpose: 'parse_url_attempt',
+        expiresAt: new Date(Date.now() + URL_PARSE_WINDOW_MS),
+      },
+    });
+  });
+}
+
+export async function reserveAnalyzeJobAdmission(userId: string) {
+  const windowStart = new Date(Date.now() - ANALYZE_WINDOW_MS);
+  return prisma.$transaction(async (tx) => {
+    await acquireUserActionLock(tx, `guanyu-analyze-job:${userId}`);
+    const count = await tx.rateLimitEvent.count({
+      where: { userId, action: 'analyze_job', createdAt: { gte: windowStart } },
+    });
+    if (count >= ANALYZE_WINDOW_LIMIT) {
+      throw new Error('操作过于频繁，请 5 分钟后再生成新的审视报告。');
+    }
+    return tx.rateLimitEvent.create({ data: { userId, action: 'analyze_job' } });
+  });
+}
+
+export async function releaseAnalyzeJobAdmission(userId: string, eventId?: string) {
+  if (!eventId) return;
+  await prisma.rateLimitEvent.deleteMany({ where: { id: eventId, userId, action: 'analyze_job' } });
+}
+
+export async function reserveAuditViewCount(actor: string, auditId: string) {
+  const key = `audit-view:${hashForStorage(`${actor}:${auditId}`)}`;
+  const now = new Date();
+  return prisma.$transaction(async (tx) => {
+    await acquireUserActionLock(tx, `guanyu-audit-view:${key}`);
+    const alreadyCounted = await tx.verificationCode.findFirst({
+      where: { email: key, purpose: 'audit_view', expiresAt: { gt: now } },
+      select: { id: true },
+    });
+    if (alreadyCounted) return false;
+    await tx.verificationCode.create({
+      data: {
+        email: key,
+        codeHash: crypto.randomUUID(),
+        purpose: 'audit_view',
+        expiresAt: new Date(Date.now() + AUDIT_VIEW_WINDOW_MS),
+      },
+    });
+    return true;
   });
 }
 
