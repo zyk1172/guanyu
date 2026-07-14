@@ -117,13 +117,13 @@ export default function ForgotPasswordPage() {
           </label>
           <label className="grid gap-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
             {t('auth.captcha')}
-            <div className="flex gap-2">
-              <input value={captchaAnswer} onChange={(event) => setCaptchaAnswer(event.target.value)} placeholder={t('auth.captchaPlaceholder')} className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm normal-case tracking-normal text-gray-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-gray-800 dark:bg-gray-900 dark:text-white" />
-              <button type="button" onClick={refreshCaptcha} className="rounded-lg border border-gray-200 bg-gray-50 px-2 text-xs font-bold normal-case tracking-normal text-gray-600 hover:bg-gray-100 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300" title={t('auth.refreshCaptcha')}>
+            <div className="flex items-stretch gap-2">
+              <input value={captchaAnswer} onChange={(event) => setCaptchaAnswer(event.target.value)} placeholder={t('auth.captchaPlaceholder')} className="h-12 min-w-0 flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm normal-case tracking-normal text-gray-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-gray-800 dark:bg-gray-900 dark:text-white" />
+              <button type="button" onClick={refreshCaptcha} className="inline-flex h-12 w-[9.875rem] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-gray-200 bg-gray-50 p-0 text-xs font-bold normal-case tracking-normal text-gray-600 hover:bg-gray-100 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300" title={t('auth.refreshCaptcha')}>
                 {captchaImage ? <>
                   {/* CAPTCHA uses a short-lived data URL, not a remotely optimized image. */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={captchaImage} alt={t('auth.captcha')} className="h-10 w-28 rounded object-cover" />
+                  <img src={captchaImage} alt={t('auth.captcha')} className="block h-full w-full object-cover" />
                 </> : t('auth.refresh')}
               </button>
             </div>
