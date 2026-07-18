@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { getSuperAdminStatus } from '@/lib/admin';
-import { getOrCreateAppSetting, isByokPlan } from '@/lib/billing';
+import { getOrCreateAppSetting, hasActivePro } from '@/lib/billing';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { prisma } from '@/lib/prisma';
 import {
@@ -128,11 +128,11 @@ export async function GET(request: Request) {
 
     if (currentUser) {
       const [account, settings, isSuperAdmin] = await Promise.all([
-        prisma.user.findUnique({ where: { id: currentUser.id }, select: { planType: true } }),
+        prisma.user.findUnique({ where: { id: currentUser.id }, select: { planType: true, proAccessExpiresAt: true } }),
         prisma.userSettings.findUnique({ where: { userId: currentUser.id }, select: { rssFeedUrlsJson: true } }),
         getSuperAdminStatus(currentUser.id),
       ]);
-      canUseOwnApi = isSuperAdmin || isByokPlan(account?.planType);
+      canUseOwnApi = isSuperAdmin || hasActivePro(account || {});
       personalConfig = settings?.rssFeedUrlsJson;
     }
 

@@ -5,7 +5,7 @@ export function chooseModelConfig(params: {
   userSettings: any;
   appSetting: any;
 }) {
-  if (params.usageSource !== 'byok') {
+  if (params.usageSource !== 'custom' && params.usageSource !== 'byok') {
     return {
       modelName: params.appSetting?.adminModelName || process.env.OPENAI_MODEL_DEFAULT || 'gpt-4o',
       baseURL: params.appSetting?.adminLlmBaseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',

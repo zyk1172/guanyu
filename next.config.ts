@@ -7,6 +7,12 @@ const allowedDevOrigins = process.env.NEXT_ALLOWED_DEV_ORIGINS
 
 const nextConfig: NextConfig = {
   ...(allowedDevOrigins?.length ? { allowedDevOrigins } : {}),
+  outputFileTracingIncludes: {
+    '/api/audits/[id]/export': [
+      // PDF export embeds this font from the server file system at export time.
+      './public/fonts/NotoSansSC-Regular.ttf',
+    ],
+  },
   turbopack: {
     root: __dirname,
   },

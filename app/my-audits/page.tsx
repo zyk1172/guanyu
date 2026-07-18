@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Header from '@/components/Header';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
@@ -18,6 +18,7 @@ export default function MyAuditsPage() {
 
   // 搜索和筛选状态
   const [search, setSearch] = useState('');
+  const [submittedSearch, setSubmittedSearch] = useState('');
   const [modeFilter, setModeFilter] = useState('');
   const [depthFilter, setDepthFilter] = useState('');
   const [publicFilter, setPublicFilter] = useState('');
@@ -30,12 +31,12 @@ export default function MyAuditsPage() {
   }, [status, router]);
 
   // 2. 加载记录
-  const fetchMyAudits = async () => {
+  const fetchMyAudits = useCallback(async () => {
     if (!session) return;
     setIsFetchingAudits(true);
     try {
       const params = new URLSearchParams();
-      if (search) params.append('search', search);
+      if (submittedSearch) params.append('search', submittedSearch);
       if (modeFilter) params.append('mode', modeFilter);
       if (depthFilter) params.append('depth', depthFilter);
       if (publicFilter) params.append('isPublic', publicFilter);
@@ -50,15 +51,16 @@ export default function MyAuditsPage() {
     } finally {
       setIsFetchingAudits(false);
     }
-  };
+  }, [session, submittedSearch, modeFilter, depthFilter, publicFilter]);
 
   useEffect(() => {
-    fetchMyAudits();
-  }, [session, modeFilter, depthFilter, publicFilter]);
+    void fetchMyAudits();
+  }, [fetchMyAudits]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    fetchMyAudits();
+    if (search === submittedSearch) void fetchMyAudits();
+    else setSubmittedSearch(search);
   };
 
   // 3. 修改公开状态

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { getSuperAdminStatus } from '@/lib/admin';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
-import { getOrCreateAppSetting } from '@/lib/billing';
+import { assertServiceCreditsAvailable, consumeServiceCreditsWithResult, CREDIT_COSTS, getOrCreateAppSetting, getUsageSource } from '@/lib/billing';
 import { chooseModelConfig } from '@/lib/model-config';
 import { prisma } from '@/lib/prisma';
 import { buildAiCompletionPrompt, validateCompletionMarkdown } from '@/lib/ai-completion-core.mjs';
@@ -57,13 +57,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const result = await getAuthorizedAudit(request, id);
     if ('error' in result) return NextResponse.json({ error: result.error }, { status: result.status });
 
+    const body = await request.json().catch(() => ({}));
+    const requestId = String(body.requestId || '').trim();
+    if (!requestId || requestId.length > 100) {
+      return NextResponse.json({ error: '请求标识无效，请刷新页面后重试。' }, { status: 400 });
+    }
+
     const { user, audit } = result;
     if (audit.originalContent.trim().length < 50) {
       return NextResponse.json({ error: '未保存足够的新闻原文，无法进行 AI 补全。' }, { status: 400 });
     }
 
     const [account, userSettings, appSetting] = await Promise.all([
-      prisma.user.findUnique({ where: { id: user.id }, select: { planType: true, isBanned: true } }),
+      prisma.user.findUnique({ where: { id: user.id }, select: { planType: true, isBanned: true, proAccessExpiresAt: true } }),
       prisma.userSettings.findUnique({ where: { userId: user.id } }),
       getOrCreateAppSetting(),
     ]);
@@ -77,13 +83,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: error instanceof Error ? error.message : 'AI 补全操作过于频繁，请稍后再试。' }, { status: 429 });
     }
 
+    const usageSource = await getUsageSource(user.id);
     const modelConfig = chooseModelConfig({
-      usageSource: account.planType === 'byok' ? 'byok' : 'free_admin',
+      usageSource,
       userSettings,
       appSetting,
     });
     if (!modelConfig.apiKey || !modelConfig.modelName || !modelConfig.baseURL) {
       return NextResponse.json({ error: '当前账号可用的大模型配置不完整，暂时无法进行 AI 补全。' }, { status: 500 });
+    }
+    try {
+      await assertServiceCreditsAvailable({ userId: user.id, cents: CREDIT_COSTS.AI_COMPLETION, customFree: true });
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : '当前点数不足。' }, { status: 402 });
     }
 
     let report: unknown = {};
@@ -128,12 +140,24 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: 'AI 补全返回格式不完整，请重新生成。' }, { status: 502 });
     }
 
-    const updated = await prisma.audit.update({
+    const committed = await consumeServiceCreditsWithResult({
+      userId: user.id,
+      cents: CREDIT_COSTS.AI_COMPLETION,
+      transactionType: 'AI_COMPLETION',
+      description: 'AI 补全消耗 2 点',
+      auditId: audit.id,
+      idempotencyKey: `completion:${audit.id}:${requestId}`,
+      customFree: true,
+    }, (tx) => tx.audit.update({
       where: { id: audit.id },
       data: { completionMarkdown: markdown, completionGeneratedAt: new Date() },
       select: { completionMarkdown: true, completionGeneratedAt: true },
+    }));
+    return NextResponse.json({
+      markdown: committed.result.completionMarkdown,
+      generatedAt: committed.result.completionGeneratedAt,
+      usage: { source: committed.source, balance: committed.balance },
     });
-    return NextResponse.json({ markdown: updated.completionMarkdown, generatedAt: updated.completionGeneratedAt });
   } catch (error) {
     console.error('AI completion failed:', error);
     return NextResponse.json({ error: 'AI 补全暂时无法完成，请稍后重试。' }, { status: 500 });

@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { getSuperAdminStatus } from '@/lib/admin';
-import { activateByokPlan, getOrCreateAppSetting, grantPoints } from '@/lib/billing';
+import { fulfillOrder, getOrCreateAppSetting, grantPoints, rejectOrder } from '@/lib/billing';
 import { cacheDel, CACHE_KEYS } from '@/lib/cache';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { notifyAccountAccessChanged, notifyCreditsGranted, notifyOrderDecision, sendTrackedEmail } from '@/lib/email';
@@ -37,10 +37,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: '你没有权限管理计费设置。' }, { status: 403 });
   }
 
-  const [setting, orders, users, emailDeliveries] = await Promise.all([
+  const [setting, orders, users, emailDeliveries, discussionReports] = await Promise.all([
     getOrCreateAppSetting(),
     prisma.purchaseOrder.findMany({
-      where: { status: 'pending' },
+      where: { status: { in: ['pending', 'PENDING', 'PAYMENT_SUBMITTED', 'PAID'] } },
       include: { user: { select: { email: true } } },
       orderBy: { createdAt: 'desc' },
       take: 50,
@@ -102,6 +102,15 @@ export async function GET(request: Request) {
       orderBy: { createdAt: 'desc' },
       take: 30,
     }),
+    prisma.discussionReport.findMany({
+      where: { status: 'PENDING' },
+      include: {
+        reporter: { select: { email: true, name: true } },
+        message: { select: { id: true, content: true, status: true, reportId: true, report: { select: { title: true } } } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    }),
   ]);
 
   return NextResponse.json({
@@ -109,6 +118,7 @@ export async function GET(request: Request) {
     pendingOrders: orders,
     users,
     emailDeliveries,
+    discussionReports,
   });
 }
 
@@ -132,7 +142,7 @@ export async function PATCH(request: NextRequest) {
       alipayPointsQrImageUrl: String(body.alipayPointsQrImageUrl || '/alipay-points.jpg').trim(),
       alipayByokQrImageUrl: String(body.alipayByokQrImageUrl || '/alipay-byok.jpg').trim(),
       paypalQrImageUrl: String(body.paypalQrImageUrl || '/paypal-qr.jpg').trim(),
-      alipayQrNote: String(body.alipayQrNote || '').trim() || '6 元购买 30 点；30 元买断后可填写自己的大模型和搜索 API。付款备注请填写账号邮箱、昵称或转账时间。',
+      alipayQrNote: String(body.alipayQrNote || '').trim() || '基础点数包到账 30 点；专业点数包到账 80 点，并附赠待激活的 Pro 专业权益。付款备注请填写账号邮箱、昵称或转账时间。',
     };
     if (String(body.adminLlmApiKey || '').trim()) update.adminLlmApiKeyEncrypted = encryptSecret(String(body.adminLlmApiKey).trim());
     if (String(body.adminTavilyApiKey || '').trim()) update.adminTavilyApiKeyEncrypted = encryptSecret(String(body.adminTavilyApiKey).trim());
@@ -149,21 +159,36 @@ export async function PATCH(request: NextRequest) {
 
   if (action === 'grant') {
     const userId = String(body.userId || '');
-    const points = Number.parseInt(String(body.points || ''), 10);
+    const points = Number(body.points);
     const reason = String(body.reason || '管理员手动加点').trim();
+    if (!userId) return NextResponse.json({ error: '缺少用户 ID。' }, { status: 400 });
+    if (!Number.isFinite(points) || points <= 0 || points > 100_000) {
+      return NextResponse.json({ error: '增加点数必须大于 0 且不超过 100000 点。' }, { status: 400 });
+    }
     const balance = await grantPoints(userId, points, reason);
     const target = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
     if (target?.email && points > 0) {
-      await notifyCreditsGranted({ userId, email: target.email, points, balance, reason });
+      after(async () => {
+        try {
+          await notifyCreditsGranted({ userId, email: target.email, points, balance, reason });
+        } catch (error) {
+          console.error('Notify credits granted failed:', error);
+        }
+      });
     }
     return NextResponse.json({ ok: true, balance });
   }
 
-  if (action === 'unlockByok') {
+  if (action === 'grantProAccess' || action === 'unlockByok') {
     const userId = String(body.userId || '');
     if (!userId) return NextResponse.json({ error: '缺少用户 ID。' }, { status: 400 });
-    const planType = await activateByokPlan(userId, '超级管理员手动解锁高级功能');
-    return NextResponse.json({ ok: true, planType });
+    const target = await prisma.user.findUnique({ where: { id: userId }, select: { proAccessExpiresAt: true } });
+    if (!target) return NextResponse.json({ error: '用户不存在。' }, { status: 404 });
+    const now = new Date();
+    const base = target.proAccessExpiresAt && target.proAccessExpiresAt > now ? target.proAccessExpiresAt : now;
+    const expiresAt = new Date(Math.min(base.getTime() + 30 * 24 * 60 * 60 * 1000, now.getTime() + 90 * 24 * 60 * 60 * 1000));
+    await prisma.user.update({ where: { id: userId }, data: { proAccessActivatedAt: new Date(), proAccessExpiresAt: expiresAt, pendingProAccessDays: 0, pendingProAccessExpiresAt: null } });
+    return NextResponse.json({ ok: true, expiresAt });
   }
 
   if (action === 'setUserBanned') {
@@ -178,11 +203,17 @@ export async function PATCH(request: NextRequest) {
       data: { isBanned },
       select: { id: true, email: true, isBanned: true },
     });
-    await notifyAccountAccessChanged({
-      userId: updated.id,
-      email: updated.email,
-      isBanned: updated.isBanned,
-      reason: String(body.reason || '').trim() || undefined,
+    after(async () => {
+      try {
+        await notifyAccountAccessChanged({
+          userId: updated.id,
+          email: updated.email,
+          isBanned: updated.isBanned,
+          reason: String(body.reason || '').trim() || undefined,
+        });
+      } catch (error) {
+        console.error('Notify account access change failed:', error);
+      }
     });
     return NextResponse.json({ ok: true, user: updated });
   }
@@ -220,63 +251,59 @@ export async function PATCH(request: NextRequest) {
 
   if (action === 'confirmOrder') {
     const orderId = String(body.orderId || '');
-    const order = await prisma.purchaseOrder.findUnique({ where: { id: orderId }, include: { user: { select: { email: true } } } });
-    if (!order) return NextResponse.json({ error: '订单不存在。' }, { status: 404 });
-    if (order.status !== 'pending') return NextResponse.json({ error: '订单已经处理过。' }, { status: 400 });
-
+    if (!orderId) return NextResponse.json({ error: '缺少订单 ID。' }, { status: 400 });
     const adminNote = String(body.adminNote || '').trim();
-    let balance: number | null = null;
-    let planType: string | null = null;
-    if (order.packageType === 'byok_lifetime') {
-      planType = await activateByokPlan(order.userId, `确认买断订单 ${order.id}`, order.id);
-    } else {
-      balance = await grantPoints(order.userId, order.points, `确认点数订单 ${order.id}`, order.id);
-      await prisma.user.update({
-        where: { id: order.userId },
-        data: { planType: 'points' },
+    let result;
+    try {
+      result = await fulfillOrder(orderId, adminNote);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '订单确认失败。';
+      return NextResponse.json({ error: message }, { status: message === '订单不存在。' ? 404 : 400 });
+    }
+    const updated = result.order;
+    const target = result.repeated ? null : await prisma.user.findUnique({ where: { id: updated.userId }, select: { email: true } });
+    if (target?.email && !result.repeated) {
+      after(async () => {
+        try {
+          await notifyOrderDecision({
+            userId: updated.userId,
+            email: target.email,
+            packageName: updated.packageName,
+            confirmed: true,
+            adminNote,
+          });
+        } catch (error) {
+          console.error('Notify confirmed order failed:', error);
+        }
       });
     }
-
-    const updated = await prisma.purchaseOrder.update({
-      where: { id: order.id },
-      data: {
-        status: 'confirmed',
-        confirmedAt: new Date(),
-        adminNote,
-      },
-    });
-    if (order.user.email) {
-      await notifyOrderDecision({
-        userId: order.userId,
-        email: order.user.email,
-        packageName: order.packageName,
-        confirmed: true,
-        adminNote,
-      });
-    }
-    return NextResponse.json({ ok: true, order: updated, balance, planType });
+    return NextResponse.json({ ok: true, order: updated, repeated: result.repeated });
   }
 
   if (action === 'rejectOrder') {
     const orderId = String(body.orderId || '');
-    const order = await prisma.purchaseOrder.findUnique({ where: { id: orderId }, include: { user: { select: { email: true } } } });
-    if (!order) return NextResponse.json({ error: '订单不存在。' }, { status: 404 });
-    if (order.status !== 'pending') return NextResponse.json({ error: '订单已经处理过。' }, { status: 400 });
-
-    const updated = await prisma.purchaseOrder.update({
-      where: { id: order.id },
-      data: {
-        status: 'rejected',
-        adminNote: String(body.adminNote || '管理员取消订单').trim(),
-      },
-    });
-    if (order.user.email) {
-      await notifyOrderDecision({
-        userId: order.userId,
-        email: order.user.email,
-        packageName: order.packageName,
-        confirmed: false,
-        adminNote: updated.adminNote,
+    if (!orderId) return NextResponse.json({ error: '缺少订单 ID。' }, { status: 400 });
+    let updated;
+    try {
+      updated = await rejectOrder(orderId, String(body.adminNote || '管理员取消订单').trim());
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '订单取消失败。';
+      return NextResponse.json({ error: message }, { status: message === '订单不存在。' ? 404 : 400 });
+    }
+    const target = await prisma.user.findUnique({ where: { id: updated.userId }, select: { email: true } });
+    if (target?.email) {
+      after(async () => {
+        try {
+          await notifyOrderDecision({
+            userId: updated.userId,
+            email: target.email,
+            packageName: updated.packageName,
+            confirmed: false,
+            adminNote: updated.adminNote,
+          });
+        } catch (error) {
+          console.error('Notify rejected order failed:', error);
+        }
       });
     }
     return NextResponse.json({ ok: true, order: updated });

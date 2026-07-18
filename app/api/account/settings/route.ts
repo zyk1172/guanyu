@@ -3,7 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { getSuperAdminStatus } from '@/lib/admin';
 import { prisma } from '@/lib/prisma';
 import { encryptSecret } from '@/lib/secret';
-import { getOrCreateAppSetting, isByokPlan } from '@/lib/billing';
+import { getOrCreateAppSetting, hasActivePro } from '@/lib/billing';
 import { cacheDel, CACHE_KEYS } from '@/lib/cache';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { getEffectiveRssSourceConfig, getRssSourceCatalog, normalizeRssSourceConfig } from '@/lib/rss-core.mjs';
@@ -56,6 +56,7 @@ export async function GET(request: Request) {
           email: true,
           role: true,
           planType: true,
+          proAccessExpiresAt: true,
           createdAt: true,
         },
       }),
@@ -67,7 +68,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: '账号不存在，请重新登录。' }, { status: 401 });
     }
 
-    const canUseOwnApi = isSuperAdmin || isByokPlan(account.planType);
+    const canUseOwnApi = isSuperAdmin || hasActivePro(account);
     const rssSourceCatalog = getRssSourceCatalog();
 
     if (!settings) {
@@ -156,11 +157,11 @@ export async function PATCH(request: Request) {
     const [account, isSuperAdmin] = await Promise.all([
       prisma.user.findUnique({
         where: { id: userId },
-        select: { planType: true },
+        select: { planType: true, proAccessExpiresAt: true },
       }),
       getSuperAdminStatus(userId),
     ]);
-    const canUseOwnApi = isSuperAdmin || isByokPlan(account?.planType);
+    const canUseOwnApi = isSuperAdmin || hasActivePro(account || {});
 
     const {
       defaultModelName,
@@ -177,6 +178,7 @@ export async function PATCH(request: Request) {
       defaultIsPublic,
       defaultSaveResult,
       defaultEnableCharts,
+      modelSource,
       rssFeedConfig,
     } = body;
     const safeAnalysisMode = VALID_ANALYSIS_MODES.has(defaultAnalysisMode) ? defaultAnalysisMode : 'deep';
@@ -196,7 +198,7 @@ export async function PATCH(request: Request) {
     const normalizedRssFeedConfig = normalizeRssSourceConfig(rssFeedConfig);
     if (!canUseOwnApi && (hasOwnApiUpdate || hasRssConfigUpdate)) {
       return NextResponse.json({
-        error: '点数账号使用管理员统一模型、联网搜索与 RSS 订阅。只有 30 元买断账号可以填写自己的配置。',
+        error: '自定义模型、搜索与 RSS 仅对有效 Pro 专业权益开放。',
       }, { status: 403 });
     }
     const safeModelName = String(defaultModelName || '').trim() || process.env.OPENAI_MODEL_DEFAULT || 'gpt-4o';
@@ -242,6 +244,7 @@ export async function PATCH(request: Request) {
         defaultIsPublic,
         defaultSaveResult,
         defaultEnableCharts,
+        modelSource: canUseOwnApi && modelSource === 'custom' ? 'custom' : 'platform',
       },
       create: {
         userId,
@@ -259,6 +262,7 @@ export async function PATCH(request: Request) {
         defaultIsPublic: defaultIsPublic !== undefined ? defaultIsPublic : true,
         defaultSaveResult: defaultSaveResult !== undefined ? defaultSaveResult : true,
         defaultEnableCharts: defaultEnableCharts !== undefined ? defaultEnableCharts : true,
+        modelSource: canUseOwnApi && modelSource === 'custom' ? 'custom' : 'platform',
         rssFeedUrlsJson: canUseOwnApi && hasRssConfigUpdate ? JSON.stringify(normalizedRssFeedConfig) : '[]',
       },
     });

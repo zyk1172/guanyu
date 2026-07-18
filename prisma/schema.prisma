@@ -17,6 +17,14 @@ model User {
   planType          String             @default("free") // free, points, byok
   creditBalance     Int                @default(0)
   creditBalanceCents Int               @default(0)
+  // Canonical balance for new billing code. Legacy integer fields remain for
+  // compatibility with existing deployments and are kept in sync.
+  creditBalanceAmount Decimal          @default(0) @db.Decimal(12, 2)
+  signupBonusGrantedAt DateTime?
+  proAccessActivatedAt DateTime?
+  proAccessExpiresAt  DateTime?
+  pendingProAccessDays Int             @default(0)
+  pendingProAccessExpiresAt DateTime?
   freeQuotaDate     String?
   freeQuotaUsed     Int                @default(0)
   name              String?
@@ -32,6 +40,10 @@ model User {
   extensionLinkCodes ExtensionLinkCode[]
   auditJobs         AuditJob[]
   emailDeliveries   EmailDelivery[]
+  rssFeeds          RssFeed[]
+  discussionMessages ReportDiscussionMessage[]
+  discussionReports DiscussionReport[] @relation("DiscussionReporter")
+  exportArtifacts   ExportArtifact[]
 }
 
 model UserSettings {
@@ -53,6 +65,7 @@ model UserSettings {
   defaultIsPublic       Boolean  @default(true)
   defaultSaveResult     Boolean  @default(true)
   defaultEnableCharts   Boolean  @default(true)
+  modelSource           String   @default("platform") // platform, custom
   rssFeedUrlsJson       String   @default("[]")
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
@@ -89,7 +102,12 @@ model Audit {
   updatedAt                    DateTime @updatedAt
   completionMarkdown           String?
   completionGeneratedAt        DateTime?
+  reportVersion                Int      @default(1)
+  discussionLockedAt           DateTime?
+  discussionLockedById         String?
   emailDeliveries              EmailDelivery[]
+  discussionMessages           ReportDiscussionMessage[]
+  exportArtifacts              ExportArtifact[]
 
   @@index([userId])
   @@index([heatScore])
@@ -149,6 +167,10 @@ model AppSetting {
   alipayPointsQrImageUrl     String   @default("/alipay-points.jpg")
   alipayByokQrImageUrl       String   @default("/alipay-byok.jpg")
   paypalQrImageUrl           String   @default("/paypal-qr.jpg")
+  paypalStarterCreditsUrl     String?
+  paypalProCreditsUrl         String?
+  alipayStarterCreditsUrl     String?
+  alipayProCreditsUrl         String?
   alipayQrNote               String   @default("6 元购买 30 点；30 元买断后可填写自己的大模型和搜索 API。付款备注请填写账号邮箱、昵称或转账时间。")
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
@@ -162,6 +184,14 @@ model PointTransaction {
   balanceAfter Int
   deltaCents   Int?
   balanceAfterCents Int?
+  amount       Decimal  @default(0) @db.Decimal(12, 2)
+  balanceBefore Decimal @default(0) @db.Decimal(12, 2)
+  balanceAfterAmount Decimal @default(0) @db.Decimal(12, 2)
+  transactionType String @default("ADMIN_ADJUSTMENT")
+  relatedTaskId String?
+  relatedReportVersion Int?
+  relatedDiscussionMessageId String?
+  idempotencyKey String?
   type         String // consume, grant, purchase, refund
   reason       String
   auditId      String?
@@ -170,6 +200,7 @@ model PointTransaction {
 
   @@index([userId])
   @@index([createdAt])
+  @@unique([userId, idempotencyKey])
 }
 
 model PurchaseOrder {
@@ -177,21 +208,141 @@ model PurchaseOrder {
   userId        String
   user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   packageType   String    @default("points_30") // points_30, byok_lifetime
+  productId     String    @default("STARTER")
   packageName   String    @default("30 点套餐")
   amountCents   Int       @default(600)
   currency      String    @default("CNY")
   points        Int       @default(30)
-  status        String    @default("pending") // pending, confirmed, rejected
+  proAccessDays Int       @default(0)
+  status        String    @default("PENDING") // PENDING, PAYMENT_SUBMITTED, PAID, FULFILLED, REJECTED, REFUNDED, CANCELLED
   paymentMethod String    @default("alipay_qr")
   paymentNote   String?
   adminNote     String?
   confirmedAt   DateTime?
+  paidAt        DateTime?
+  fulfilledAt   DateTime?
+  paymentProvider String?
+  providerTransactionId String? @unique
+  paymentEmail String?
+  webhookEventId String? @unique
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   @@index([userId])
   @@index([status])
   @@index([createdAt])
+}
+
+model RssFeed {
+  id              String   @id @default(cuid())
+  sourceType      String   @default("USER") // ADMIN, USER
+  ownerUserId     String?
+  owner           User?    @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  name            String
+  url             String
+  isEnabled       Boolean  @default(true)
+  lastFetchedAt   DateTime?
+  lastError       String?
+  lastManualRefreshAt DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  items           RssItem[]
+
+  @@unique([ownerUserId, url])
+  @@index([sourceType, isEnabled])
+  @@index([ownerUserId])
+}
+
+model RssItem {
+  id          String   @id @default(cuid())
+  feedId      String
+  feed        RssFeed  @relation(fields: [feedId], references: [id], onDelete: Cascade)
+  externalId  String
+  title       String
+  url         String
+  author      String?
+  summary     String?
+  contentSnippet String?
+  publishedAt DateTime?
+  imageUrl    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([feedId, externalId])
+  @@index([feedId, publishedAt])
+}
+
+model ReportDiscussionMessage {
+  id              String   @id @default(cuid())
+  reportId        String
+  report          Audit    @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  reportVersionAtPost Int  @default(1)
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parentMessageId String?
+  parent          ReportDiscussionMessage? @relation("DiscussionReplies", fields: [parentMessageId], references: [id], onDelete: SetNull)
+  replies         ReportDiscussionMessage[] @relation("DiscussionReplies")
+  content         String
+  contentFormat   String   @default("plain")
+  languageCode    String   @default("zh-CN")
+  status          String   @default("VISIBLE") // VISIBLE, HIDDEN, DELETED, PENDING_REVIEW
+  isEdited        Boolean  @default(false)
+  editedAt        DateTime?
+  deletedAt       DateTime?
+  pointTransactionId String?
+  idempotencyKey  String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  reports         DiscussionReport[]
+
+  @@unique([userId, idempotencyKey])
+  @@index([reportId, createdAt])
+  @@index([parentMessageId])
+}
+
+model DiscussionReport {
+  id              String   @id @default(cuid())
+  messageId       String
+  message         ReportDiscussionMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  reporterUserId  String
+  reporter        User     @relation("DiscussionReporter", fields: [reporterUserId], references: [id], onDelete: Cascade)
+  reason          String
+  description     String?
+  status          String   @default("PENDING")
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  createdAt       DateTime @default(now())
+
+  @@unique([messageId, reporterUserId])
+  @@index([status, createdAt])
+}
+
+model ExportArtifact {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reportId        String
+  report          Audit    @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  reportVersion   Int
+  exportFormat    String   // PDF, MARKDOWN
+  templateVersion String   @default("1")
+  contentHash     String
+  storagePath     String?
+  content         String?
+  downloadFilename String
+  fileHash        String?
+  fileSizeBytes   Int?
+  pageCount       Int?
+  language        String
+  status          String   @default("PENDING") // PENDING, GENERATING, READY, FAILED, DELETED
+  pointTransactionId String?
+  errorCode       String?
+  errorMessageSanitized String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, reportId, reportVersion, exportFormat])
+  @@index([reportId, reportVersion])
 }
 
 model VerificationCode {

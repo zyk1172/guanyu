@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useUiLanguage } from '@/components/LanguageProvider';
@@ -9,7 +9,7 @@ import { getBrandIdentity } from '@/lib/brand-core.mjs';
 export default function RegisterPage() {
   const { t, language } = useUiLanguage();
   const brand = getBrandIdentity(language);
-  const genericError = (key: string, serverMessage?: string) => language.startsWith('zh-') ? (serverMessage || t(key)) : t(key);
+  const genericError = useCallback((key: string, serverMessage?: string) => language.startsWith('zh-') ? (serverMessage || t(key)) : t(key), [language, t]);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -22,7 +22,7 @@ export default function RegisterPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSendingCode, setIsSendingCode] = useState(false);
 
-  const refreshCaptcha = async () => {
+  const refreshCaptcha = useCallback(async () => {
     setCaptchaAnswer('');
     try {
       const response = await fetch('/api/captcha', { cache: 'no-store' });
@@ -33,11 +33,11 @@ export default function RegisterPage() {
     } catch (err: any) {
       setError(err?.message || t('auth.captchaLoadFailed'));
     }
-  };
+  }, [genericError, t]);
 
   useEffect(() => {
     void refreshCaptcha();
-  }, [language]);
+  }, [refreshCaptcha]);
 
   const handleSendCode = async () => {
     setError(null);
@@ -81,7 +81,7 @@ export default function RegisterPage() {
       return;
     }
 
-    if (password.length < 6) {
+    if (password.length < 8) {
       setError(t('auth.passwordTooShort'));
       return;
     }

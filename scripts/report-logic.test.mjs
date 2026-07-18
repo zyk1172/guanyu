@@ -383,27 +383,33 @@ test('AI completion prompt requires marked verified, contextual, and unresolved 
   assert.equal(validateCompletionMarkdown(''), false);
 });
 
-test('payment package prices preserve CNY plans and define USD PayPal plans', () => {
-  assert.deepEqual(getPaymentPackageDefinition('points_30', 'alipay_qr'), {
-    packageType: 'points_30',
-    packageName: '30 点套餐',
-    amountCents: 600,
+test('payment catalogue fixes server-side Starter and Pro prices and benefits', () => {
+  assert.deepEqual(getPaymentPackageDefinition('STARTER', 'alipay_qr'), {
+    productId: 'STARTER',
+    packageType: 'starter_credits',
+    packageName: '基础点数包',
+    amountCents: 2490,
     currency: 'CNY',
     points: 30,
+    proAccessDays: 0,
   });
-  assert.deepEqual(getPaymentPackageDefinition('points_30', 'paypal_qr'), {
-    packageType: 'points_30',
-    packageName: '20 点套餐',
-    amountCents: 100,
+  assert.deepEqual(getPaymentPackageDefinition('STARTER', 'paypal_qr'), {
+    productId: 'STARTER',
+    packageType: 'starter_credits',
+    packageName: '基础点数包',
+    amountCents: 399,
     currency: 'USD',
-    points: 20,
+    points: 30,
+    proAccessDays: 0,
   });
-  assert.deepEqual(getPaymentPackageDefinition('byok_lifetime', 'paypal_qr'), {
-    packageType: 'byok_lifetime',
-    packageName: '高级功能解锁',
-    amountCents: 500,
+  assert.deepEqual(getPaymentPackageDefinition('PRO', 'paypal_qr'), {
+    productId: 'PRO',
+    packageType: 'pro_credits',
+    packageName: '专业点数包',
+    amountCents: 899,
     currency: 'USD',
-    points: 0,
+    points: 80,
+    proAccessDays: 30,
   });
 });
 
@@ -707,11 +713,21 @@ test('RSS source config keeps catalog preferences and rejects unsafe custom feed
   );
 });
 
-test('RSS uses admin defaults until a buyout user saves a personal source configuration', () => {
+test('RSS uses admin defaults until an eligible user saves a personal source configuration', () => {
   const admin = { catalogIds: ['bbc-news', 'people-daily'], customFeeds: [] };
   const personal = { catalogIds: ['dw-news'], customFeeds: [{ name: 'My feed', url: 'https://example.org/rss.xml' }] };
 
   assert.deepEqual(getEffectiveRssSourceConfig({ canUseOwnApi: false, adminConfig: admin, personalConfig: personal }), admin);
   assert.deepEqual(getEffectiveRssSourceConfig({ canUseOwnApi: true, adminConfig: admin, personalConfig: personal }), personal);
   assert.deepEqual(getEffectiveRssSourceConfig({ canUseOwnApi: true, adminConfig: admin, personalConfig: { catalogIds: [], customFeeds: [] } }), admin);
+});
+
+test('new billing, export and discussion copy is localized for every enabled UI locale', () => {
+  for (const locale of UI_LANGUAGE_OPTIONS.map((option) => option.value)) {
+    for (const key of ['billing.starter', 'billing.pro', 'billing.analysisRule', 'export.pdf', 'discussion.title', 'discussion.post', 'discussion.report', 'discussion.moderation', 'discussion.loadMore', 'discussion.loadingMore', 'order.creatingTitle', 'order.syncingDetail', 'order.createdTitle', 'order.createFailed']) {
+      const value = getUiText(locale, key, '');
+      assert.notEqual(value, '', `${locale} should translate ${key}`);
+      assert.notEqual(value, key, `${locale} should not expose ${key}`);
+    }
+  }
 });

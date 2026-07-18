@@ -253,6 +253,38 @@ html {
   }
 }
 
+@keyframes order-feedback-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes order-action-sweep {
+  0% {
+    transform: translateX(-140%);
+  }
+  65%,
+  100% {
+    transform: translateX(140%);
+  }
+}
+
+@keyframes order-progress-fill {
+  from {
+    opacity: 0.45;
+    transform: scaleX(0.3);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .scan-line {
     animation: scan-line 2.6s ease-in-out infinite;
@@ -264,6 +296,23 @@ html {
 
   .toast-fade {
     animation: toast-fade 1800ms ease both;
+  }
+
+  .order-feedback {
+    animation: order-feedback-enter 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .order-action-sweep {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(100deg, transparent 25%, rgba(255, 255, 255, 0.28) 50%, transparent 75%);
+    animation: order-action-sweep 1.35s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  .order-progress-segment {
+    transform-origin: left center;
+    animation: order-progress-fill 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 }
 

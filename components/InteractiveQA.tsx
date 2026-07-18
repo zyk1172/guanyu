@@ -47,6 +47,7 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
         body: JSON.stringify({
           auditId,
           question: userQuestion,
+          requestId: crypto.randomUUID(),
           chatHistory: messages,
           interfaceLanguage: language,
         }),
