@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { decryptSecret } from '@/lib/secret';
-import { centsToDisplayPoints, consumeQuestionPoint, effectiveCreditCents, getOrCreateAppSetting, isByokPlan } from '@/lib/billing';
+import { assertServiceCreditsAvailable, consumeQuestionPoint, CREDIT_COSTS, getOrCreateAppSetting, getUsageSource } from '@/lib/billing';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { normalizeReportLanguage } from '@/lib/types';
 import { getReportLanguageRule } from '@/lib/report-language-core.mjs';
@@ -43,10 +43,16 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { auditId, question, chatHistory, interfaceLanguage } = body;
+    const auditId = String(body.auditId || '').trim();
+    const question = String(body.question || '').trim();
+    const requestId = String(body.requestId || '').trim();
+    const { chatHistory, interfaceLanguage } = body;
 
-    if (!auditId || !question || question.trim().length === 0) {
+    if (!auditId || !question || question.length > 2000) {
       return NextResponse.json({ error: '提问参数有误' }, { status: 400 });
+    }
+    if (!requestId || requestId.length > 100) {
+      return NextResponse.json({ error: '请求标识无效，请刷新页面后重试。' }, { status: 400 });
     }
     if (isPromptExtractionAttempt(question)) {
       return NextResponse.json({
@@ -95,7 +101,12 @@ export async function POST(request: Request) {
 
 【OUTPUT LANGUAGE - CRITICAL】${languageInstruction}`;
 
-    const recentHistory = Array.isArray(chatHistory) ? chatHistory.slice(-10) : [];
+    const recentHistory = Array.isArray(chatHistory)
+      ? chatHistory.slice(-10).map((item) => ({
+          role: item?.role === 'assistant' ? 'assistant' : 'user',
+          content: String(item?.content || '').slice(0, 1500),
+        }))
+      : [];
 
     const userMessageContent = `【新闻标题】：${auditRecord.title}
 【新闻来源】：${auditRecord.source}
@@ -125,7 +136,7 @@ ${auditRecord.auditResultJson}
 
 ------------------------
 【历史追问记录】：
-${recentHistory.map((h: any) => `${h.role === 'user' ? '用户' : 'AI'}: ${String(h.content || '').slice(0, 1500)}`).join('\n')}
+${recentHistory.map((h) => `${h.role === 'user' ? '用户' : 'AI'}: ${h.content}`).join('\n')}
 
 ------------------------
 用户当前提出的深度追问：
@@ -134,36 +145,28 @@ ${recentHistory.map((h: any) => `${h.role === 'user' ? '用户' : 'AI'}: ${Strin
 请给出客观严谨的解答：`;
 
     // 4. 读取当前用户数据库中的模型连接配置
-    const [userSettings, account, appSetting] = await Promise.all([
+    const [userSettings, appSetting] = await Promise.all([
       prisma.userSettings.findUnique({
         where: { userId: user.id },
-      }),
-      prisma.user.findUnique({
-        where: { id: user.id },
-        select: { planType: true, role: true, creditBalance: true, creditBalanceCents: true },
       }),
       getOrCreateAppSetting(),
     ]);
 
-    const canUseOwnApi = account?.role === 'super_admin' || isByokPlan(account?.planType);
-    const useOwnApi = canUseOwnApi && Boolean(userSettings?.llmApiKeyEncrypted);
-    if (isByokPlan(account?.planType) && (!useOwnApi || !userSettings?.llmBaseUrl || !userSettings.defaultModelName)) {
-      return NextResponse.json({ error: '买断账号请先在账号管理中保存自己的大模型名称、接口地址和 API Key；追问不会回退使用管理员模型。' }, { status: 400 });
+    const usageSource = await getUsageSource(user.id);
+    const useOwnApi = usageSource === 'custom';
+    if (useOwnApi && (!userSettings?.llmApiKeyEncrypted || !userSettings?.llmBaseUrl || !userSettings.defaultModelName)) {
+      return NextResponse.json({ error: '自定义 API 模式需要先保存模型名称、接口地址和 API Key；不会自动改用平台模型。' }, { status: 400 });
     }
     const apiKey = useOwnApi
       ? decryptSecret(userSettings!.llmApiKeyEncrypted!)
       : appSetting.adminLlmApiKeyEncrypted
         ? decryptSecret(appSetting.adminLlmApiKeyEncrypted)
         : process.env.OPENAI_API_KEY;
-    const baseURL = isByokPlan(account?.planType)
+    const baseURL = useOwnApi
       ? userSettings!.llmBaseUrl
-      : useOwnApi
-      ? (userSettings?.llmBaseUrl || appSetting.adminLlmBaseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1')
       : (appSetting.adminLlmBaseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1');
-    const modelName = isByokPlan(account?.planType)
+    const modelName = useOwnApi
       ? userSettings!.defaultModelName
-      : useOwnApi
-      ? (userSettings?.defaultModelName || auditRecord.modelName || appSetting.adminModelName || process.env.OPENAI_MODEL_DEFAULT || 'gpt-4o')
       : (appSetting.adminModelName || process.env.OPENAI_MODEL_DEFAULT || auditRecord.modelName || 'gpt-4o');
     const configuredAdminBaseURL = process.env.OPENAI_BASE_URL;
     const allowPrivateAdminEndpoint = !useOwnApi
@@ -174,13 +177,12 @@ ${recentHistory.map((h: any) => `${h.role === 'user' ? '用户' : 'AI'}: ${Strin
     if (!apiKey) {
       return NextResponse.json({ error: '未配置可用的大模型 API Key，请联系管理员配置全局模型，或使用买断账号保存个人模型密钥。' }, { status: 500 });
     }
-
-    if (!isByokPlan(account?.planType) && effectiveCreditCents(account || { creditBalance: 0, creditBalanceCents: 0 }) < 100) {
-      return NextResponse.json({ error: `追问需要 1 点，当前剩余 ${centsToDisplayPoints(effectiveCreditCents(account || { creditBalance: 0, creditBalanceCents: 0 }))} 点。请先购买点数。` }, { status: 402 });
+    try {
+      await assertServiceCreditsAvailable({ userId: user.id, cents: CREDIT_COSTS.AI_FOLLOWUP, customFree: true });
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : '当前点数不足。' }, { status: 402 });
     }
-    // Reserve the paid question before the provider call so concurrent requests
-    // cannot all pass a stale balance check and consume the global model for free.
-    const usage = await consumeQuestionPoint(user.id, auditId);
+
 
     // 5. 请求大模型
     let response: { status: number; body: Buffer };
@@ -221,6 +223,7 @@ ${recentHistory.map((h: any) => `${h.role === 'user' ? '用户' : 'AI'}: ${Strin
 
     const resData = JSON.parse(response.body.toString('utf8'));
     const reply = resData.choices?.[0]?.message?.content || '未返回有效解答。';
+    const usage = await consumeQuestionPoint(user.id, auditId, requestId);
     return NextResponse.json({ reply, usage });
 
   } catch (error: any) {

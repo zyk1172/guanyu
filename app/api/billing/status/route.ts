@@ -1,75 +1,43 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
-import {
-  DAILY_FREE_REPORT_LIMIT,
-  getPackageDefinition,
-  getOrCreateAppSetting,
-} from '@/lib/billing';
+import { activatePendingPro, centsToDisplayPoints, effectiveCreditCents, getOrCreateAppSetting, hasActivePro } from '@/lib/billing';
+import { getProduct, getPaymentUrl } from '@/lib/product-catalog';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
-import { formatPaymentAmount } from '@/lib/payment-core.mjs';
 import { prisma } from '@/lib/prisma';
-
-function todayInShanghai() {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
-}
 
 export async function GET(request: Request) {
   await ensureRuntimeSchema();
   const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: '请登录后查看额度。' }, { status: 401 });
-  }
-
-  const [account, appSetting, orders] = await Promise.all([
-    prisma.user.findUnique({
-      where: { id: user.id },
-      select: {
-        creditBalance: true,
-        creditBalanceCents: true,
-        freeQuotaDate: true,
-        freeQuotaUsed: true,
-        planType: true,
-      },
-    }),
+  if (!user) return NextResponse.json({ error: '请登录后查看点数与套餐。' }, { status: 401 });
+  const [account, appSetting, orders, transactions, settings] = await Promise.all([
+    prisma.user.findUnique({ where: { id: user.id }, select: { creditBalance: true, creditBalanceCents: true, creditBalanceAmount: true, planType: true, signupBonusGrantedAt: true, proAccessActivatedAt: true, proAccessExpiresAt: true, pendingProAccessDays: true, pendingProAccessExpiresAt: true } }),
     getOrCreateAppSetting(),
-    prisma.purchaseOrder.findMany({
-      where: { userId: user.id },
-      orderBy: { createdAt: 'desc' },
-      take: 5,
-    }),
+    prisma.purchaseOrder.findMany({ where: { userId: user.id }, orderBy: { createdAt: 'desc' }, take: 10 }),
+    prisma.pointTransaction.findMany({ where: { userId: user.id }, orderBy: { createdAt: 'desc' }, take: 10 }),
+    prisma.userSettings.findUnique({ where: { userId: user.id }, select: { modelSource: true, llmApiKeyEncrypted: true, tavilyApiKeyEncrypted: true, serperApiKeyEncrypted: true } }),
   ]);
-
-  if (!account) {
-    return NextResponse.json({ error: '账号不存在，请重新登录。' }, { status: 401 });
-  }
-
-  const today = todayInShanghai();
-  const used = account.freeQuotaDate === today ? account.freeQuotaUsed : 0;
-  const alipayPackage = getPackageDefinition('points_30', 'alipay_qr');
-  const alipayByokPackage = getPackageDefinition('byok_lifetime', 'alipay_qr');
-  const paypalPackage = getPackageDefinition('points_30', 'paypal_qr');
-  const paypalByokPackage = getPackageDefinition('byok_lifetime', 'paypal_qr');
+  if (!account) return NextResponse.json({ error: '账号不存在，请重新登录。' }, { status: 401 });
+  const starter = getProduct('STARTER', 'alipay_qr'); const pro = getProduct('PRO', 'alipay_qr'); const paypalStarter = getProduct('STARTER', 'paypal_qr'); const paypalPro = getProduct('PRO', 'paypal_qr');
   return NextResponse.json({
-    creditBalance: Number((((account.creditBalanceCents && account.creditBalanceCents > 0 ? account.creditBalanceCents : account.creditBalance * 100) / 100)).toFixed(1)),
-    planType: account.planType,
-    canUseOwnApi: account.planType === 'byok',
-    freeQuotaLimit: DAILY_FREE_REPORT_LIMIT,
-    freeQuotaUsed: used,
-    freeQuotaRemaining: Math.max(DAILY_FREE_REPORT_LIMIT - used, 0),
-    package: { ...alipayPackage, label: '6 元 / 30 点', displayAmount: formatPaymentAmount(alipayPackage.amountCents, alipayPackage.currency) },
-    byokPackage: { ...alipayByokPackage, label: '30 元高级功能解锁', displayAmount: formatPaymentAmount(alipayByokPackage.amountCents, alipayByokPackage.currency) },
-    paypalPackage: { ...paypalPackage, label: '$1 / 20 点', displayAmount: formatPaymentAmount(paypalPackage.amountCents, paypalPackage.currency) },
-    paypalByokPackage: { ...paypalByokPackage, label: '$5 高级功能解锁', displayAmount: formatPaymentAmount(paypalByokPackage.amountCents, paypalByokPackage.currency) },
+    creditBalance: centsToDisplayPoints(effectiveCreditCents(account)),
+    creditDisplay: String(centsToDisplayPoints(effectiveCreditCents(account))).replace(/\.0$/, ''),
+    signupBonusGrantedAt: account.signupBonusGrantedAt,
+    pro: { active: hasActivePro(account), activatedAt: account.proAccessActivatedAt, expiresAt: account.proAccessExpiresAt, pendingDays: account.pendingProAccessDays, pendingExpiresAt: account.pendingProAccessExpiresAt },
+    modelSource: settings?.modelSource || 'platform',
+    customApiConfigured: Boolean(settings?.llmApiKeyEncrypted),
+    customSearchConfigured: Boolean(settings?.tavilyApiKeyEncrypted || settings?.serperApiKeyEncrypted),
+    packages: {
+      alipay: [starter, pro].map((item) => ({ ...item, paymentUrl: getPaymentUrl(item.productId, 'alipay_qr', appSetting as any) })),
+      paypal: [paypalStarter, paypalPro].map((item) => ({ ...item, paymentUrl: getPaymentUrl(item.productId, 'paypal_qr', appSetting as any) })),
+    },
     alipayQrImageUrl: appSetting.alipayQrImageUrl,
-    alipayPointsQrImageUrl: appSetting.alipayPointsQrImageUrl || appSetting.alipayQrImageUrl,
-    alipayByokQrImageUrl: appSetting.alipayByokQrImageUrl || appSetting.alipayQrImageUrl,
     paypalQrImageUrl: appSetting.paypalQrImageUrl || '/paypal-qr.jpg',
-    alipayQrNote: appSetting.alipayQrNote,
     recentOrders: orders,
+    recentTransactions: transactions,
   });
+}
+
+export async function POST(request: Request) {
+  const user = await getCurrentUser(request); if (!user) return NextResponse.json({ error: '请登录后激活 Pro。' }, { status: 401 });
+  const expiresAt = await activatePendingPro(user.id); return NextResponse.json({ ok: Boolean(expiresAt), expiresAt });
 }

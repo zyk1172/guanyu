@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { getSuperAdminStatus } from '@/lib/admin';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
-import { getOrCreateAppSetting } from '@/lib/billing';
+import { getOrCreateAppSetting, getUsageSource } from '@/lib/billing';
 import { chooseModelConfig } from '@/lib/model-config';
 import { prisma } from '@/lib/prisma';
 import { buildGuanyuCardFallback, buildGuanyuCardPrompt, parseGuanyuCardContent } from '@/lib/guanyu-card-core.mjs';
@@ -53,8 +53,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
 
     try {
+      const usageSource = await getUsageSource(user.id);
       const modelConfig = chooseModelConfig({
-        usageSource: account.planType === 'byok' ? 'byok' : 'free_admin',
+        usageSource,
         userSettings,
         appSetting,
       });

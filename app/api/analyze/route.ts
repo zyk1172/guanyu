@@ -363,7 +363,7 @@ function buildSearchOptions(params: {
   appSetting: any;
   reportLanguage: ReportLanguage;
 }): WebSearchOptions {
-  const useOwnApi = params.usageSource === 'byok';
+  const useOwnApi = params.usageSource === 'custom';
   const adminTavilyKey = params.appSetting?.adminTavilyApiKeyEncrypted
     ? decryptSecret(params.appSetting.adminTavilyApiKeyEncrypted)
     : (process.env.TAVILY_API_KEY || '');
@@ -495,7 +495,7 @@ async function callChatCompletions(params: {
 }
 
 function modelErrorMessage(status: number, usageSource: UsageSource) {
-  const scope = usageSource === 'byok' ? '你的个人模型配置' : '管理员全局模型配置';
+  const scope = usageSource === 'custom' ? '你的个人模型配置' : '管理员全局模型配置';
   if (status === 401 || status === 403) {
     return `${scope}的 API Key 无效、未生效或没有调用权限，请检查密钥是否完整、是否填入了正确账号，以及模型服务商是否已启用该 Key。`;
   }
@@ -546,7 +546,7 @@ export async function POST(request: Request) {
     ]);
 
     const body = await request.json();
-    const { title, source, content, focus, reportLanguage } = body;
+    const { title, source, content, focus, reportLanguage, modelSource } = body;
 
     if (!content || content.trim().length < 50) {
       return NextResponse.json({ error: '新闻正文太短，最少需要 50 个字符。' }, { status: 400 });
@@ -557,25 +557,27 @@ export async function POST(request: Request) {
     const actualAnalysisMode = 'deep' as AnalysisMode;
     const actualReportLanguage = normalizeReportLanguage(reportLanguage || userSettings?.defaultReportLanguage);
     const actualIsPublic = userSettings?.defaultIsPublic !== undefined ? userSettings.defaultIsPublic : true;
-    const preliminaryPlan = await buildUsagePlan(currentUser.id, actualAnalysisMode);
+    const preliminaryPlan = await buildUsagePlan(currentUser.id, actualAnalysisMode, modelSource);
     const modelConfig = chooseModelConfig({ usageSource: preliminaryPlan.source, userSettings, appSetting });
     if (!modelConfig.apiKey || !modelConfig.modelName || !modelConfig.baseURL) {
       return NextResponse.json({
-        error: preliminaryPlan.source === 'byok'
-          ? '买断账号需要先在账号管理中保存自己的大模型名称、接口地址和 API Key。'
-          : preliminaryPlan.source === 'free_admin'
-          ? '管理员免费额度模型 API 未配置，请联系管理员。'
-          : '管理员点数模型 API 未配置，请联系管理员。',
+        error: preliminaryPlan.source === 'custom'
+          ? '自定义 API 配置不完整，请在账号管理中保存模型名称、接口地址和 API Key。'
+          : '平台 DeepSeek 模型 API 未配置，请联系管理员。',
       }, { status: 500 });
     }
-    usageReservation = await reserveAnalysisUsage(currentUser.id, actualAnalysisMode);
+    usageReservation = await reserveAnalysisUsage(currentUser.id, actualAnalysisMode, modelSource);
     const usagePlan = usageReservation;
     const configuredAdminBaseURL = process.env.OPENAI_BASE_URL;
-    const allowPrivateAdminEndpoint = usagePlan.source !== 'byok'
+    const allowPrivateAdminEndpoint = usagePlan.source !== 'custom'
       && process.env.ALLOW_PRIVATE_ADMIN_LLM === 'true'
       && Boolean(configuredAdminBaseURL)
       && modelConfig.baseURL.replace(/\/$/, '') === configuredAdminBaseURL!.replace(/\/$/, '');
     const searchOptions = buildSearchOptions({ usageSource: usagePlan.source, userSettings, appSetting, reportLanguage: actualReportLanguage });
+    if (usagePlan.source === 'custom' && searchOptions.provider === 'none') {
+      await releaseReservation();
+      return NextResponse.json({ error: '自定义 API 模式进行新闻分析时，需要同时配置并启用自己的联网搜索 API；系统不会改用平台搜索。' }, { status: 400 });
+    }
 
     const searchQuery = [title, source, truncatedContent.slice(0, 120)].filter(Boolean).join(' ').slice(0, 240);
     const factCheckSources = searchQuery ? await searchWeb(searchQuery, 5, searchOptions) : [];

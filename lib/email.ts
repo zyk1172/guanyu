@@ -341,7 +341,6 @@ export async function notifyAdminsPendingOrder(input: {
   planType?: string | null;
   creditBalance?: number | null;
   creditBalanceCents?: number | null;
-  freeQuotaUsed?: number | null;
   orderCreatedAt: Date | string;
 }) {
   const recipients = await adminNotifyRecipients();
@@ -362,7 +361,6 @@ export async function notifyAdminsPendingOrder(input: {
       `账号 ID：${input.userId}`,
       `当前套餐：${input.planType || 'free'}`,
       `当前点数：${formatPointBalance(input.creditBalance, input.creditBalanceCents)}`,
-      `今日已用免费次数：${input.freeQuotaUsed ?? 0}`,
       ...detailLines,
       `下单时间：${orderCreatedAt}`,
       `管理入口：${appUrl('/account')}`,
@@ -377,7 +375,6 @@ export async function notifyAdminsPendingOrder(input: {
             <tr><td style="padding:8px;border:1px solid #e5e7eb;font-weight:700">账号 ID</td><td style="padding:8px;border:1px solid #e5e7eb">${escapeHtml(input.userId)}</td></tr>
             <tr><td style="padding:8px;border:1px solid #e5e7eb;font-weight:700">当前套餐</td><td style="padding:8px;border:1px solid #e5e7eb">${escapeHtml(input.planType || 'free')}</td></tr>
             <tr><td style="padding:8px;border:1px solid #e5e7eb;font-weight:700">当前点数</td><td style="padding:8px;border:1px solid #e5e7eb">${formatPointBalance(input.creditBalance, input.creditBalanceCents)}</td></tr>
-            <tr><td style="padding:8px;border:1px solid #e5e7eb;font-weight:700">今日已用免费次数</td><td style="padding:8px;border:1px solid #e5e7eb">${input.freeQuotaUsed ?? 0}</td></tr>
             <tr><td style="padding:8px;border:1px solid #e5e7eb;font-weight:700">套餐</td><td style="padding:8px;border:1px solid #e5e7eb">${escapeHtml(input.packageName)}</td></tr>
             <tr><td style="padding:8px;border:1px solid #e5e7eb;font-weight:700">金额</td><td style="padding:8px;border:1px solid #e5e7eb">${amount}</td></tr>
             <tr><td style="padding:8px;border:1px solid #e5e7eb;font-weight:700">点数</td><td style="padding:8px;border:1px solid #e5e7eb">${input.points}</td></tr>

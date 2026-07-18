@@ -5,6 +5,7 @@ import { setSessionCookie } from '@/lib/session-cookie';
 import { isSuperAdminIdentity } from '@/lib/admin-core.mjs';
 import { verifyEmailCode } from '@/lib/captcha';
 import { sendWelcomeEmail } from '@/lib/email';
+import { grantSignupBonus } from '@/lib/billing';
 import { assertSameOrigin, assertSecureAccountTransport } from '@/lib/request-security';
 
 async function readRegistration(request: NextRequest) {
@@ -98,6 +99,8 @@ export async function POST(request: NextRequest) {
       ? NextResponse.json({ ok: true, url: '/account' })
       : NextResponse.redirect(new URL('/account', process.env.NEXTAUTH_URL || 'http://localhost:3000'), 303);
     await setSessionCookie(response, user);
+    // The code was consumed above, so this one-time award is safe to grant.
+    await grantSignupBonus(user.id);
     sendWelcomeEmail(user.email).catch((error) => {
       console.error('Send welcome email failed:', error);
     });

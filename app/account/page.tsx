@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
 import Header from '@/components/Header';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
@@ -15,10 +15,72 @@ import {
 import ThemeSwitcher from '@/components/ThemeSwitcher';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { useUiLanguage } from '@/components/LanguageProvider';
+import { CheckCircle2, LoaderCircle, MailCheck, ShieldCheck, XCircle } from 'lucide-react';
 
 function formatOrderAmount(amountCents: number, currency?: string | null) {
   const amount = (Number(amountCents || 0) / 100).toFixed(2);
   return currency === 'USD' ? `$${amount} USD` : `¥${amount} CNY`;
+}
+
+function formatCredits(value: unknown) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return '-';
+  return Number.isInteger(amount) ? String(amount) : amount.toFixed(1).replace(/\.0$/, '');
+}
+
+type OrderProgressStage = 'idle' | 'submitting' | 'syncing' | 'success' | 'error';
+
+function OrderProgress({
+  stage,
+  title,
+  detail,
+}: {
+  stage: OrderProgressStage;
+  title: string;
+  detail: string;
+}) {
+  if (stage === 'idle') return null;
+  const busy = stage === 'submitting' || stage === 'syncing';
+  const Icon = busy ? LoaderCircle : stage === 'success' ? CheckCircle2 : XCircle;
+  const activeSteps = stage === 'submitting' ? 1 : stage === 'syncing' ? 2 : stage === 'success' ? 3 : 0;
+
+  return (
+    <div
+      role={stage === 'error' ? 'alert' : 'status'}
+      aria-live="polite"
+      className={`order-feedback mt-3 overflow-hidden rounded-xl border px-3 py-3 ${
+        stage === 'error'
+          ? 'border-[var(--color-danger)] bg-[color-mix(in_srgb,var(--color-danger)_8%,var(--color-surface))]'
+          : stage === 'success'
+            ? 'border-[var(--color-success)] bg-[color-mix(in_srgb,var(--color-success)_8%,var(--color-surface))]'
+            : 'border-[var(--color-primary)] bg-[var(--color-primary-soft)]'
+      }`}
+    >
+      <div className="flex items-start gap-2.5">
+        <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[var(--color-surface)] text-[var(--color-primary)] shadow-sm">
+          <Icon className={`h-4 w-4 ${busy ? 'animate-spin' : ''}`} aria-hidden="true" />
+        </span>
+        <div>
+          <div className="text-xs font-black text-[var(--color-text)]">{title}</div>
+          <p className="mt-0.5 text-xxs leading-relaxed text-[var(--color-text-muted)]">{detail}</p>
+        </div>
+      </div>
+      {stage !== 'error' && (
+        <div className="mt-3 grid grid-cols-3 gap-1.5" aria-hidden="true">
+          {[1, 2, 3].map((step) => (
+            <span
+              key={step}
+              className={`h-1.5 rounded-full transition-all duration-300 ${
+                step <= activeSteps
+                  ? 'order-progress-segment bg-[var(--color-primary)]'
+                  : 'bg-[var(--color-border)]'
+              }`}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 type RssFeedConfig = {
@@ -71,6 +133,9 @@ export default function AccountPage() {
   const [settingsMessage, setSettingsSettingsMessage] = useState<string | null>(null);
   const [billing, setBilling] = useState<any>(null);
   const [billingMessage, setBillingMessage] = useState<string | null>(null);
+  const [orderProgressStage, setOrderProgressStage] = useState<OrderProgressStage>('idle');
+  const [isCreatingOrder, setIsCreatingOrder] = useState(false);
+  const orderRequestLock = useRef(false);
   const [paymentNote, setPaymentNote] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -82,24 +147,39 @@ export default function AccountPage() {
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
   const [feedbackStatus, setFeedbackStatus] = useState<string | null>(null);
   const [adminBilling, setAdminBilling] = useState<any>(null);
+  const [adminOrderAction, setAdminOrderAction] = useState<{ orderId: string; action: 'confirm' | 'reject' } | null>(null);
+  const adminOrderActionLock = useRef(false);
+  const [adminOrderProgressStage, setAdminOrderProgressStage] = useState<OrderProgressStage>('idle');
+  const [adminOrderMessage, setAdminOrderMessage] = useState<string | null>(null);
   const [adminUserSearch, setAdminUserSearch] = useState('');
   const [expandedUserIds, setExpandedUserIds] = useState<Record<string, boolean>>({});
   const [adminUserMessage, setAdminUserMessage] = useState<string | null>(null);
   const [adminEmailDraft, setAdminEmailDraft] = useState<Record<string, string>>({});
   const [adminGrantDraft, setAdminGrantDraft] = useState<Record<string, string>>({});
+  const [backupPassphrase, setBackupPassphrase] = useState('');
+  const [restorePassphrase, setRestorePassphrase] = useState('');
+  const [restoreConfirmation, setRestoreConfirmation] = useState('');
+  const [restoreArchive, setRestoreArchive] = useState<File | null>(null);
+  const [backupMessage, setBackupMessage] = useState<string | null>(null);
+  const [backupBusy, setBackupBusy] = useState<'create' | 'restore' | null>(null);
   const [canUseOwnApi, setCanUseOwnApi] = useState(false);
+  const [modelSource, setModelSource] = useState<'platform' | 'custom'>('platform');
   const [rssFeedConfig, setRssFeedConfig] = useState<RssFeedConfig>({ catalogIds: [], customFeeds: [] });
   const [rssSourceCatalog, setRssSourceCatalog] = useState<RssSourceOption[]>([]);
   const [rssConfigSource, setRssConfigSource] = useState<'admin' | 'personal'>('admin');
   const [rssCustomName, setRssCustomName] = useState('');
   const [rssCustomUrl, setRssCustomUrl] = useState('');
-  const [selectedPackageType, setSelectedPackageType] = useState<'points_30' | 'byok_lifetime'>('points_30');
+  const [selectedPackageType, setSelectedPackageType] = useState<'STARTER' | 'PRO'>('STARTER');
   const [paymentMethod, setPaymentMethod] = useState<'alipay_qr' | 'paypal_qr'>('alipay_qr');
-  const hasByokPlan = billing?.planType === 'byok';
-  const pointsPackage = paymentMethod === 'paypal_qr' ? billing?.paypalPackage : billing?.package;
-  const advancedPackage = paymentMethod === 'paypal_qr' ? billing?.paypalByokPackage : billing?.byokPackage;
-  const selectedPaymentPackage = selectedPackageType === 'byok_lifetime' ? advancedPackage : pointsPackage;
-  const selectedPackageLabel = selectedPaymentPackage?.label || (selectedPackageType === 'byok_lifetime' ? t('account.byokPackage') : t('account.pointsPackage'));
+  const packageList = paymentMethod === 'paypal_qr' ? billing?.packages?.paypal : billing?.packages?.alipay;
+  const pointsPackage = packageList?.find((item: any) => item.productId === 'STARTER');
+  const advancedPackage = packageList?.find((item: any) => item.productId === 'PRO');
+  const selectedPaymentPackage = selectedPackageType === 'PRO' ? advancedPackage : pointsPackage;
+  const selectedPackageLabel = selectedPackageType === 'PRO' ? t('billing.pro') : t('billing.starter');
+  const savedAlipayHint = String(billing?.alipayQrNote || '').trim();
+  const alipayPaymentHint = /买断|lifetime/i.test(savedAlipayHint)
+    ? t('account.paymentHint')
+    : savedAlipayHint || t('account.paymentHint');
 
   // 1. 登录路由守卫
   useEffect(() => {
@@ -164,6 +244,7 @@ export default function AccountPage() {
             setAccountCreatedAt(data.account?.createdAt || null);
             setIsSuperAdmin(Boolean(data.isSuperAdmin));
             setCanUseOwnApi(Boolean(data.canUseOwnApi));
+            setModelSource(data.modelSource === 'custom' ? 'custom' : 'platform');
             setRssFeedConfig(data.rssFeedConfig || { catalogIds: [], customFeeds: [] });
             setRssSourceCatalog(Array.isArray(data.rssSourceCatalog) ? data.rssSourceCatalog : []);
             setRssConfigSource(data.rssConfigSource === 'personal' ? 'personal' : 'admin');
@@ -188,11 +269,6 @@ export default function AccountPage() {
     }
   }, [session, activeTab, fetchMyAudits]);
 
-  useEffect(() => {
-    if (hasByokPlan && selectedPackageType === 'byok_lifetime') {
-      setSelectedPackageType('points_30');
-    }
-  }, [hasByokPlan, selectedPackageType]);
 
   // 3. 保存设置逻辑
   const handleSaveSettings = async (e: React.FormEvent) => {
@@ -218,6 +294,7 @@ export default function AccountPage() {
           defaultIsPublic: isPublic,
           defaultSaveResult: saveResult,
           defaultEnableCharts: enableCharts,
+          modelSource,
           ...(canUseOwnApi ? { rssFeedConfig } : {}),
         }),
       });
@@ -286,27 +363,44 @@ export default function AccountPage() {
   };
 
   const handleCreateOrder = async () => {
+    if (orderRequestLock.current) return;
     setBillingMessage(null);
-    if (hasByokPlan && selectedPackageType === 'byok_lifetime') {
-      setBillingMessage('你已经是买断账号，无需重复购买。');
+    if (!paymentNote.trim()) {
+      setOrderProgressStage('error');
+      setBillingMessage(t('order.noteRequired'));
       return;
     }
+    orderRequestLock.current = true;
+    setIsCreatingOrder(true);
+    setOrderProgressStage('submitting');
+    setBillingMessage(t('order.creatingDetail'));
     try {
       const res = await fetch('/api/billing/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ packageType: selectedPackageType, paymentMethod, paymentNote }),
+        body: JSON.stringify({ productId: selectedPackageType, paymentMethod, paymentNote }),
       });
       const data = await res.json();
       if (!res.ok) {
+        setOrderProgressStage('error');
         setBillingMessage(data.error || '创建订单失败');
         return;
       }
+      setOrderProgressStage('syncing');
+      setBillingMessage(t('order.syncingDetail'));
       setPaymentNote('');
-      setBillingMessage(`订单已创建：${data.id}。付款后等待管理员确认。`);
+      if (selectedPaymentPackage?.paymentUrl) {
+        window.open(selectedPaymentPackage.paymentUrl, '_blank', 'noopener,noreferrer');
+      }
       await fetchBilling();
+      setOrderProgressStage('success');
+      setBillingMessage(t('order.createdDetail', undefined, { id: data.id }));
     } catch {
-      setBillingMessage('创建订单失败，请稍后重试。');
+      setOrderProgressStage('error');
+      setBillingMessage(t('order.createFailed'));
+    } finally {
+      orderRequestLock.current = false;
+      setIsCreatingOrder(false);
     }
   };
 
@@ -375,35 +469,80 @@ export default function AccountPage() {
   };
 
   const handleConfirmOrder = async (orderId: string) => {
+    if (adminOrderActionLock.current) return;
+    adminOrderActionLock.current = true;
+    setAdminOrderAction({ orderId, action: 'confirm' });
+    setAdminOrderProgressStage('submitting');
+    setAdminOrderMessage('正在核对订单并写入点数与 Pro 权益…');
     try {
       const res = await fetch('/api/billing/admin', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'confirmOrder', orderId }),
       });
-      if (res.ok) {
-        await fetchAdminBilling();
-        await fetchBilling();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setAdminOrderProgressStage('error');
+        setAdminOrderMessage(data.error || '确认订单失败，请稍后重试。');
+        return;
       }
-    } catch (err) {
-      console.error('确认订单失败:', err);
+      setAdminOrderProgressStage('syncing');
+      setAdminOrderMessage('权益已写入，正在刷新订单与用户余额…');
+      await Promise.all([fetchAdminBilling(), fetchBilling()]);
+      setAdminOrderProgressStage('success');
+      setAdminOrderMessage('订单确认完成。点数与 Pro 权益已到账，通知邮件正在后台发送。');
+    } catch {
+      setAdminOrderProgressStage('error');
+      setAdminOrderMessage('确认订单失败，请稍后重试。');
+    } finally {
+      adminOrderActionLock.current = false;
+      setAdminOrderAction(null);
     }
   };
 
   const handleRejectOrder = async (orderId: string) => {
     if (!window.confirm('确定取消这笔待确认订单吗？')) return;
+    if (adminOrderActionLock.current) return;
+    adminOrderActionLock.current = true;
+    setAdminOrderAction({ orderId, action: 'reject' });
+    setAdminOrderProgressStage('submitting');
+    setAdminOrderMessage('正在取消订单…');
     try {
       const res = await fetch('/api/billing/admin', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'rejectOrder', orderId, adminNote: '管理员取消订单' }),
       });
-      if (res.ok) {
-        await fetchAdminBilling();
-        await fetchBilling();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setAdminOrderProgressStage('error');
+        setAdminOrderMessage(data.error || '取消订单失败，请稍后重试。');
+        return;
       }
-    } catch (err) {
-      console.error('取消订单失败:', err);
+      setAdminOrderProgressStage('syncing');
+      setAdminOrderMessage('订单已取消，正在刷新待确认列表…');
+      await Promise.all([fetchAdminBilling(), fetchBilling()]);
+      setAdminOrderProgressStage('success');
+      setAdminOrderMessage('订单已取消，用户通知邮件正在后台发送。');
+    } catch {
+      setAdminOrderProgressStage('error');
+      setAdminOrderMessage('取消订单失败，请稍后重试。');
+    } finally {
+      adminOrderActionLock.current = false;
+      setAdminOrderAction(null);
+    }
+  };
+
+  const handleDiscussionModeration = async (reportId: string, messageId: string, action: 'hide' | 'restore') => {
+    try {
+      const response = await fetch(`/api/audits/${encodeURIComponent(reportId)}/discussion`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, messageId }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || '审核操作失败。');
+      await fetchAdminBilling();
+    } catch (error: any) {
+      setAdminUserMessage(error?.message || '审核操作失败。');
     }
   };
 
@@ -439,7 +578,7 @@ export default function AccountPage() {
         user.id,
         user.role,
         user.isBanned ? '已封禁' : '正常',
-        user.planType === 'byok' ? '已解锁高级功能' : user.planType,
+        user.planType === 'byok' ? 'Pro 专业权益' : user.planType,
         ((user.creditBalanceCents || user.creditBalance * 100 || 0) / 100).toFixed(1),
         user.freeQuotaUsed,
         user._count?.audits || 0,
@@ -455,6 +594,76 @@ export default function AccountPage() {
     a.download = `guanyu-users-${Date.now()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const createOperationsBackup = async () => {
+    setBackupMessage(null);
+    if (backupPassphrase.trim().length < 12) {
+      setBackupMessage(t('backup.passphraseTooShort'));
+      return;
+    }
+    setBackupBusy('create');
+    try {
+      const response = await fetch('/api/admin/backup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ passphrase: backupPassphrase }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || t('backup.createFailed'));
+      }
+      const blob = await response.blob();
+      const name = response.headers.get('content-disposition')?.match(/filename\*=UTF-8''([^;]+)/)?.[1];
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = name ? decodeURIComponent(name) : `guanyu-operations-backup-${Date.now()}.guanyu-backup`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setBackupPassphrase('');
+      setBackupMessage(t('backup.created'));
+    } catch (error: any) {
+      setBackupMessage(error?.message || t('backup.createFailed'));
+    } finally {
+      setBackupBusy(null);
+    }
+  };
+
+  const restoreOperationsBackup = async () => {
+    setBackupMessage(null);
+    if (!restoreArchive) {
+      setBackupMessage(t('backup.fileRequired'));
+      return;
+    }
+    if (restorePassphrase.trim().length < 12) {
+      setBackupMessage(t('backup.passphraseTooShort'));
+      return;
+    }
+    if (!['恢复全部运营数据', 'RESTORE ALL OPERATIONS DATA'].includes(restoreConfirmation)) {
+      setBackupMessage(t('backup.confirmationRequired'));
+      return;
+    }
+    if (!window.confirm(t('backup.restoreConfirm'))) return;
+    setBackupBusy('restore');
+    try {
+      const form = new FormData();
+      form.append('archive', restoreArchive);
+      form.append('passphrase', restorePassphrase);
+      form.append('confirmation', restoreConfirmation);
+      const response = await fetch('/api/admin/backup', { method: 'PUT', body: form });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || t('backup.restoreFailed'));
+      setRestoreArchive(null);
+      setRestorePassphrase('');
+      setRestoreConfirmation('');
+      setBackupMessage(data.message || t('backup.restored'));
+      await Promise.all([fetchAdminBilling(), fetchBilling(), fetchMyAudits()]);
+    } catch (error: any) {
+      setBackupMessage(error?.message || t('backup.restoreFailed'));
+    } finally {
+      setBackupBusy(null);
+    }
   };
 
   // 4. 修改单个审视记录公开状态
@@ -627,12 +836,72 @@ export default function AccountPage() {
               {passwordMessage && <p className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-2 text-xs font-semibold text-[var(--color-text)]" role="status">{passwordMessage}</p>}
             </form>
             {isSuperAdmin && adminBilling && (
+              <section className="mt-5 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-card)] p-4 shadow-[var(--shadow-card)]">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h4 className="text-sm font-black text-[var(--color-text)]">{t('backup.title')}</h4>
+                    <p className="mt-1 max-w-3xl text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('backup.description')}</p>
+                  </div>
+                  <span className="w-fit rounded-full bg-[var(--color-warning)]/15 px-2 py-1 text-xxs font-black text-[var(--color-warning)]">{t('backup.adminOnly')}</span>
+                </div>
+
+                <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                  <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
+                    <h5 className="text-xs font-black text-[var(--color-text)]">{t('backup.createTitle')}</h5>
+                    <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('backup.createHint')}</p>
+                    <input
+                      type="password"
+                      value={backupPassphrase}
+                      onChange={(event) => setBackupPassphrase(event.target.value)}
+                      autoComplete="new-password"
+                      placeholder={t('backup.passphrasePlaceholder')}
+                      className="mt-3 w-full rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] px-3 py-2 text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-primary)]"
+                    />
+                    <button type="button" onClick={createOperationsBackup} disabled={backupBusy !== null} className="mt-2 rounded-lg bg-[var(--color-primary)] px-3 py-2 text-xs font-black text-white transition hover:bg-[var(--color-primary-hover)] disabled:cursor-not-allowed disabled:opacity-60">
+                      {backupBusy === 'create' ? t('backup.creating') : t('backup.download')}
+                    </button>
+                  </div>
+
+                  <div className="rounded-lg border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/5 p-3">
+                    <h5 className="text-xs font-black text-[var(--color-text)]">{t('backup.restoreTitle')}</h5>
+                    <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('backup.restoreHint')}</p>
+                    <input
+                      type="file"
+                      accept=".guanyu-backup,application/vnd.guanyu.operations-backup+json,application/json"
+                      onChange={(event) => setRestoreArchive(event.target.files?.[0] || null)}
+                      className="mt-3 block w-full text-xxs text-[var(--color-text-muted)] file:mr-2 file:rounded-md file:border-0 file:bg-[var(--color-surface)] file:px-2 file:py-1.5 file:text-xxs file:font-bold file:text-[var(--color-text)]"
+                    />
+                    <input
+                      type="password"
+                      value={restorePassphrase}
+                      onChange={(event) => setRestorePassphrase(event.target.value)}
+                      autoComplete="new-password"
+                      placeholder={t('backup.passphrasePlaceholder')}
+                      className="mt-2 w-full rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] px-3 py-2 text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-primary)]"
+                    />
+                    <input
+                      value={restoreConfirmation}
+                      onChange={(event) => setRestoreConfirmation(event.target.value)}
+                      placeholder={t('backup.confirmationPlaceholder', undefined, { confirmation: language === 'zh-CN' || language === 'zh-TW' ? '恢复全部运营数据' : 'RESTORE ALL OPERATIONS DATA' })}
+                      className="mt-2 w-full rounded-lg border border-[var(--color-danger)]/50 bg-[var(--color-input-bg)] px-3 py-2 text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-danger)]"
+                    />
+                    <button type="button" onClick={restoreOperationsBackup} disabled={backupBusy !== null} className="mt-2 rounded-lg bg-[var(--color-danger)] px-3 py-2 text-xs font-black text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60">
+                      {backupBusy === 'restore' ? t('backup.restoring') : t('backup.restore')}
+                    </button>
+                  </div>
+                </div>
+                <p className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('backup.securityNote')}</p>
+                {backupMessage && <p className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs font-semibold text-[var(--color-text)]" role="status">{backupMessage}</p>}
+              </section>
+            )}
+
+            {isSuperAdmin && adminBilling && (
               <div className="mt-5 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface-muted)] p-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h4 className="text-sm font-black text-[var(--color-text)]">超级管理员 · 注册用户管理</h4>
                     <p className="mt-1 text-xxs font-semibold text-[var(--color-text-muted)]">
-                      搜索用户、导出注册信息、查看最近活动、加点、解锁高级功能、封禁、删除账号和发送邮件。
+                      搜索用户、导出注册信息、查看最近活动、加点、授予 Pro 专业权益、封禁、删除账号和发送邮件。
                     </p>
                   </div>
                   <button
@@ -686,7 +955,7 @@ export default function AccountPage() {
                             <div className="truncate text-sm font-black text-[var(--color-text)]">{user.email}</div>
                             <div className="mt-1 flex flex-wrap gap-1.5 text-xxs font-bold">
                               <span className="rounded bg-[var(--color-primary-soft)] px-2 py-0.5 text-[var(--color-link)]">{user.role === 'super_admin' ? '超级管理员' : '普通用户'}</span>
-                              <span className="rounded bg-[var(--color-surface-muted)] px-2 py-0.5 text-[var(--color-text-muted)]">{user.planType === 'byok' ? '已解锁高级功能' : user.planType}</span>
+                              <span className="rounded bg-[var(--color-surface-muted)] px-2 py-0.5 text-[var(--color-text-muted)]">{user.planType === 'byok' ? 'Pro 专业权益' : user.planType}</span>
                               <span className="rounded bg-[var(--color-surface-muted)] px-2 py-0.5 text-[var(--color-text-muted)]">点数 {credit}</span>
                               <span className="rounded bg-[var(--color-surface-muted)] px-2 py-0.5 text-[var(--color-text-muted)]">报告 {user._count?.audits || 0}</span>
                               <span className={`rounded px-2 py-0.5 ${user.isBanned ? 'bg-[var(--color-danger)] text-white' : 'bg-[var(--color-success)] text-white'}`}>
@@ -703,7 +972,7 @@ export default function AccountPage() {
                               className="w-16 rounded border border-[var(--color-border)] bg-[var(--color-input-bg)] px-2 py-1 text-xxs text-[var(--color-text)]"
                             />
                             <button type="button" onClick={() => handleAdminUserAction('grant', { userId: user.id, points: Number.parseInt(adminGrantDraft[user.id] || '0', 10), reason: '超级管理员手动加点' })} className="rounded bg-[var(--color-primary)] px-2 py-1 text-xxs font-black text-white">加点</button>
-                            <button type="button" onClick={() => handleAdminUserAction('unlockByok', { userId: user.id })} className="rounded border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-2 py-1 text-xxs font-black text-[var(--color-text)]">解锁</button>
+                            <button type="button" onClick={() => handleAdminUserAction('grantProAccess', { userId: user.id })} className="rounded border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-2 py-1 text-xxs font-black text-[var(--color-text)]">授予 Pro 权益</button>
                             <button type="button" onClick={() => handleAdminUserAction('setUserBanned', { userId: user.id, isBanned: !user.isBanned })} className="rounded border border-[var(--color-warning)] bg-[var(--color-surface-muted)] px-2 py-1 text-xxs font-black text-[var(--color-warning)]">{user.isBanned ? '解封' : '封禁'}</button>
                             <button type="button" onClick={() => window.confirm(`确定删除账号 ${user.email} 吗？`) && handleAdminUserAction('deleteUser', { userId: user.id })} className="rounded border border-[var(--color-danger)] bg-[var(--color-surface-muted)] px-2 py-1 text-xxs font-black text-[var(--color-danger)]">删除</button>
                           </div>
@@ -753,15 +1022,15 @@ export default function AccountPage() {
             )}
           </div>
           <div className="space-y-4">
-            <form onSubmit={handleSubmitFeedback} className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-5 shadow-[var(--shadow-card)]">
-              <div className="flex items-start justify-between gap-3">
+            <form onSubmit={handleSubmitFeedback} className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 shadow-[var(--shadow-card)]">
+              <div className="flex items-start justify-between gap-3 border-b border-[var(--color-border)] pb-3">
                 <div>
                   <h3 className="text-sm font-black text-[var(--color-text)]">{t('account.feedbackTitle')}</h3>
                   <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('account.feedbackDescription')}</p>
                 </div>
-                <span className="rounded-full bg-[var(--color-primary-soft)] px-2 py-1 text-xxs font-black text-[var(--color-link)]">{t('account.feedbackEmailBadge')}</span>
+                <span className="shrink-0 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-2 py-1 text-xxs font-bold text-[var(--color-text-muted)]">{t('account.feedbackEmailBadge')}</span>
               </div>
-              <div className="mt-3 grid gap-3">
+              <div className="mt-3 grid gap-2.5">
                 <label className="grid gap-1 text-xxs font-black text-[var(--color-text-muted)]">
                   {t('account.feedbackType')}
                   <select
@@ -781,7 +1050,7 @@ export default function AccountPage() {
                   <textarea
                     value={feedbackMessage}
                     onChange={(event) => setFeedbackMessage(event.target.value)}
-                    rows={5}
+                    rows={4}
                     maxLength={4000}
                     placeholder={t('account.feedbackPlaceholder')}
                     className="resize-y rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] px-3 py-2 text-xs leading-relaxed text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-text-subtle)] focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary-soft)]"
@@ -789,8 +1058,8 @@ export default function AccountPage() {
                   <span className="text-right font-medium text-[var(--color-text-subtle)]">{feedbackMessage.length}/4000</span>
                 </label>
               </div>
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('account.feedbackHint')}</p>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                <p className="max-w-[32rem] text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('account.feedbackHint')}</p>
                 <button
                   type="submit"
                   disabled={isSubmittingFeedback}
@@ -809,60 +1078,53 @@ export default function AccountPage() {
               <h3 className="text-sm font-bold text-gray-900 dark:text-white border-b border-gray-100 dark:border-gray-900 pb-2">
                 {t('account.billing')}
               </h3>
-              <div className="grid grid-cols-2 gap-2 text-center text-xs sm:grid-cols-4">
-                <div className="rounded-lg bg-emerald-50 p-3 dark:bg-emerald-950/20">
-                  <div className="text-sm font-black text-emerald-700 dark:text-emerald-300">
-                    {billing?.planType === 'byok' ? t('account.byok') : billing?.planType === 'points' ? t('account.points') : t('account.free')}
-                  </div>
-                  <div className="mt-1 font-semibold text-gray-500">{t('account.plan')}</div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="min-w-0 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
+                  <div className="truncate text-sm font-black text-[var(--color-text)]">{billing?.pro?.active ? 'Pro 专业权益' : t('billing.platformModel')}</div>
+                  <div className="mt-1 text-xxs font-semibold text-[var(--color-text-muted)]">{t('account.plan')}</div>
                 </div>
-                <div className="rounded-lg bg-indigo-50 p-3 dark:bg-indigo-950/20">
-                  <div className="text-lg font-black text-indigo-700 dark:text-indigo-300">{billing?.freeQuotaRemaining ?? '-'}</div>
-                  <div className="mt-1 font-semibold text-gray-500">{t('account.freeRemaining')}</div>
+                <div className="min-w-0 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
+                  <div className="text-lg font-black text-[var(--color-primary)]">{billing?.pro?.pendingDays || 0}</div>
+                  <div className="mt-1 text-xxs font-semibold text-[var(--color-text-muted)]">{t('billing.pendingPro')}</div>
                 </div>
-                <div className="rounded-lg bg-gray-50 p-3 dark:bg-gray-900">
-                  <div className="text-lg font-black text-gray-900 dark:text-white">{billing?.freeQuotaUsed ?? '-'}</div>
-                  <div className="mt-1 font-semibold text-gray-500">{t('account.freeUsed')}</div>
+                <div className="min-w-0 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
+                  <div className="truncate text-sm font-black text-[var(--color-text)]">{billing?.modelSource === 'custom' ? t('billing.customApis') : t('billing.platformModel')}</div>
+                  <div className="mt-1 text-xxs font-semibold text-[var(--color-text-muted)]">{t('billing.modelSource')}</div>
                 </div>
-                <div className="rounded-lg bg-amber-50 p-3 dark:bg-amber-950/20">
-                  <div className="text-lg font-black text-amber-700 dark:text-amber-300">{billing?.creditBalance ?? '-'}</div>
-                  <div className="mt-1 font-semibold text-gray-500">{t('account.credits')}</div>
+                <div className="min-w-0 rounded-xl border border-[var(--color-border)] bg-[var(--color-primary-soft)] p-3">
+                  <div className="text-lg font-black text-[var(--color-primary)]">{formatCredits(billing?.creditBalance)}</div>
+                  <div className="mt-1 text-xxs font-semibold text-[var(--color-text-muted)]">{t('account.credits')}</div>
                 </div>
               </div>
               <div className="rounded-lg border border-dashed border-gray-200 p-3 text-xs dark:border-gray-800">
                 <div className="font-black text-gray-950 dark:text-white">{t('account.buyCredits')}</div>
                 <p className="mt-1 leading-relaxed text-gray-500 dark:text-gray-400">
-                  {t('account.buyDescription')}
+                  {t('billing.buyDescription')}
                 </p>
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={() => setSelectedPackageType('points_30')}
+                    onClick={() => setSelectedPackageType('STARTER')}
                     className={`rounded-lg border px-3 py-2 text-left transition active:scale-[0.98] ${
-                      selectedPackageType === 'points_30'
+                      selectedPackageType === 'STARTER'
                         ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950/20 dark:text-indigo-300'
                         : 'border-gray-200 bg-white text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300'
                     }`}
                   >
-                    <div className="font-black">{pointsPackage?.label || t('account.pointsPackage')}</div>
-                    <div className="mt-0.5 text-xxs opacity-75">{paymentMethod === 'paypal_qr' ? t('account.pointsValuePaypal') : t('account.pointsValueAlipay')}</div>
+                    <div className="font-black">{t('billing.starter')}</div>
+                    <div className="mt-0.5 text-xxs opacity-75">{t('billing.starterDesc')}</div>
                   </button>
 	                  <button
 	                    type="button"
-	                    disabled={hasByokPlan}
-	                    onClick={() => {
-	                      if (!hasByokPlan) setSelectedPackageType('byok_lifetime');
-	                    }}
+	                    onClick={() => setSelectedPackageType('PRO')}
 	                    className={`rounded-lg border px-3 py-2 text-left transition active:scale-[0.98] ${
-	                      hasByokPlan
-	                        ? 'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400 opacity-70 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-500'
-	                        : selectedPackageType === 'byok_lifetime'
+	                      selectedPackageType === 'PRO'
 	                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-300'
 	                        : 'border-gray-200 bg-white text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300'
 	                    }`}
 	                  >
-                    <div className="font-black">{hasByokPlan ? t('account.byokUnlocked') : advancedPackage?.label || t('account.byokPackage')}</div>
-                    <div className="mt-0.5 text-xxs opacity-75">{hasByokPlan ? t('account.byokUnlocked') : t('account.advancedValue')}</div>
+                    <div className="font-black">{t('billing.pro')}</div>
+                    <div className="mt-0.5 text-xxs opacity-75">{t('billing.proDesc')}</div>
                   </button>
                 </div>
                 <div className="mt-3">
@@ -895,19 +1157,16 @@ export default function AccountPage() {
                 <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2.5">
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-xxs font-bold text-[var(--color-text-muted)]">{t('account.paymentAmount')}</span>
-                    <span className="text-sm font-black text-[var(--color-primary)]">{selectedPaymentPackage?.displayAmount || '-'}</span>
+                    <span className="text-sm font-black text-[var(--color-primary)]">{selectedPaymentPackage ? `${selectedPaymentPackage.currency === 'USD' ? '$' : '¥'}${(selectedPaymentPackage.amountCents / 100).toFixed(2)}` : '-'}</span>
                   </div>
                   <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('account.payExactAmount')}</p>
                 </div>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-xxs">
-                  <div className="rounded-lg bg-[var(--color-primary-soft)] px-2.5 py-2 font-semibold text-[var(--color-text)]">{t('account.freeTrial')}</div>
-                  <div className="rounded-lg bg-[var(--color-surface-muted)] px-2.5 py-2 font-semibold text-[var(--color-text)]">{t('account.payAsYouGo')}</div>
-                </div>
+                <div className="mt-3 rounded-lg bg-[var(--color-surface-muted)] px-2.5 py-2 text-xxs font-semibold text-[var(--color-text)]">{t('billing.oneTime')}</div>
                 <div className="mt-4 flex justify-center">
-                  {(paymentMethod === 'paypal_qr' ? billing?.paypalQrImageUrl : selectedPackageType === 'byok_lifetime' ? billing?.alipayByokQrImageUrl : billing?.alipayPointsQrImageUrl || billing?.alipayQrImageUrl) ? (
+                  {(paymentMethod === 'paypal_qr' ? billing?.paypalQrImageUrl : billing?.alipayQrImageUrl) ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={paymentMethod === 'paypal_qr' ? billing?.paypalQrImageUrl : selectedPackageType === 'byok_lifetime' ? billing?.alipayByokQrImageUrl : billing?.alipayPointsQrImageUrl || billing?.alipayQrImageUrl}
+                      src={paymentMethod === 'paypal_qr' ? billing?.paypalQrImageUrl : billing?.alipayQrImageUrl}
                       alt={paymentMethod === 'paypal_qr' ? t('account.paypalQr') : t('account.alipayQr')}
                       className="h-56 w-56 rounded-xl border bg-white p-2 object-contain shadow-sm"
                     />
@@ -917,7 +1176,7 @@ export default function AccountPage() {
                     </div>
                   )}
                 </div>
-                <p className="mt-2 text-xxs text-gray-400">{paymentMethod === 'paypal_qr' ? t('account.paypalPaymentHint') : billing?.alipayQrNote || t('account.paymentHint')}</p>
+                <p className="mt-2 text-xxs text-gray-400">{paymentMethod === 'paypal_qr' ? t('account.paypalPaymentHint') : alipayPaymentHint}</p>
                 <input
                   value={paymentNote}
                   onChange={(e) => setPaymentNote(e.target.value)}
@@ -925,21 +1184,62 @@ export default function AccountPage() {
                   className="mt-3 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-gray-800 dark:bg-gray-900 dark:text-white"
                 />
                 <button
+                  type="button"
                   onClick={handleCreateOrder}
-                  className="mt-2 w-full rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700 active:scale-[0.98]"
+                  disabled={isCreatingOrder}
+                  className="order-action-button relative mt-2 flex w-full items-center justify-center gap-2 overflow-hidden rounded-lg bg-[var(--color-primary)] px-3 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-[var(--color-primary-hover)] hover:shadow-md active:scale-[0.98] disabled:cursor-wait disabled:opacity-80"
                 >
-                  {t('account.createOrder', undefined, { package: selectedPackageLabel })}
+                  {isCreatingOrder ? (
+                    <>
+                      <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                      {orderProgressStage === 'syncing' ? t('order.syncingButton') : t('order.creatingButton')}
+                    </>
+                  ) : (
+                    <>
+                      <MailCheck className="h-4 w-4" aria-hidden="true" />
+                      {t('account.createOrder', undefined, { package: selectedPackageLabel })}
+                    </>
+                  )}
+                  {isCreatingOrder && <span className="order-action-sweep" aria-hidden="true" />}
                 </button>
-                {billingMessage && <p className="mt-2 text-xs font-semibold text-indigo-600 dark:text-indigo-300">{billingMessage}</p>}
+                <OrderProgress
+                  stage={orderProgressStage}
+                  title={
+                    orderProgressStage === 'submitting'
+                      ? t('order.creatingTitle')
+                      : orderProgressStage === 'syncing'
+                        ? t('order.syncingTitle')
+                        : orderProgressStage === 'success'
+                          ? t('order.createdTitle')
+                          : t('order.failedTitle')
+                  }
+                  detail={billingMessage || ''}
+                />
               </div>
             </div>
 
             {isSuperAdmin && adminBilling && (
               <div className="bg-white dark:bg-gray-950 p-6 rounded-xl border border-amber-200 dark:border-amber-900/40 shadow-sm space-y-3">
-                <h3 className="text-sm font-bold text-amber-700 dark:text-amber-300">超级管理员 · 待确认订单</h3>
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4 text-amber-600" aria-hidden="true" />
+                  <h3 className="text-sm font-bold text-amber-700 dark:text-amber-300">超级管理员 · 待确认订单</h3>
+                </div>
+                <OrderProgress
+                  stage={adminOrderProgressStage}
+                  title={
+                    adminOrderProgressStage === 'submitting'
+                      ? '正在处理订单'
+                      : adminOrderProgressStage === 'syncing'
+                        ? '正在同步账户状态'
+                        : adminOrderProgressStage === 'success'
+                          ? '订单处理完成'
+                          : '订单处理失败'
+                  }
+                  detail={adminOrderMessage || ''}
+                />
                 {adminBilling.pendingOrders?.length ? (
                   adminBilling.pendingOrders.map((order: any) => (
-                    <div key={order.id} className="rounded-lg border border-gray-100 p-3 text-xs dark:border-gray-800">
+                    <div key={order.id} className={`rounded-lg border p-3 text-xs transition-all duration-300 dark:border-gray-800 ${adminOrderAction?.orderId === order.id ? 'border-amber-400 bg-amber-50/70 shadow-sm dark:bg-amber-950/10' : 'border-gray-100'}`}>
                       <div className="font-bold text-gray-950 dark:text-white">{order.user?.email || order.userId}</div>
                       <div className="mt-2 grid gap-1 rounded-lg bg-gray-50 p-2 text-xxs dark:bg-gray-900">
                         <div><span className="font-bold text-gray-600 dark:text-gray-300">订单类型：</span>{order.packageName}</div>
@@ -950,16 +1250,20 @@ export default function AccountPage() {
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2">
                         <button
+                          type="button"
                           onClick={() => handleConfirmOrder(order.id)}
-                          className="rounded bg-amber-500 px-3 py-1.5 text-xxs font-bold text-white hover:bg-amber-600"
+                          disabled={Boolean(adminOrderAction)}
+                          className="inline-flex min-w-24 items-center justify-center gap-1.5 rounded bg-amber-500 px-3 py-1.5 text-xxs font-bold text-white transition hover:bg-amber-600 active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
                         >
-                          确认订单
+                          {adminOrderAction?.orderId === order.id && adminOrderAction?.action === 'confirm' ? <><LoaderCircle className="h-3.5 w-3.5 animate-spin" />确认中…</> : <><CheckCircle2 className="h-3.5 w-3.5" />确认订单</>}
                         </button>
                         <button
+                          type="button"
                           onClick={() => handleRejectOrder(order.id)}
-                          className="rounded border border-gray-200 bg-white px-3 py-1.5 text-xxs font-bold text-gray-600 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300"
+                          disabled={Boolean(adminOrderAction)}
+                          className="inline-flex min-w-24 items-center justify-center gap-1.5 rounded border border-gray-200 bg-white px-3 py-1.5 text-xxs font-bold text-gray-600 transition hover:bg-gray-50 active:scale-[0.98] disabled:cursor-wait disabled:opacity-60 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300"
                         >
-                          取消订单
+                          {adminOrderAction?.orderId === order.id && adminOrderAction?.action === 'reject' ? <><LoaderCircle className="h-3.5 w-3.5 animate-spin" />取消中…</> : <><XCircle className="h-3.5 w-3.5" />取消订单</>}
                         </button>
                       </div>
                     </div>
@@ -967,6 +1271,20 @@ export default function AccountPage() {
                 ) : (
                   <p className="text-xs text-gray-400">暂无待确认订单。</p>
                 )}
+              </div>
+            )}
+
+            {isSuperAdmin && adminBilling && (
+              <div className="bg-white dark:bg-gray-950 p-6 rounded-xl border border-[var(--color-border-strong)] shadow-sm space-y-3">
+                <h3 className="text-sm font-bold text-[var(--color-text)]">{t('discussion.moderation')}</h3>
+                {(adminBilling.discussionReports || []).length ? adminBilling.discussionReports.map((item: any) => (
+                  <article key={item.id} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-xs">
+                    <div className="font-black text-[var(--color-text)]">{item.message?.report?.title || t('common.unknown')}</div>
+                    <p className="mt-1 break-words text-[var(--color-text-muted)]">{item.message?.content}</p>
+                    <div className="mt-2 text-xxs text-[var(--color-text-subtle)]">{t('discussion.reportedBy')}: {item.reporter?.name || item.reporter?.email || t('discussion.reader')} · {t('discussion.reason')}: {item.reason}</div>
+                    <div className="mt-2 flex gap-2"><button type="button" onClick={() => handleDiscussionModeration(item.message.reportId, item.message.id, 'hide')} className="rounded border border-[var(--color-warning)] px-2 py-1 text-xxs font-bold text-[var(--color-warning)]">{t('discussion.hide')}</button><button type="button" onClick={() => handleDiscussionModeration(item.message.reportId, item.message.id, 'restore')} className="rounded border border-[var(--color-border-strong)] px-2 py-1 text-xxs font-bold text-[var(--color-text)]">{t('discussion.restore')}</button></div>
+                  </article>
+                )) : <p className="text-xs text-[var(--color-text-muted)]">{t('discussion.noReports')}</p>}
               </div>
             )}
           </div>
@@ -982,7 +1300,7 @@ export default function AccountPage() {
 
             {apiSettingsLocked && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold leading-relaxed text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
-                {t('account.modelLocked')}
+                {t('billing.modelLocked')}
               </div>
             )}
 
@@ -991,6 +1309,14 @@ export default function AccountPage() {
                 {settingsMessage}
               </div>
             )}
+
+            <fieldset className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
+              <legend className="px-1 text-xs font-black text-[var(--color-text)]">{t('billing.modelSource')}</legend>
+              <div className="mt-1 grid gap-2 sm:grid-cols-2">
+                <label className={`rounded-md border p-2 text-xs ${modelSource === 'platform' ? 'border-[var(--color-primary)] bg-[var(--color-primary-soft)]' : 'border-[var(--color-border)]'}`}><input className="mr-2" type="radio" checked={modelSource === 'platform'} onChange={() => setModelSource('platform')} />{t('billing.platformModel')} <span className="block pl-5 text-xxs text-[var(--color-text-muted)]">{t('billing.platformModelHint')}</span></label>
+                <label className={`rounded-md border p-2 text-xs ${!canUseOwnApi ? 'cursor-not-allowed opacity-50' : modelSource === 'custom' ? 'border-[var(--color-primary)] bg-[var(--color-primary-soft)]' : 'border-[var(--color-border)]'}`}><input className="mr-2" type="radio" disabled={!canUseOwnApi} checked={modelSource === 'custom'} onChange={() => setModelSource('custom')} />{t('billing.customApis')} <span className="block pl-5 text-xxs text-[var(--color-text-muted)]">{t('billing.customApisHint')}</span></label>
+              </div>
+            </fieldset>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1">

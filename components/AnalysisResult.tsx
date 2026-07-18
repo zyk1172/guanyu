@@ -22,6 +22,8 @@ import AuditCharts from './AuditCharts';
 import GuanyuCardButton from './GuanyuCardButton';
 import { GsapReveal } from './GsapMotion';
 import InteractiveQA, { ChatMessage } from './InteractiveQA';
+import DiscussionBoard from './DiscussionBoard';
+import { useUiLanguage } from './LanguageProvider';
 import ReadWorthVerdict from './ReadWorthVerdict';
 import VerificationRoadmap from './VerificationRoadmap';
 import { computeReadWorth } from '../lib/readWorth';
@@ -916,7 +918,11 @@ function AiCompletionButton({ auditId, reportLanguage }: { auditId: string; repo
     setIsGenerating(true);
     setError(null);
     try {
-      const response = await fetch(`/api/audits/${encodeURIComponent(auditId)}/completion`, { method: 'POST' });
+      const response = await fetch(`/api/audits/${encodeURIComponent(auditId)}/completion`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requestId: crypto.randomUUID() }),
+      });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || text('completionFailed'));
       setMarkdown(String(data.markdown || ''));
@@ -960,8 +966,9 @@ function AiCompletionButton({ auditId, reportLanguage }: { auditId: string; repo
 }
 
 function DownloadButton({ report, originalContent, qaMessages, auditId, canGenerateCard = false }: { report: QuickAnalysisResult | DeepAnalysisResult; originalContent?: string; qaMessages: ChatMessage[]; auditId?: string; canGenerateCard?: boolean }) {
+  const { t } = useUiLanguage();
   const reportLanguage = normalizeReportLanguage(report.meta.reportLanguage);
-  const download = () => {
+  const downloadLocal = () => {
     const blob = new Blob([markdownFor(report, originalContent, qaMessages)], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -972,14 +979,69 @@ function DownloadButton({ report, originalContent, qaMessages, auditId, canGener
     link.remove();
     URL.revokeObjectURL(url);
   };
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const download = async () => {
+    if (!auditId) return downloadLocal();
+    setExporting(true); setExportError(null);
+    try {
+      const response = await fetch(`/api/audits/${encodeURIComponent(auditId)}/export`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ format: 'MARKDOWN' }) });
+      const data = await response.json(); if (!response.ok) throw new Error(data.error || '导出失败');
+      const blob = new Blob([data.content || ''], { type: 'text/markdown;charset=utf-8' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = data.filename || 'guanyu-report.md'; link.click(); URL.revokeObjectURL(url);
+    } catch (error: any) { setExportError(error?.message || '导出失败'); } finally { setExporting(false); }
+  };
+  const downloadPdf = async () => {
+    if (!auditId) return;
+    setExporting(true); setExportError(null);
+    try {
+      const response = await fetch(`/api/audits/${encodeURIComponent(auditId)}/export`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ format: 'PDF' }) });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || t('export.pdfFailed'));
+      }
+      const data = await response.json();
+      if (!data.downloadUrl) throw new Error(t('export.pdfFailed'));
+      const link = document.createElement('a');
+      // Use the authenticated GET download endpoint after generation. This is
+      // more reliable than a Blob URL for real browser downloads and avoids
+      // retaining a second full PDF in client memory.
+      link.href = data.downloadUrl;
+      link.download = data.filename || 'guanyu-report.pdf';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error: any) { setExportError(error?.message || t('export.pdfFailed')); } finally { setExporting(false); }
+  };
+  const downloadWord = async () => {
+    if (!auditId) return;
+    setExporting(true); setExportError(null);
+    try {
+      const response = await fetch(`/api/audits/${encodeURIComponent(auditId)}/export`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ format: 'WORD' }) });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || t('export.wordFailed'));
+      }
+      const data = await response.json();
+      if (!data.downloadUrl) throw new Error(t('export.wordFailed'));
+      const link = document.createElement('a');
+      link.href = data.downloadUrl;
+      link.download = data.filename || 'guanyu-report.docx';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error: any) { setExportError(error?.message || t('export.wordFailed')); } finally { setExporting(false); }
+  };
 
   return (
     <div data-gsap-reveal className="flex flex-wrap justify-end gap-2">
-      <button onClick={download} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100 active:scale-[0.98] dark:border-indigo-900/40 dark:bg-indigo-950/20 dark:text-indigo-300">
-        {getReportText('exportMarkdown', reportLanguage)}
+      {auditId && <button onClick={downloadWord} disabled={exporting} className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-bold text-[var(--color-text)] transition hover:bg-[var(--color-card-hover)] active:scale-[0.98] disabled:opacity-60">{exporting ? t('export.generating') : `${t('export.word')} · 1 ${t('billing.creditUnit')}`}</button>}
+      {auditId && <button onClick={downloadPdf} disabled={exporting} className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-bold text-[var(--color-text)] transition hover:bg-[var(--color-card-hover)] disabled:opacity-60">{exporting ? t('export.generating') : `${t('export.pdf')} · 1 ${t('billing.creditUnit')}`}</button>}
+      <button onClick={download} disabled={exporting} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100 active:scale-[0.98] disabled:opacity-60 dark:border-indigo-900/40 dark:bg-indigo-950/20 dark:text-indigo-300">
+        {exporting ? t('export.generating') : `${t('export.markdown', getReportText('exportMarkdown', reportLanguage))} · 1 ${t('billing.creditUnit')}`}
       </button>
       {auditId && <AiCompletionButton auditId={auditId} reportLanguage={reportLanguage} />}
       {auditId && canGenerateCard && <GuanyuCardButton auditId={auditId} title={report.meta.title} reportLanguage={reportLanguage} />}
+      {exportError && <span className="w-full text-right text-xxs font-semibold text-[var(--color-danger)]">{exportError}</span>}
     </div>
   );
 }
@@ -1179,6 +1241,7 @@ export default function AnalysisResultView({ result: rawResult, auditId, origina
           : <DeepReportView report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} displayLimit={readingLimit} auditId={auditId} canUpdateVerification={canUpdateVerification} onVerificationUpdated={handleVerificationUpdated} />}
 
         {auditId && <InteractiveQA auditId={auditId} messages={qaMessages} onMessagesChange={setQaMessages} />}
+        {auditId && <DiscussionBoard auditId={auditId} />}
       </GsapReveal>
     </div>
   );

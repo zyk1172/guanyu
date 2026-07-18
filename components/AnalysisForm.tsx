@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { AnalysisMode, ReportLanguage, normalizeReportLanguage } from '../lib/types';
 import { useUiLanguage } from './LanguageProvider';
@@ -83,7 +83,22 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
   const [urlInput, setUrlInput] = useState('');
   const [isParsing, setIsParsing] = useState(false);
   const [parseFailure, setParseFailure] = useState<string | null>(null);
+  const [creditBalance, setCreditBalance] = useState<number | null>(null);
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    if (status !== 'authenticated') {
+      setCreditBalance(null);
+      return;
+    }
+    fetch('/api/billing/status')
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => {
+        const value = Number(data?.creditBalance);
+        setCreditBalance(Number.isFinite(value) ? value : null);
+      })
+      .catch(() => setCreditBalance(null));
+  }, [status]);
 
   const handleParseUrl = async () => {
     const trimmed = urlInput.trim();
@@ -262,8 +277,13 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
           />
         </div>
 
-        <div className="rounded-lg border border-[var(--color-warning)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs font-semibold leading-relaxed text-[var(--color-text)]">
-          {t('form.quota')}
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border border-[var(--color-warning)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs font-semibold leading-relaxed text-[var(--color-text)]">
+          <span>{t('billing.analysisRule')}</span>
+          {creditBalance !== null && (
+            <span className="shrink-0 font-black text-[var(--color-primary)]">
+              {t('billing.remainingCredits', undefined, { credits: Number.isInteger(creditBalance) ? String(creditBalance) : creditBalance.toFixed(1) })}
+            </span>
+          )}
         </div>
 
         <button

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { getPackageDefinition } from '@/lib/billing';
 import { notifyAdminsPendingOrder, notifyUserPendingOrder } from '@/lib/email';
@@ -25,7 +25,6 @@ export async function POST(request: NextRequest) {
       isBanned: true,
       creditBalance: true,
       creditBalanceCents: true,
-      freeQuotaUsed: true,
     },
   });
 
@@ -41,61 +40,68 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: '不支持的付款方式。' }, { status: 400 });
   }
 
-  const packageDefinition = getPackageDefinition(String(body.packageType || 'points_30'), paymentMethod);
-
-  if (packageDefinition.packageType === 'byok_lifetime' && account?.planType === 'byok') {
-    return NextResponse.json({ error: '你已经是买断账号，无需重复购买。' }, { status: 400 });
+  let packageDefinition;
+  try {
+    packageDefinition = getPackageDefinition(String(body.productId || body.packageType || 'STARTER'), paymentMethod as 'alipay_qr' | 'paypal_qr');
+  } catch {
+    return NextResponse.json({ error: '无效的套餐。' }, { status: 400 });
   }
 
   const order = await prisma.purchaseOrder.create({
     data: {
       userId: user.id,
+      productId: packageDefinition.productId,
       packageType: packageDefinition.packageType,
       packageName: packageDefinition.packageName,
       amountCents: packageDefinition.amountCents,
       currency: packageDefinition.currency,
       points: packageDefinition.points,
+      proAccessDays: packageDefinition.proAccessDays,
       paymentMethod,
+      paymentProvider: paymentMethod === 'paypal_qr' ? 'paypal' : 'alipay',
       paymentNote,
     },
   });
 
-  const notificationResults = await Promise.allSettled([
-    notifyAdminsPendingOrder({
-      orderId: order.id,
-      userEmail: account?.email,
-      userId: user.id,
-      packageName: order.packageName,
-      amountCents: order.amountCents,
-      currency: order.currency,
-      points: order.points,
-      paymentMethod: order.paymentMethod,
-      paymentNote: order.paymentNote,
-      userName: account?.name,
-      planType: account?.planType,
-      creditBalance: account?.creditBalance,
-      creditBalanceCents: account?.creditBalanceCents,
-      freeQuotaUsed: account?.freeQuotaUsed,
-      orderCreatedAt: order.createdAt,
-    }),
-    notifyUserPendingOrder({
-      userEmail: account?.email,
-      orderId: order.id,
-      packageName: order.packageName,
-      amountCents: order.amountCents,
-      currency: order.currency,
-      points: order.points,
-      paymentMethod: order.paymentMethod,
-      paymentNote: order.paymentNote,
-    }),
-  ]);
-  for (const result of notificationResults) {
-    if (result.status === 'rejected') {
-      console.error('Notify pending order failed:', result.reason);
-    } else if (!result.value.delivered) {
-      console.error('Notify pending order unavailable:', result.value.provider);
+  // The order is durable before responding. Email delivery runs after the
+  // response so a slow provider never makes the payment button feel frozen.
+  after(async () => {
+    const notificationResults = await Promise.allSettled([
+      notifyAdminsPendingOrder({
+        orderId: order.id,
+        userEmail: account?.email,
+        userId: user.id,
+        packageName: order.packageName,
+        amountCents: order.amountCents,
+        currency: order.currency,
+        points: order.points,
+        paymentMethod: order.paymentMethod,
+        paymentNote: order.paymentNote,
+        userName: account?.name,
+        planType: account?.planType,
+        creditBalance: account?.creditBalance,
+        creditBalanceCents: account?.creditBalanceCents,
+        orderCreatedAt: order.createdAt,
+      }),
+      notifyUserPendingOrder({
+        userEmail: account?.email,
+        orderId: order.id,
+        packageName: order.packageName,
+        amountCents: order.amountCents,
+        currency: order.currency,
+        points: order.points,
+        paymentMethod: order.paymentMethod,
+        paymentNote: order.paymentNote,
+      }),
+    ]);
+    for (const result of notificationResults) {
+      if (result.status === 'rejected') {
+        console.error('Notify pending order failed:', result.reason);
+      } else if (!result.value.delivered) {
+        console.error('Notify pending order unavailable:', result.value.provider);
+      }
     }
-  }
+  });
 
   return NextResponse.json(order);
 }
