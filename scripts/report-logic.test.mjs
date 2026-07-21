@@ -12,6 +12,7 @@ import { getPaymentMethodLabel, isSupportedPaymentMethod } from '../lib/payment-
 import { buildPendingPaymentLines } from '../lib/payment-notification-core.mjs';
 import { buildReportLanguageSystemGuard, hasUnexpectedChineseReportProse } from '../lib/report-language-core.mjs';
 import { getPaymentPackageDefinition } from '../lib/payment-package-core.mjs';
+import { calculateProAccessExpiry } from '../lib/pro-access-core.mjs';
 import { mergeAdminRecipientEmails } from '../lib/admin-recipient-core.mjs';
 import {
   getAnalysisTimeoutMs,
@@ -19,6 +20,8 @@ import {
   getReasoningDepthInstruction,
 } from '../lib/reasoning-depth-core.mjs';
 import { buildReportCompletionEmail } from '../lib/report-email-core.mjs';
+import { applyModelSourceCleanup, numberSourceLines } from '../lib/source-content-cleanup.mjs';
+import { EXPORT_LANGUAGES, exportCopy, exportFieldLabel, exportLocalizedValue, getExportBrand } from '../lib/export-language-core.mjs';
 import {
   DEFAULT_RSS_FEED_IDS,
   RSS_SOURCE_CATALOG,
@@ -413,6 +416,19 @@ test('payment catalogue fixes server-side Starter and Pro prices and benefits', 
   });
 });
 
+test('Pro access starts immediately and renewals extend from the active expiry', () => {
+  const now = new Date('2026-07-19T00:00:00.000Z');
+  assert.equal(calculateProAccessExpiry(now, null, 30).toISOString(), '2026-08-18T00:00:00.000Z');
+  assert.equal(
+    calculateProAccessExpiry(now, new Date('2026-08-01T00:00:00.000Z'), 30).toISOString(),
+    '2026-08-31T00:00:00.000Z'
+  );
+  assert.equal(
+    calculateProAccessExpiry(now, new Date('2026-10-10T00:00:00.000Z'), 30).toISOString(),
+    '2026-11-09T00:00:00.000Z'
+  );
+});
+
 test('administrator recipients merge configured and database super-admin emails', () => {
   assert.deepEqual(
     mergeAdminRecipientEmails(['ops@example.com, root@example.com', 'root@example.com'], ['owner@example.com', 'OPS@example.com']),
@@ -433,6 +449,70 @@ test('thinking depth changes model output budget and explicit non-chain-of-thoug
   assert.equal(getModelOutputTokenBudget('extreme'), 24_000);
   assert.match(getReasoningDepthInstruction('high', 'en-US'), /cross-check/i);
   assert.match(getReasoningDepthInstruction('extreme', 'zh-CN'), /不得输出隐藏推理过程/);
+});
+
+test('web source cleanup removes only model-selected exact source material', () => {
+  const source = [
+    'Breaking News',
+    'The first article paragraph contains confirmed details and context.',
+    'Subscribe now to continue reading',
+    'The second article paragraph quotes the main participant and gives more evidence.',
+    'Related stories: another headline',
+  ].join('\n');
+
+  assert.match(numberSourceLines(source), /^\[L1\] Breaking News/m);
+  assert.match(numberSourceLines(source), /^\[L4\] The second article paragraph/m);
+
+  const result = applyModelSourceCleanup(source, {
+    applied: true,
+    removeLineNumbers: [3, 5],
+    removeExactFragments: ['Breaking News'],
+  }, true);
+
+  assert.equal(result.applied, true);
+  assert.equal(result.removedLineCount, 2);
+  assert.equal(result.removedFragmentCount, 1);
+  assert.doesNotMatch(result.content, /Subscribe now|Related stories|Breaking News/);
+  assert.match(result.content, /first article paragraph/);
+  assert.match(result.content, /second article paragraph/);
+});
+
+test('web source cleanup rejects destructive removal and never cleans manual input', () => {
+  const source = [
+    'This is the first substantial paragraph of the article with important facts.',
+    'This is the second substantial paragraph of the article with more context.',
+    'This is the final substantial paragraph and conclusion of the article.',
+  ].join('\n');
+
+  const destructive = applyModelSourceCleanup(source, {
+    applied: true,
+    removeLineNumbers: [1, 2, 3],
+    removeExactFragments: [],
+  }, true);
+  assert.equal(destructive.applied, false);
+  assert.equal(destructive.content, source);
+
+  const manual = applyModelSourceCleanup(source, {
+    applied: true,
+    removeLineNumbers: [1],
+    removeExactFragments: [],
+  }, false);
+  assert.equal(manual.applied, false);
+  assert.equal(manual.content, source);
+});
+
+test('formal export chrome is localized for every enabled report language', () => {
+  for (const language of EXPORT_LANGUAGES) {
+    assert.ok(exportCopy(language, '新闻叙事审视报告', 'News Narrative Review Report'));
+    assert.ok(exportCopy(language, '验证路线图', 'Verification roadmap'));
+    assert.ok(exportFieldLabel(language, 'verificationStatus', 'Verification status'));
+    assert.ok(exportLocalizedValue(language, 'pending_verification'));
+    assert.ok(getExportBrand(language).name);
+  }
+  assert.equal(exportCopy('ja-JP', '新闻叙事审视报告', 'News Narrative Review Report'), 'ニュース叙事検証レポート');
+  assert.equal(exportLocalizedValue('ko-KR', 'pending_verification'), '검증 필요');
+  assert.equal(exportFieldLabel('de-DE', 'evidenceGrade', 'Evidence grade'), 'Belegstufe');
+  assert.equal(getExportBrand('it-IT').name, 'Angolo Notizie');
 });
 
 test('completion email contains a structured full report in the selected language', () => {

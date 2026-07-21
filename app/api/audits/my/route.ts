@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
+import { withHistoricalAuditModelName } from '@/lib/audit-model-display';
 
 export async function GET(request: Request) {
   try {
@@ -57,6 +58,7 @@ export async function GET(request: Request) {
         reasoningDepth: true,
         reportLanguage: true,
         modelName: true,
+        modelDisplayNameSnapshot: true,
         newsSummary: true,
         credibilityScore: true,
         informationCompletenessScore: true,
@@ -70,7 +72,7 @@ export async function GET(request: Request) {
       },
     });
 
-    return NextResponse.json(myAudits);
+    return NextResponse.json(myAudits.map(withHistoricalAuditModelName));
   } catch (error: any) {
     console.error('GET my audits error:', error);
     return NextResponse.json({ error: '获取我的审视记录失败' }, { status: 500 });

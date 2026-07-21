@@ -12,8 +12,11 @@
     "reset:business-data": "node scripts/reset-business-data.mjs",
     "test:pdf": "tsx scripts/pdf-smoke.ts",
     "test:word": "tsx scripts/docx-smoke.ts",
+    "test:exports-i18n": "tsx scripts/multilingual-export-smoke.ts",
     "test:backup": "tsx scripts/backup-smoke.ts",
-    "test:permissions": "tsx scripts/ordinary-user-permission-smoke.ts"
+    "test:permissions": "tsx scripts/ordinary-user-permission-smoke.ts",
+    "test:platform-models": "node --test scripts/platform-model-core.test.mjs",
+    "test:model-runtime": "tsx --test scripts/model-runtime.test.ts"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",

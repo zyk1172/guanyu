@@ -5,10 +5,14 @@ import { getSuperAdminStatus } from '@/lib/admin';
 import { assertServiceCreditsAvailable, CREDIT_COSTS, consumeServiceCreditsWithResult } from '@/lib/billing';
 import { prisma } from '@/lib/prisma';
 import { parseExportReport } from '@/lib/report-export-content';
+import { exportCopy, getExportBrand, normalizeExportLanguage } from '@/lib/export-language-core.mjs';
+import { withHistoricalAuditModelName } from '@/lib/audit-model-display';
 
 type ExportFormat = 'MARKDOWN' | 'PDF' | 'WORD';
-const PDF_TEMPLATE_VERSION = '5';
-const WORD_TEMPLATE_VERSION = '1';
+const PDF_TEMPLATE_VERSION = '7';
+const WORD_TEMPLATE_VERSION = '3';
+
+export const maxDuration = 60;
 
 function filePart(value: string) {
   return value.replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, '_').slice(0, 48) || 'report';
@@ -75,17 +79,20 @@ async function getAuthorizedAudit(request: Request, id: string) {
     select: {
       id: true, userId: true, reportVersion: true, title: true, source: true, publishedAt: true,
       newsSummary: true, auditResultJson: true, originalContent: true, completionMarkdown: true, modelName: true,
+      modelDisplayNameSnapshot: true,
       reasoningDepth: true, reportLanguage: true, createdAt: true,
     },
   });
   if (!audit) return { error: NextResponse.json({ error: '报告不存在。' }, { status: 404 }) } as const;
   const isAdmin = await getSuperAdminStatus(user.id);
   if (audit.userId !== user.id && !isAdmin) return { error: NextResponse.json({ error: '只有报告创建者可以导出正式文件。' }, { status: 403 }) } as const;
-  return { user, audit } as const;
+  return { user, audit: withHistoricalAuditModelName(audit) } as const;
 }
 
 function filenameFor(audit: { title: string; reportLanguage: string; createdAt: Date }, format: ExportFormat) {
-  const prefix = audit.reportLanguage.startsWith('zh') ? '观隅_新闻叙事审视报告' : 'Guanyu_Narrative_Review_Report';
+  const language = normalizeExportLanguage(audit.reportLanguage);
+  const brand = getExportBrand(language);
+  const prefix = `${filePart(brand.name)}_${filePart(exportCopy(language, '新闻叙事审视报告', 'News Narrative Review Report'))}`;
   const extension = format === 'PDF' ? 'pdf' : format === 'WORD' ? 'docx' : 'md';
   return `${prefix}_${filePart(audit.title)}_${audit.createdAt.toISOString().slice(0, 10)}.${extension}`;
 }
@@ -155,6 +162,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       auditId: id,
       reportVersion: found.audit.reportVersion,
       idempotencyKey: `export:${found.user.id}:${id}:${found.audit.reportVersion}:${format}`,
+      // PDF and Word artifacts can be several hundred kilobytes. Neon may need
+      // more than Prisma's default five seconds to atomically store the file
+      // together with its point transaction.
+      transactionOptions: { maxWait: 5_000, timeout: 30_000 },
     }, (tx, transaction) => tx.exportArtifact.upsert({
       where: { userId_reportId_reportVersion_exportFormat: { userId: found.user.id, reportId: id, reportVersion: found.audit.reportVersion, exportFormat: format } },
       update: { content, contentHash: hash, fileHash: hash, fileSizeBytes: generated.byteLength, downloadFilename: filename, status: 'READY', language: found.audit.reportLanguage, templateVersion: format === 'PDF' ? PDF_TEMPLATE_VERSION : format === 'WORD' ? WORD_TEMPLATE_VERSION : '2', pointTransactionId: transaction?.id, errorCode: null, errorMessageSanitized: null },

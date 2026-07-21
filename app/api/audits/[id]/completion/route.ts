@@ -2,13 +2,14 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { getSuperAdminStatus } from '@/lib/admin';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
-import { assertServiceCreditsAvailable, consumeServiceCreditsWithResult, CREDIT_COSTS, getOrCreateAppSetting, getUsageSource } from '@/lib/billing';
-import { chooseModelConfig } from '@/lib/model-config';
+import { assertServiceCreditsAvailable, consumeServiceCreditsWithResult, formatCredits } from '@/lib/billing';
 import { prisma } from '@/lib/prisma';
 import { buildAiCompletionPrompt, validateCompletionMarkdown } from '@/lib/ai-completion-core.mjs';
 import { getAnalysisTimeoutMs } from '@/lib/reasoning-depth-core.mjs';
-import { safeOutboundRequest } from '@/lib/safe-outbound';
 import { reserveCompletionAttempt } from '@/lib/rate-limit';
+import { resolveOperationModel } from '@/lib/operation-model';
+import { invokeModel } from '@/lib/model-runtime';
+import { recordModelUsage } from '@/lib/model-usage';
 
 export const maxDuration = 300;
 
@@ -68,11 +69,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: '未保存足够的新闻原文，无法进行 AI 补全。' }, { status: 400 });
     }
 
-    const [account, userSettings, appSetting] = await Promise.all([
-      prisma.user.findUnique({ where: { id: user.id }, select: { planType: true, isBanned: true, proAccessExpiresAt: true } }),
-      prisma.userSettings.findUnique({ where: { userId: user.id } }),
-      getOrCreateAppSetting(),
-    ]);
+    const account = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { planType: true, isBanned: true, proAccessExpiresAt: true },
+    });
     if (!account || account.isBanned) {
       return NextResponse.json({ error: '账号已被管理员暂停使用，无法使用 AI 补全。' }, { status: 403 });
     }
@@ -83,17 +83,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: error instanceof Error ? error.message : 'AI 补全操作过于频繁，请稍后再试。' }, { status: 429 });
     }
 
-    const usageSource = await getUsageSource(user.id);
-    const modelConfig = chooseModelConfig({
-      usageSource,
-      userSettings,
-      appSetting,
-    });
-    if (!modelConfig.apiKey || !modelConfig.modelName || !modelConfig.baseURL) {
-      return NextResponse.json({ error: '当前账号可用的大模型配置不完整，暂时无法进行 AI 补全。' }, { status: 500 });
+    let operationModel;
+    try {
+      operationModel = await resolveOperationModel({
+        userId: user.id,
+        operation: 'completion',
+        requestedSource: body.modelSource,
+        platformModelConfigId: body.platformModelConfigId,
+      });
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : '所选模型暂时不可用，本次未扣除点数。' }, { status: 400 });
     }
     try {
-      await assertServiceCreditsAvailable({ userId: user.id, cents: CREDIT_COSTS.AI_COMPLETION, customFree: true });
+      await assertServiceCreditsAvailable({ userId: user.id, cents: operationModel.costCents, customFree: true, requestedSource: operationModel.source });
     } catch (error) {
       return NextResponse.json({ error: error instanceof Error ? error.message : '当前点数不足。' }, { status: 402 });
     }
@@ -112,51 +114,60 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       report,
       reportLanguage: audit.reportLanguage,
     });
-    const response = await safeOutboundRequest(`${modelConfig.baseURL.replace(/\/$/, '')}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${modelConfig.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: modelConfig.modelName,
-        messages: [
-          { role: 'system', content: prompt.system },
-          { role: 'user', content: prompt.user },
-        ],
-        temperature: 0.15,
-        max_tokens: 12_000,
-      }),
+    const startedAt = Date.now();
+    const response = await invokeModel({
+      provider: operationModel.provider,
+      baseUrl: operationModel.baseUrl,
+      apiKey: operationModel.apiKey,
+      modelId: operationModel.modelId,
+      reasoningDepth: operationModel.reasoningDepth,
+      system: prompt.system,
+      userPrompt: prompt.user,
       timeoutMs: Math.min(getAnalysisTimeoutMs(process.env.GUANYU_LLM_TIMEOUT_MS), 220_000),
-      maxBytes: 8 * 1024 * 1024,
-      requireHttps: process.env.NODE_ENV === 'production',
+      maxTokens: 12_000,
+      jsonMode: false,
+      nativeSearch: false,
+      allowPrivateAddress: operationModel.allowPrivateAddress,
     });
-    const payload = JSON.parse(response.body.toString('utf8') || '{}');
-    if (response.status < 200 || response.status >= 300) {
-      return NextResponse.json({ error: 'AI 补全调用失败，请检查模型配置后重试。' }, { status: 502 });
+    if (!response.ok) {
+      await recordModelUsage({ userId: user.id, auditId: audit.id, operation: 'completion', status: 'failed', source: operationModel.source, snapshot: operationModel.snapshot, usage: response.usage, durationMs: Date.now() - startedAt, errorCode: response.errorCode }).catch(() => {});
+      const retryHint = operationModel.source === 'custom'
+        ? '自定义 API 调用失败，本次未扣除点数。你可以检查配置后重试，或切换到平台模型并确认点数后重新运行。'
+        : '所选平台模型调用失败，本次未扣除点数。请稍后重试或重新选择其他模型。';
+      return NextResponse.json({ error: retryHint }, { status: 502 });
     }
-    const markdown = String(payload?.choices?.[0]?.message?.content || '').trim().replace(/^```(?:markdown|md)?\s*/i, '').replace(/\s*```$/, '');
+    const markdown = response.message.trim().replace(/^```(?:markdown|md)?\s*/i, '').replace(/\s*```$/, '');
     if (!validateCompletionMarkdown(markdown)) {
+      await recordModelUsage({ userId: user.id, auditId: audit.id, operation: 'completion', status: 'failed', source: operationModel.source, snapshot: operationModel.snapshot, usage: response.usage, durationMs: Date.now() - startedAt, errorCode: 'invalid_output' }).catch(() => {});
       return NextResponse.json({ error: 'AI 补全返回格式不完整，请重新生成。' }, { status: 502 });
     }
 
     const committed = await consumeServiceCreditsWithResult({
       userId: user.id,
-      cents: CREDIT_COSTS.AI_COMPLETION,
+      cents: operationModel.costCents,
       transactionType: 'AI_COMPLETION',
-      description: 'AI 补全消耗 2 点',
+      description: `使用${operationModel.snapshot?.displayName || operationModel.modelId}完成 AI 补全，消耗 ${formatCredits(operationModel.costCents)} 点`,
       auditId: audit.id,
       idempotencyKey: `completion:${audit.id}:${requestId}`,
       customFree: true,
+      requestedSource: operationModel.source,
+      modelSnapshot: operationModel.snapshot ? {
+        configId: operationModel.snapshot.configId,
+        displayName: operationModel.snapshot.displayName,
+        modelName: operationModel.snapshot.modelId,
+        multiplierBps: operationModel.snapshot.multiplierBps,
+        configVersion: operationModel.snapshot.configVersion,
+      } : undefined,
     }, (tx) => tx.audit.update({
       where: { id: audit.id },
       data: { completionMarkdown: markdown, completionGeneratedAt: new Date() },
       select: { completionMarkdown: true, completionGeneratedAt: true },
     }));
+    await recordModelUsage({ userId: user.id, auditId: audit.id, operation: 'completion', status: 'success', source: operationModel.source, snapshot: operationModel.snapshot, creditCostCents: operationModel.costCents, usage: response.usage, durationMs: Date.now() - startedAt }).catch(() => {});
     return NextResponse.json({
       markdown: committed.result.completionMarkdown,
       generatedAt: committed.result.completionGeneratedAt,
-      usage: { source: committed.source, balance: committed.balance },
+      usage: { source: committed.source, balance: committed.balance, cost: formatCredits(operationModel.costCents), model: operationModel.snapshot?.displayName || operationModel.modelId },
     });
   } catch (error) {
     console.error('AI completion failed:', error);

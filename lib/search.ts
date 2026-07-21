@@ -6,7 +6,7 @@ export interface WebSearchSource {
   title: string;
   url: string;
   snippet: string;
-  provider?: 'tavily' | 'serper' | 'duckduckgo';
+  provider?: string;
 }
 
 export interface WebSearchOptions {

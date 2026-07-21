@@ -23,6 +23,7 @@ export type OperationsBackupSnapshot = {
   portableSecrets: {
     appSettings: Array<{ id: string; adminLlmApiKey?: string; adminTavilyApiKey?: string; adminSerperApiKey?: string }>;
     userSettings: Array<{ id: string; llmApiKey?: string; tavilyApiKey?: string; serperApiKey?: string }>;
+    platformModels?: Array<{ id: string; apiKey?: string }>;
   };
 };
 
@@ -120,11 +121,12 @@ function readEnvelope(archive: Buffer, passphrase: string): OperationsBackupSnap
 }
 
 export async function createOperationsBackup() {
-  const [appSettings, users, userSettings, audits, pointTransactions, purchaseOrders, rssFeeds, rssItems, discussionMessages, discussionReports, exportArtifacts, emailDeliveries] = await Promise.all([
-    prisma.appSetting.findMany(), prisma.user.findMany(), prisma.userSettings.findMany(), prisma.audit.findMany(), prisma.pointTransaction.findMany(), prisma.purchaseOrder.findMany(), prisma.rssFeed.findMany(), prisma.rssItem.findMany(), prisma.reportDiscussionMessage.findMany(), prisma.discussionReport.findMany(), prisma.exportArtifact.findMany(), prisma.emailDelivery.findMany(),
+  const [appSettings, users, userSettings, audits, pointTransactions, purchaseOrders, rssFeeds, rssItems, discussionMessages, discussionReports, exportArtifacts, emailDeliveries, platformModelConfigs, modelUsageEvents] = await Promise.all([
+    prisma.appSetting.findMany(), prisma.user.findMany(), prisma.userSettings.findMany(), prisma.audit.findMany(), prisma.pointTransaction.findMany(), prisma.purchaseOrder.findMany(), prisma.rssFeed.findMany(), prisma.rssItem.findMany(), prisma.reportDiscussionMessage.findMany(), prisma.discussionReport.findMany(), prisma.exportArtifact.findMany(), prisma.emailDelivery.findMany(), prisma.platformModelConfig.findMany(), prisma.modelUsageEvent.findMany(),
   ]);
   const appSettingsRows = appSettings.map((row) => removeSecretFields(row as unknown as BackupRecord, ['adminLlmApiKeyEncrypted', 'adminTavilyApiKeyEncrypted', 'adminSerperApiKeyEncrypted']));
   const userSettingsRows = userSettings.map((row) => removeSecretFields(row as unknown as BackupRecord, ['llmApiKeyEncrypted', 'tavilyApiKeyEncrypted', 'serperApiKeyEncrypted']));
+  const platformModelRows = platformModelConfigs.map((row) => removeSecretFields(row as unknown as BackupRecord, ['apiKeyEncrypted']));
   const tables: BackupTables = {
     appSettings: appSettingsRows,
     users: users as unknown as BackupRecord[],
@@ -138,6 +140,8 @@ export async function createOperationsBackup() {
     discussionReports: discussionReports as unknown as BackupRecord[],
     exportArtifacts: exportArtifacts as unknown as BackupRecord[],
     emailDeliveries: emailDeliveries as unknown as BackupRecord[],
+    platformModelConfigs: platformModelRows,
+    modelUsageEvents: modelUsageEvents as unknown as BackupRecord[],
   };
   const snapshot: OperationsBackupSnapshot = {
     format: FORMAT,
@@ -153,6 +157,7 @@ export async function createOperationsBackup() {
     portableSecrets: {
       appSettings: appSettings.map((row) => ({ id: row.id, adminLlmApiKey: secretValue(row.adminLlmApiKeyEncrypted), adminTavilyApiKey: secretValue(row.adminTavilyApiKeyEncrypted), adminSerperApiKey: secretValue(row.adminSerperApiKeyEncrypted) })),
       userSettings: userSettings.map((row) => ({ id: row.id, llmApiKey: secretValue(row.llmApiKeyEncrypted), tavilyApiKey: secretValue(row.tavilyApiKeyEncrypted), serperApiKey: secretValue(row.serperApiKeyEncrypted) })),
+      platformModels: platformModelConfigs.map((row) => ({ id: row.id, apiKey: secretValue(row.apiKeyEncrypted) })),
     },
   };
   return { snapshot, filename: `guanyu-operations-backup-${filenameDate(new Date())}.guanyu-backup` };
@@ -169,6 +174,7 @@ export function decodeOperationsBackup(archive: Buffer, passphrase: string) {
 function hydrateSecretFields(snapshot: OperationsBackupSnapshot) {
   const appSecrets = new Map(snapshot.portableSecrets.appSettings.map((item) => [item.id, item]));
   const settingSecrets = new Map(snapshot.portableSecrets.userSettings.map((item) => [item.id, item]));
+  const platformModelSecrets = new Map((snapshot.portableSecrets.platformModels || []).map((item) => [item.id, item]));
   const appSettings = safeRows(snapshot.tables.appSettings).map((row) => {
     const secret = appSecrets.get(String(row.id));
     return { ...row, adminLlmApiKeyEncrypted: secret?.adminLlmApiKey ? encryptSecret(secret.adminLlmApiKey) : null, adminTavilyApiKeyEncrypted: secret?.adminTavilyApiKey ? encryptSecret(secret.adminTavilyApiKey) : null, adminSerperApiKeyEncrypted: secret?.adminSerperApiKey ? encryptSecret(secret.adminSerperApiKey) : null };
@@ -177,7 +183,11 @@ function hydrateSecretFields(snapshot: OperationsBackupSnapshot) {
     const secret = settingSecrets.get(String(row.id));
     return { ...row, llmApiKeyEncrypted: secret?.llmApiKey ? encryptSecret(secret.llmApiKey) : null, tavilyApiKeyEncrypted: secret?.tavilyApiKey ? encryptSecret(secret.tavilyApiKey) : null, serperApiKeyEncrypted: secret?.serperApiKey ? encryptSecret(secret.serperApiKey) : null };
   });
-  return { appSettings, userSettings };
+  const platformModelConfigs = safeRows(snapshot.tables.platformModelConfigs).map((row) => {
+    const secret = platformModelSecrets.get(String(row.id));
+    return { ...row, apiKeyEncrypted: secret?.apiKey ? encryptSecret(secret.apiKey) : null };
+  });
+  return { appSettings, userSettings, platformModelConfigs };
 }
 
 function requireRows(snapshot: OperationsBackupSnapshot, name: string) {
@@ -202,6 +212,7 @@ export async function restoreOperationsBackup(snapshot: OperationsBackupSnapshot
     await tx.reportDiscussionMessage.deleteMany();
     await tx.exportArtifact.deleteMany();
     await tx.emailDelivery.deleteMany();
+    await tx.modelUsageEvent.deleteMany();
     await tx.rssItem.deleteMany();
     await tx.rssFeed.deleteMany();
     await tx.auditJob.deleteMany();
@@ -215,10 +226,12 @@ export async function restoreOperationsBackup(snapshot: OperationsBackupSnapshot
     await tx.userSettings.deleteMany();
     await tx.user.deleteMany();
     await tx.appSetting.deleteMany();
+    if (Array.isArray(snapshot.tables.platformModelConfigs)) await tx.platformModelConfig.deleteMany();
 
     if (hydrated.appSettings.length) await tx.appSetting.createMany({ data: hydrated.appSettings as any });
     if (requireRows(snapshot, 'users').length) await tx.user.createMany({ data: requireRows(snapshot, 'users') as any });
     if (hydrated.userSettings.length) await tx.userSettings.createMany({ data: hydrated.userSettings as any });
+    if (hydrated.platformModelConfigs.length) await tx.platformModelConfig.createMany({ data: hydrated.platformModelConfigs as any });
     if (requireRows(snapshot, 'audits').length) await tx.audit.createMany({ data: requireRows(snapshot, 'audits') as any });
     if (requireRows(snapshot, 'pointTransactions').length) await tx.pointTransaction.createMany({ data: requireRows(snapshot, 'pointTransactions') as any });
     if (requireRows(snapshot, 'purchaseOrders').length) await tx.purchaseOrder.createMany({ data: requireRows(snapshot, 'purchaseOrders') as any });
@@ -229,6 +242,7 @@ export async function restoreOperationsBackup(snapshot: OperationsBackupSnapshot
     if (rootMessages.length) await tx.reportDiscussionMessage.createMany({ data: rootMessages as any });
     if (replyMessages.length) await tx.reportDiscussionMessage.createMany({ data: replyMessages as any });
     if (requireRows(snapshot, 'discussionReports').length) await tx.discussionReport.createMany({ data: requireRows(snapshot, 'discussionReports') as any });
+    if (safeRows(snapshot.tables.modelUsageEvents).length) await tx.modelUsageEvent.createMany({ data: safeRows(snapshot.tables.modelUsageEvents) as any });
   }, { maxWait: 10_000, timeout: 60_000, isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
   return { restoredAt: new Date().toISOString(), counts: snapshot.counts };

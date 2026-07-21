@@ -15,7 +15,20 @@ import {
 import ThemeSwitcher from '@/components/ThemeSwitcher';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { useUiLanguage } from '@/components/LanguageProvider';
-import { CheckCircle2, LoaderCircle, MailCheck, ShieldCheck, XCircle } from 'lucide-react';
+import { PlatformModelSelector } from '@/components/PlatformModelSelector';
+import PlatformModelAdmin from '@/components/PlatformModelAdmin';
+import {
+  CheckCircle2,
+  DatabaseBackup,
+  LayoutDashboard,
+  LoaderCircle,
+  MailCheck,
+  MessagesSquare,
+  ReceiptText,
+  ShieldCheck,
+  Users,
+  XCircle,
+} from 'lucide-react';
 
 function formatOrderAmount(amountCents: number, currency?: string | null) {
   const amount = (Number(amountCents || 0) / 100).toFixed(2);
@@ -104,7 +117,7 @@ export default function AccountPage() {
   const router = useRouter();
   const { language, t } = useUiLanguage();
 
-  const [activeTab, setActiveTab] = useState<'info' | 'settings' | 'history'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'settings' | 'history' | 'system'>('info');
 
   // 模型与偏好设置
   const [modelName, setModelName] = useState('gpt-4o');
@@ -164,6 +177,7 @@ export default function AccountPage() {
   const [backupBusy, setBackupBusy] = useState<'create' | 'restore' | null>(null);
   const [canUseOwnApi, setCanUseOwnApi] = useState(false);
   const [modelSource, setModelSource] = useState<'platform' | 'custom'>('platform');
+  const [defaultPlatformModelConfigId, setDefaultPlatformModelConfigId] = useState('');
   const [rssFeedConfig, setRssFeedConfig] = useState<RssFeedConfig>({ catalogIds: [], customFeeds: [] });
   const [rssSourceCatalog, setRssSourceCatalog] = useState<RssSourceOption[]>([]);
   const [rssConfigSource, setRssConfigSource] = useState<'admin' | 'personal'>('admin');
@@ -177,7 +191,7 @@ export default function AccountPage() {
   const selectedPaymentPackage = selectedPackageType === 'PRO' ? advancedPackage : pointsPackage;
   const selectedPackageLabel = selectedPackageType === 'PRO' ? t('billing.pro') : t('billing.starter');
   const savedAlipayHint = String(billing?.alipayQrNote || '').trim();
-  const alipayPaymentHint = /买断|lifetime/i.test(savedAlipayHint)
+  const alipayPaymentHint = /买断|lifetime|待激活|pending pro/i.test(savedAlipayHint)
     ? t('account.paymentHint')
     : savedAlipayHint || t('account.paymentHint');
 
@@ -245,6 +259,7 @@ export default function AccountPage() {
             setIsSuperAdmin(Boolean(data.isSuperAdmin));
             setCanUseOwnApi(Boolean(data.canUseOwnApi));
             setModelSource(data.modelSource === 'custom' ? 'custom' : 'platform');
+            setDefaultPlatformModelConfigId(String(data.defaultPlatformModelConfigId || ''));
             setRssFeedConfig(data.rssFeedConfig || { catalogIds: [], customFeeds: [] });
             setRssSourceCatalog(Array.isArray(data.rssSourceCatalog) ? data.rssSourceCatalog : []);
             setRssConfigSource(data.rssConfigSource === 'personal' ? 'personal' : 'admin');
@@ -262,6 +277,12 @@ export default function AccountPage() {
       fetchAdminBilling();
     }
   }, [isSuperAdmin, fetchAdminBilling]);
+
+  useEffect(() => {
+    if (!isSuperAdmin && activeTab === 'system') {
+      setActiveTab('info');
+    }
+  }, [activeTab, isSuperAdmin]);
 
   useEffect(() => {
     if (session && activeTab === 'history') {
@@ -295,6 +316,7 @@ export default function AccountPage() {
           defaultSaveResult: saveResult,
           defaultEnableCharts: enableCharts,
           modelSource,
+          defaultPlatformModelConfigId,
           ...(canUseOwnApi ? { rssFeedConfig } : {}),
         }),
       });
@@ -311,13 +333,13 @@ export default function AccountPage() {
         setEnableSerperSearch(Boolean(data.enableSerperSearch));
         setTavilySearchDepth(data.tavilySearchDepth || 'basic');
         setCanUseOwnApi(Boolean(data.canUseOwnApi));
-        setSettingsSettingsMessage('✅ 设置已成功保存并同步！');
+        setSettingsSettingsMessage(`✅ ${t('account.settingsSaved')}`);
         setTimeout(() => setSettingsSettingsMessage(null), 3000);
       } else {
-        setSettingsSettingsMessage(`❌ 保存失败: ${data.error}`);
+        setSettingsSettingsMessage(`❌ ${t('account.settingsSaveFailed')}: ${data.error}`);
       }
     } catch {
-      setSettingsSettingsMessage('❌ 发生异常，请检查网络');
+      setSettingsSettingsMessage(`❌ ${t('account.settingsNetworkError')}`);
     } finally {
       setIsSavingSettings(false);
     }
@@ -732,32 +754,41 @@ export default function AccountPage() {
     <main className="min-h-screen bg-gray-50 dark:bg-black font-sans text-gray-900 dark:text-gray-100 selection:bg-indigo-500/20 pb-12">
       <Header />
 
-      <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+      <div className={`${activeTab === 'system' ? 'max-w-7xl' : 'max-w-5xl'} mx-auto space-y-6 px-4 py-8 transition-[max-width] duration-300`}>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-150 dark:border-gray-900 pb-4">
           <div>
             <h2 className="text-lg font-black text-gray-950 dark:text-white leading-tight">{t('account.title')}</h2>
             <p className="text-xs text-gray-500 dark:text-gray-400">{t('account.description')}</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-          <div className="flex bg-gray-100 dark:bg-gray-900 p-0.5 rounded-lg border border-gray-150 dark:border-gray-800">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          <div className="grid w-full grid-cols-2 rounded-lg border border-gray-150 bg-gray-100 p-0.5 dark:border-gray-800 dark:bg-gray-900 sm:flex sm:w-auto">
             <button
               onClick={() => setActiveTab('info')}
-              className={`px-3 py-1.5 rounded-md text-xs font-bold transition ${activeTab === 'info' ? 'bg-white dark:bg-gray-800 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+              className={`whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-bold transition ${activeTab === 'info' ? 'bg-white dark:bg-gray-800 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
             >
               {t('account.infoTab')}
             </button>
             <button
               onClick={() => setActiveTab('settings')}
-              className={`px-3 py-1.5 rounded-md text-xs font-bold transition ${activeTab === 'settings' ? 'bg-white dark:bg-gray-800 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+              className={`whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-bold transition ${activeTab === 'settings' ? 'bg-white dark:bg-gray-800 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
             >
               {t('account.settingsTab')}
             </button>
             <button
               onClick={() => setActiveTab('history')}
-              className={`px-3 py-1.5 rounded-md text-xs font-bold transition ${activeTab === 'history' ? 'bg-white dark:bg-gray-800 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+              className={`whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-bold transition ${activeTab === 'history' ? 'bg-white dark:bg-gray-800 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
             >
               {t('account.historyTab')}
             </button>
+            {isSuperAdmin && (
+              <button
+                onClick={() => setActiveTab('system')}
+                className={`inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-bold transition ${activeTab === 'system' ? 'bg-[var(--color-surface)] text-[var(--color-primary)] shadow-sm' : 'text-[var(--color-text-muted)] hover:text-[var(--color-text)]'}`}
+              >
+                <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                {t('admin.systemTab', '系统管理')}
+              </button>
+            )}
           </div>
           <Link href="/account/extensions" className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-bold text-gray-600 transition hover:bg-white dark:border-gray-800 dark:text-gray-300 dark:hover:bg-gray-900">
             {t('account.extensions')}
@@ -766,9 +797,64 @@ export default function AccountPage() {
         </div>
 
         {/* 1. 基本信息面板 */}
-        {activeTab === 'info' && (
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)]">
-          <div className="bg-white dark:bg-gray-950 p-6 rounded-xl border border-gray-150 dark:border-gray-900 shadow-sm space-y-4">
+        {(activeTab === 'info' || activeTab === 'system') && (
+          <div className={`grid gap-4 ${activeTab === 'system' ? 'xl:grid-cols-[minmax(0,1.55fr)_minmax(340px,0.65fr)]' : 'lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)]'}`}>
+          {activeTab === 'system' && (
+            <section className="col-span-full overflow-hidden rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-card)] shadow-[var(--shadow-card)]">
+              <div className="flex flex-col gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-[var(--color-primary-soft)] text-[var(--color-primary)]">
+                    <LayoutDashboard className="h-5 w-5" aria-hidden="true" />
+                  </span>
+                  <div>
+                    <h3 className="text-base font-black text-[var(--color-text)]">{t('admin.systemTitle', '系统管理')}</h3>
+                    <p className="mt-0.5 max-w-3xl text-xs leading-relaxed text-[var(--color-text-muted)]">{t('admin.systemDescription', '集中处理平台运营、用户权限、内容审核和数据安全。以下功能仅超级管理员可见。')}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAllAudits(true);
+                    setActiveTab('history');
+                  }}
+                  className="w-fit rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-xs font-black text-[var(--color-text)] transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] active:scale-[0.98]"
+                >
+                  {t('admin.manageReports', '管理全站报告')}
+                </button>
+              </div>
+              {adminBilling ? (
+                <div className="grid grid-cols-2 gap-px bg-[var(--color-border)] sm:grid-cols-4">
+                  {[
+                    { icon: Users, label: t('admin.registeredUsers', '注册用户'), value: adminBilling.users?.length || 0 },
+                    { icon: ReceiptText, label: t('admin.pendingOrders', '待确认订单'), value: adminBilling.pendingOrders?.length || 0 },
+                    { icon: MessagesSquare, label: t('admin.pendingReports', '待审核举报'), value: adminBilling.discussionReports?.length || 0 },
+                    { icon: MailCheck, label: t('admin.emailRecords', '邮件记录'), value: adminBilling.emailDeliveries?.length || 0 },
+                  ].map(({ icon: Icon, label, value }) => (
+                    <div key={label} className="flex items-center gap-3 bg-[var(--color-card)] px-4 py-3">
+                      <Icon className="h-4 w-4 shrink-0 text-[var(--color-primary)]" aria-hidden="true" />
+                      <div className="min-w-0">
+                        <div className="text-lg font-black tabular-nums text-[var(--color-text)]">{value}</div>
+                        <div className="truncate text-xxs font-bold text-[var(--color-text-muted)]">{label}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 px-5 py-4 text-xs font-semibold text-[var(--color-text-muted)]">
+                  <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  {t('admin.loading', '正在加载系统数据…')}
+                </div>
+              )}
+            </section>
+          )}
+          {activeTab === 'system' && isSuperAdmin && (
+            <div className="col-span-full">
+              <PlatformModelAdmin />
+            </div>
+          )}
+          <div className={activeTab === 'system' ? 'flex min-w-0 flex-col gap-4' : 'space-y-4 rounded-xl border border-gray-150 bg-white p-6 shadow-sm dark:border-gray-900 dark:bg-gray-950'}>
+            {activeTab === 'info' && (
+              <>
             <h3 className="text-sm font-bold text-gray-900 dark:text-white border-b border-gray-100 dark:border-gray-900 pb-2 flex items-center gap-1.5">
               <span>{t('account.infoTab')}</span>
             </h3>
@@ -835,11 +921,13 @@ export default function AccountPage() {
               </div>
               {passwordMessage && <p className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-2 text-xs font-semibold text-[var(--color-text)]" role="status">{passwordMessage}</p>}
             </form>
-            {isSuperAdmin && adminBilling && (
-              <section className="mt-5 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-card)] p-4 shadow-[var(--shadow-card)]">
+              </>
+            )}
+            {activeTab === 'system' && isSuperAdmin && adminBilling && (
+              <section className="order-2 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-card)] p-4 shadow-[var(--shadow-card)]">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <h4 className="text-sm font-black text-[var(--color-text)]">{t('backup.title')}</h4>
+                    <h4 className="flex items-center gap-2 text-sm font-black text-[var(--color-text)]"><DatabaseBackup className="h-4 w-4 text-[var(--color-primary)]" aria-hidden="true" />{t('backup.title')}</h4>
                     <p className="mt-1 max-w-3xl text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('backup.description')}</p>
                   </div>
                   <span className="w-fit rounded-full bg-[var(--color-warning)]/15 px-2 py-1 text-xxs font-black text-[var(--color-warning)]">{t('backup.adminOnly')}</span>
@@ -895,11 +983,11 @@ export default function AccountPage() {
               </section>
             )}
 
-            {isSuperAdmin && adminBilling && (
-              <div className="mt-5 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface-muted)] p-3">
+            {activeTab === 'system' && isSuperAdmin && adminBilling && (
+              <div className="order-1 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-card)] p-4 shadow-[var(--shadow-card)]">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <h4 className="text-sm font-black text-[var(--color-text)]">超级管理员 · 注册用户管理</h4>
+                    <h4 className="flex items-center gap-2 text-sm font-black text-[var(--color-text)]"><Users className="h-4 w-4 text-[var(--color-primary)]" aria-hidden="true" />注册用户与权限</h4>
                     <p className="mt-1 text-xxs font-semibold text-[var(--color-text-muted)]">
                       搜索用户、导出注册信息、查看最近活动、加点、授予 Pro 专业权益、封禁、删除账号和发送邮件。
                     </p>
@@ -1022,6 +1110,8 @@ export default function AccountPage() {
             )}
           </div>
           <div className="space-y-4">
+            {activeTab === 'info' && (
+              <>
             <form onSubmit={handleSubmitFeedback} className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 shadow-[var(--shadow-card)]">
               <div className="flex items-start justify-between gap-3 border-b border-[var(--color-border)] pb-3">
                 <div>
@@ -1084,8 +1174,14 @@ export default function AccountPage() {
                   <div className="mt-1 text-xxs font-semibold text-[var(--color-text-muted)]">{t('account.plan')}</div>
                 </div>
                 <div className="min-w-0 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
-                  <div className="text-lg font-black text-[var(--color-primary)]">{billing?.pro?.pendingDays || 0}</div>
-                  <div className="mt-1 text-xxs font-semibold text-[var(--color-text-muted)]">{t('billing.pendingPro')}</div>
+                  <div className="truncate text-sm font-black text-[var(--color-primary)]">
+                    {billing?.pro?.active ? t('billing.proActive') : t('billing.proInactive')}
+                  </div>
+                  <div className="mt-1 text-xxs font-semibold text-[var(--color-text-muted)]">
+                    {billing?.pro?.active && billing?.pro?.expiresAt
+                      ? `${t('billing.proExpiresAt')} ${new Date(billing.pro.expiresAt).toLocaleDateString(language)}`
+                      : t('billing.proStartsImmediately')}
+                  </div>
                 </div>
                 <div className="min-w-0 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
                   <div className="truncate text-sm font-black text-[var(--color-text)]">{billing?.modelSource === 'custom' ? t('billing.customApis') : t('billing.platformModel')}</div>
@@ -1217,8 +1313,10 @@ export default function AccountPage() {
                 />
               </div>
             </div>
+              </>
+            )}
 
-            {isSuperAdmin && adminBilling && (
+            {activeTab === 'system' && isSuperAdmin && adminBilling && (
               <div className="bg-white dark:bg-gray-950 p-6 rounded-xl border border-amber-200 dark:border-amber-900/40 shadow-sm space-y-3">
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="h-4 w-4 text-amber-600" aria-hidden="true" />
@@ -1274,7 +1372,7 @@ export default function AccountPage() {
               </div>
             )}
 
-            {isSuperAdmin && adminBilling && (
+            {activeTab === 'system' && isSuperAdmin && adminBilling && (
               <div className="bg-white dark:bg-gray-950 p-6 rounded-xl border border-[var(--color-border-strong)] shadow-sm space-y-3">
                 <h3 className="text-sm font-bold text-[var(--color-text)]">{t('discussion.moderation')}</h3>
                 {(adminBilling.discussionReports || []).length ? adminBilling.discussionReports.map((item: any) => (
@@ -1310,13 +1408,14 @@ export default function AccountPage() {
               </div>
             )}
 
-            <fieldset className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
-              <legend className="px-1 text-xs font-black text-[var(--color-text)]">{t('billing.modelSource')}</legend>
-              <div className="mt-1 grid gap-2 sm:grid-cols-2">
-                <label className={`rounded-md border p-2 text-xs ${modelSource === 'platform' ? 'border-[var(--color-primary)] bg-[var(--color-primary-soft)]' : 'border-[var(--color-border)]'}`}><input className="mr-2" type="radio" checked={modelSource === 'platform'} onChange={() => setModelSource('platform')} />{t('billing.platformModel')} <span className="block pl-5 text-xxs text-[var(--color-text-muted)]">{t('billing.platformModelHint')}</span></label>
-                <label className={`rounded-md border p-2 text-xs ${!canUseOwnApi ? 'cursor-not-allowed opacity-50' : modelSource === 'custom' ? 'border-[var(--color-primary)] bg-[var(--color-primary-soft)]' : 'border-[var(--color-border)]'}`}><input className="mr-2" type="radio" disabled={!canUseOwnApi} checked={modelSource === 'custom'} onChange={() => setModelSource('custom')} />{t('billing.customApis')} <span className="block pl-5 text-xxs text-[var(--color-text-muted)]">{t('billing.customApisHint')}</span></label>
-              </div>
-            </fieldset>
+            <PlatformModelSelector
+              operation="analysis"
+              source={modelSource}
+              onSourceChange={setModelSource}
+              selectedId={defaultPlatformModelConfigId}
+              onSelectedIdChange={setDefaultPlatformModelConfigId}
+              allowCustomOverride={canUseOwnApi}
+            />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1">

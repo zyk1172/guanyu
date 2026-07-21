@@ -58,6 +58,7 @@ export async function POST(request: Request) {
     source: sourceHost || url,
     content,
     focus: `来自浏览器插件。原始链接：${url}`,
+    sourceUrl: url,
   });
   after(() => runAnalyzeJob(job.id));
 

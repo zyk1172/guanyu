@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { cacheGet, cacheSet, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
+import { withHistoricalAuditModelName } from '@/lib/audit-model-display';
 
 export async function GET(request: Request) {
   try {
@@ -32,6 +33,7 @@ export async function GET(request: Request) {
         publishedAt: true,
         newsSummary: true,
         modelName: true,
+        modelDisplayNameSnapshot: true,
         reasoningDepth: true,
         reportLanguage: true,
         analysisMode: true,
@@ -42,8 +44,9 @@ export async function GET(request: Request) {
       },
     });
 
-    await cacheSet(cacheKey, hotAudits, CACHE_TTL.hotAudits);
-    return NextResponse.json(hotAudits);
+    const displayAudits = hotAudits.map(withHistoricalAuditModelName);
+    await cacheSet(cacheKey, displayAudits, CACHE_TTL.hotAudits);
+    return NextResponse.json(displayAudits);
   } catch (error: any) {
     console.error('GET hot audits error:', error);
     return NextResponse.json({ error: '获取热门审视记录失败' }, { status: 500 });

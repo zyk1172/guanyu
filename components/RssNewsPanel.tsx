@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useUiLanguage } from '@/components/LanguageProvider';
+import { PlatformModelSelector, type ModelSourceSelection } from '@/components/PlatformModelSelector';
 
 export type RssHeadline = {
   id: string;
@@ -29,7 +30,7 @@ export default function RssNewsPanel({
   isAnalyzing,
   desktopHeight,
 }: {
-  onAnalyzeHeadline: (headline: RssHeadline) => Promise<void> | void;
+  onAnalyzeHeadline: (headline: RssHeadline, model: { modelSource: ModelSourceSelection; platformModelConfigId?: string }) => Promise<void> | void;
   isAnalyzing: boolean;
   desktopHeight?: number;
 }) {
@@ -39,6 +40,8 @@ export default function RssNewsPanel({
   const [error, setError] = useState('');
   const [activeSourceId, setActiveSourceId] = useState('all');
   const [activeHeadlineId, setActiveHeadlineId] = useState('');
+  const [modelSource, setModelSource] = useState<ModelSourceSelection>('platform');
+  const [platformModelConfigId, setPlatformModelConfigId] = useState('');
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
   const isPointerInsideRef = useRef(false);
   const isAutoScrollingRef = useRef(false);
@@ -110,7 +113,7 @@ export default function RssNewsPanel({
   const handleAnalyze = async (headline: RssHeadline) => {
     setActiveHeadlineId(headline.id);
     try {
-      await onAnalyzeHeadline(headline);
+      await onAnalyzeHeadline(headline, { modelSource, ...(platformModelConfigId ? { platformModelConfigId } : {}) });
     } finally {
       setActiveHeadlineId('');
     }
@@ -150,6 +153,17 @@ export default function RssNewsPanel({
             </select>
           </label>
         ) : null}
+
+        <div className="mt-2">
+          <PlatformModelSelector
+            compact
+            operation="analysis"
+            source={modelSource}
+            onSourceChange={setModelSource}
+            selectedId={platformModelConfigId}
+            onSelectedIdChange={setPlatformModelConfigId}
+          />
+        </div>
       </div>
 
       <div

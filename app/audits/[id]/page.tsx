@@ -9,6 +9,7 @@ import AnalysisResultView from '@/components/AnalysisResult';
 import ErrorMessage from '@/components/ErrorMessage';
 import { getReportLanguageLabel, getThinkingDepthLabel } from '@/lib/types';
 import { useUiLanguage } from '@/components/LanguageProvider';
+import ReanalyzeControl from '@/components/ReanalyzeControl';
 
 export default function AuditDetailsPage() {
   const params = useParams();
@@ -178,6 +179,8 @@ export default function AuditDetailsPage() {
             </span>
           </div>
         </div>
+
+        {isAuthor && <ReanalyzeControl auditId={auditRecord.id} />}
 
         {/* B. 核心审视度量指标卡片 & 完整博弈详情面板 */}
         {auditResultParsed ? (

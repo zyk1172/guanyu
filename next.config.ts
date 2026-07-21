@@ -11,6 +11,7 @@ const nextConfig: NextConfig = {
     '/api/audits/[id]/export': [
       // PDF export embeds this font from the server file system at export time.
       './public/fonts/NotoSansSC-Regular.ttf',
+      './public/fonts/NotoSansKR-Variable.ttf',
     ],
   },
   turbopack: {

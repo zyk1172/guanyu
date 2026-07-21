@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { decryptSecret } from '@/lib/secret';
-import { assertServiceCreditsAvailable, consumeQuestionPoint, CREDIT_COSTS, getOrCreateAppSetting, getUsageSource } from '@/lib/billing';
+import { assertServiceCreditsAvailable, consumeServiceCredits, formatCredits } from '@/lib/billing';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { normalizeReportLanguage } from '@/lib/types';
 import { getReportLanguageRule } from '@/lib/report-language-core.mjs';
-import { safeOutboundRequest } from '@/lib/safe-outbound';
+import { resolveOperationModel } from '@/lib/operation-model';
+import { invokeModel } from '@/lib/model-runtime';
+import { recordModelUsage } from '@/lib/model-usage';
+import { historicalAuditModelName } from '@/lib/audit-model-display';
 
 export const maxDuration = 120;
 
@@ -114,7 +116,7 @@ export async function POST(request: Request) {
 【分析模式】：${auditRecord.analysisMode}
 【思考深度】：${auditRecord.reasoningDepth}
 【报告语言】：${languageRule.name}
-【使用模型】：${auditRecord.modelName}
+【使用模型】：${historicalAuditModelName(auditRecord)}
 【生成时间】：${auditRecord.createdAt.toISOString()}
 【点击数】：${auditRecord.viewCount}
 【公开状态】：${auditRecord.isPublic ? '公开展示' : '仅自己可见'}
@@ -144,87 +146,74 @@ ${recentHistory.map((h) => `${h.role === 'user' ? '用户' : 'AI'}: ${h.content}
 
 请给出客观严谨的解答：`;
 
-    // 4. 读取当前用户数据库中的模型连接配置
-    const [userSettings, appSetting] = await Promise.all([
-      prisma.userSettings.findUnique({
-        where: { userId: user.id },
-      }),
-      getOrCreateAppSetting(),
-    ]);
-
-    const usageSource = await getUsageSource(user.id);
-    const useOwnApi = usageSource === 'custom';
-    if (useOwnApi && (!userSettings?.llmApiKeyEncrypted || !userSettings?.llmBaseUrl || !userSettings.defaultModelName)) {
-      return NextResponse.json({ error: '自定义 API 模式需要先保存模型名称、接口地址和 API Key；不会自动改用平台模型。' }, { status: 400 });
-    }
-    const apiKey = useOwnApi
-      ? decryptSecret(userSettings!.llmApiKeyEncrypted!)
-      : appSetting.adminLlmApiKeyEncrypted
-        ? decryptSecret(appSetting.adminLlmApiKeyEncrypted)
-        : process.env.OPENAI_API_KEY;
-    const baseURL = useOwnApi
-      ? userSettings!.llmBaseUrl
-      : (appSetting.adminLlmBaseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1');
-    const modelName = useOwnApi
-      ? userSettings!.defaultModelName
-      : (appSetting.adminModelName || process.env.OPENAI_MODEL_DEFAULT || auditRecord.modelName || 'gpt-4o');
-    const configuredAdminBaseURL = process.env.OPENAI_BASE_URL;
-    const allowPrivateAdminEndpoint = !useOwnApi
-      && process.env.ALLOW_PRIVATE_ADMIN_LLM === 'true'
-      && Boolean(configuredAdminBaseURL)
-      && baseURL.replace(/\/$/, '') === configuredAdminBaseURL!.replace(/\/$/, '');
-
-    if (!apiKey) {
-      return NextResponse.json({ error: '未配置可用的大模型 API Key，请联系管理员配置全局模型，或使用买断账号保存个人模型密钥。' }, { status: 500 });
+    // 4. 固定本次所选模型；失败时不会改用其他平台模型。
+    let operationModel;
+    try {
+      operationModel = await resolveOperationModel({
+        userId: user.id,
+        operation: 'followup',
+        requestedSource: body.modelSource,
+        platformModelConfigId: body.platformModelConfigId,
+      });
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : '所选模型暂时不可用，本次未扣除点数。' }, { status: 400 });
     }
     try {
-      await assertServiceCreditsAvailable({ userId: user.id, cents: CREDIT_COSTS.AI_FOLLOWUP, customFree: true });
+      await assertServiceCreditsAvailable({ userId: user.id, cents: operationModel.costCents, customFree: true, requestedSource: operationModel.source });
     } catch (error) {
       return NextResponse.json({ error: error instanceof Error ? error.message : '当前点数不足。' }, { status: 402 });
     }
 
 
     // 5. 请求大模型
-    let response: { status: number; body: Buffer };
-    try {
-      response = await safeOutboundRequest(`${baseURL.replace(/\/$/, '')}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: modelName,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userMessageContent },
-          ],
-          temperature: 0.3, // 稍微允许一定推理性，但保持客观
-        }),
-        timeoutMs: 100_000,
-        maxBytes: 4 * 1024 * 1024,
-        requireHttps: process.env.NODE_ENV === 'production' && !allowPrivateAdminEndpoint,
-        allowPrivateAddress: allowPrivateAdminEndpoint,
-      });
-    } catch (fetchError: any) {
-      const isTimeout = fetchError?.name === 'TimeoutError' || fetchError?.name === 'AbortError' || /超时|timeout/i.test(String(fetchError?.message || ''));
-      console.error('Q&A LLM fetch failed:', fetchError);
-      return NextResponse.json(
-        { error: isTimeout ? '模型响应超时，请稍后重试。' : '大模型交互失败' },
-        { status: isTimeout ? 504 : 500 }
-      );
+    const startedAt = Date.now();
+    const response = await invokeModel({
+      provider: operationModel.provider,
+      baseUrl: operationModel.baseUrl,
+      apiKey: operationModel.apiKey,
+      modelId: operationModel.modelId,
+      reasoningDepth: operationModel.reasoningDepth,
+      system: systemPrompt,
+      userPrompt: userMessageContent,
+      timeoutMs: 100_000,
+      maxTokens: 8_000,
+      jsonMode: false,
+      nativeSearch: operationModel.source === 'platform' && operationModel.snapshot?.searchMode === 'native',
+      allowPrivateAddress: operationModel.allowPrivateAddress,
+    });
+
+    if (!response.ok) {
+      await recordModelUsage({ userId: user.id, auditId, operation: 'followup', status: 'failed', source: operationModel.source, snapshot: operationModel.snapshot, usage: response.usage, durationMs: Date.now() - startedAt, errorCode: response.errorCode }).catch(() => {});
+      const retryHint = operationModel.source === 'custom'
+        ? '自定义 API 交互失败，本次未扣除点数。你可以检查配置后重试，或切换到平台模型并确认点数后重新提问。'
+        : '所选平台模型交互失败，本次未扣除点数。请稍后重试或重新选择其他模型。';
+      return NextResponse.json({ error: retryHint }, { status: 502 });
     }
 
-    if (response.status < 200 || response.status >= 300) {
-      const errorText = response.body.toString('utf8');
-      console.error('Q&A LLM failed:', errorText);
-      return NextResponse.json({ error: '大模型交互失败' }, { status: 500 });
+    const reply = response.message.trim();
+    if (!reply) {
+      await recordModelUsage({ userId: user.id, auditId, operation: 'followup', status: 'failed', source: operationModel.source, snapshot: operationModel.snapshot, usage: response.usage, durationMs: Date.now() - startedAt, errorCode: 'empty_response' }).catch(() => {});
+      return NextResponse.json({ error: '所选模型未返回有效解答，本次未扣除点数。' }, { status: 502 });
     }
-
-    const resData = JSON.parse(response.body.toString('utf8'));
-    const reply = resData.choices?.[0]?.message?.content || '未返回有效解答。';
-    const usage = await consumeQuestionPoint(user.id, auditId, requestId);
-    return NextResponse.json({ reply, usage });
+    const usage = await consumeServiceCredits({
+      userId: user.id,
+      cents: operationModel.costCents,
+      transactionType: 'AI_FOLLOWUP',
+      description: `使用${operationModel.snapshot?.displayName || operationModel.modelId}完成报告追问，消耗 ${formatCredits(operationModel.costCents)} 点`,
+      auditId,
+      idempotencyKey: `followup:${auditId}:${requestId}`,
+      customFree: true,
+      requestedSource: operationModel.source,
+      modelSnapshot: operationModel.snapshot ? {
+        configId: operationModel.snapshot.configId,
+        displayName: operationModel.snapshot.displayName,
+        modelName: operationModel.snapshot.modelId,
+        multiplierBps: operationModel.snapshot.multiplierBps,
+        configVersion: operationModel.snapshot.configVersion,
+      } : undefined,
+    });
+    await recordModelUsage({ userId: user.id, auditId, operation: 'followup', status: 'success', source: operationModel.source, snapshot: operationModel.snapshot, creditCostCents: operationModel.costCents, usage: response.usage, durationMs: Date.now() - startedAt }).catch(() => {});
+    return NextResponse.json({ reply, usage: { ...usage, cost: formatCredits(operationModel.costCents), model: operationModel.snapshot?.displayName || operationModel.modelId } });
 
   } catch (error: any) {
     console.error('Route qa error:', error);

@@ -4,10 +4,10 @@ import { getSuperAdminStatus } from '@/lib/admin';
 import { prisma } from '@/lib/prisma';
 import { encryptSecret } from '@/lib/secret';
 import { getOrCreateAppSetting, hasActivePro } from '@/lib/billing';
-import { cacheDel, CACHE_KEYS } from '@/lib/cache';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { getEffectiveRssSourceConfig, getRssSourceCatalog, normalizeRssSourceConfig } from '@/lib/rss-core.mjs';
 import { assertPublicOutboundUrl } from '@/lib/safe-outbound';
+import { cacheDel, CACHE_KEYS } from '@/lib/cache';
 
 const VALID_ANALYSIS_MODES = new Set(['quick', 'deep']);
 const VALID_THINKING_DEPTHS = new Set(['none', 'low', 'medium', 'high', 'extreme', 'quick', 'standard', 'deep', 'exhaustive']);
@@ -154,12 +154,16 @@ export async function PATCH(request: Request) {
 
     const userId = user.id;
     const body = await request.json();
-    const [account, isSuperAdmin] = await Promise.all([
+    const [account, isSuperAdmin, currentSettings] = await Promise.all([
       prisma.user.findUnique({
         where: { id: userId },
         select: { planType: true, proAccessExpiresAt: true },
       }),
       getSuperAdminStatus(userId),
+      prisma.userSettings.findUnique({
+        where: { userId },
+        select: { llmBaseUrl: true },
+      }),
     ]);
     const canUseOwnApi = isSuperAdmin || hasActivePro(account || {});
 
@@ -179,12 +183,19 @@ export async function PATCH(request: Request) {
       defaultSaveResult,
       defaultEnableCharts,
       modelSource,
+      defaultPlatformModelConfigId,
       rssFeedConfig,
     } = body;
     const safeAnalysisMode = VALID_ANALYSIS_MODES.has(defaultAnalysisMode) ? defaultAnalysisMode : 'deep';
     const safeReasoningDepth = normalizeThinkingDepth(defaultReasoningDepth);
     const safeReportLanguage = VALID_REPORT_LANGUAGES.has(defaultReportLanguage) ? defaultReportLanguage : 'zh-CN';
-
+    const requestedPlatformModelId = String(defaultPlatformModelConfigId || '').trim().slice(0, 120);
+    const validPlatformModel = requestedPlatformModelId
+      ? await prisma.platformModelConfig.findFirst({ where: { id: requestedPlatformModelId, archivedAt: null, isEnabled: true, isVisibleToUsers: true, supportsAnalysis: true } })
+      : null;
+    if (requestedPlatformModelId && !validPlatformModel) {
+      return NextResponse.json({ error: '所选默认平台模型暂时不可用，请重新选择。' }, { status: 400 });
+    }
     const trimmedApiKey = typeof llmApiKey === 'string' ? llmApiKey.trim() : '';
     const trimmedTavilyApiKey = typeof tavilyApiKey === 'string' ? tavilyApiKey.trim() : '';
     const trimmedSerperApiKey = typeof serperApiKey === 'string' ? serperApiKey.trim() : '';
@@ -203,7 +214,12 @@ export async function PATCH(request: Request) {
     }
     const safeModelName = String(defaultModelName || '').trim() || process.env.OPENAI_MODEL_DEFAULT || 'gpt-4o';
     const safeLlmBaseUrl = String(llmBaseUrl || '').trim() || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
-    if (canUseOwnApi) {
+    const shouldValidateCustomBaseUrl = canUseOwnApi && (
+      modelSource === 'custom' ||
+      Boolean(trimmedApiKey) ||
+      safeLlmBaseUrl !== currentSettings?.llmBaseUrl
+    );
+    if (shouldValidateCustomBaseUrl) {
       try {
         await assertPublicOutboundUrl(safeLlmBaseUrl, { requireHttps: process.env.NODE_ENV === 'production' });
       } catch (error: any) {
@@ -245,6 +261,7 @@ export async function PATCH(request: Request) {
         defaultSaveResult,
         defaultEnableCharts,
         modelSource: canUseOwnApi && modelSource === 'custom' ? 'custom' : 'platform',
+        defaultPlatformModelConfigId: validPlatformModel?.id || null,
       },
       create: {
         userId,
@@ -263,26 +280,16 @@ export async function PATCH(request: Request) {
         defaultSaveResult: defaultSaveResult !== undefined ? defaultSaveResult : true,
         defaultEnableCharts: defaultEnableCharts !== undefined ? defaultEnableCharts : true,
         modelSource: canUseOwnApi && modelSource === 'custom' ? 'custom' : 'platform',
+        defaultPlatformModelConfigId: validPlatformModel?.id || null,
         rssFeedUrlsJson: canUseOwnApi && hasRssConfigUpdate ? JSON.stringify(normalizedRssFeedConfig) : '[]',
       },
     });
 
-    if (isSuperAdmin && canUseOwnApi) {
-      const appSettingUpdate: any = {
-        adminModelName: safeModelName,
-        adminLlmBaseUrl: safeLlmBaseUrl,
-        enableAdminTavilySearch: Boolean(enableTavilySearch),
-        enableAdminSerperSearch: Boolean(enableSerperSearch),
-      };
-      if (trimmedApiKey) appSettingUpdate.adminLlmApiKeyEncrypted = encryptSecret(trimmedApiKey);
-      if (trimmedTavilyApiKey) appSettingUpdate.adminTavilyApiKeyEncrypted = encryptSecret(trimmedTavilyApiKey);
-      if (trimmedSerperApiKey) appSettingUpdate.adminSerperApiKeyEncrypted = encryptSecret(trimmedSerperApiKey);
-      if (hasRssConfigUpdate) appSettingUpdate.adminRssFeedIdsJson = JSON.stringify(normalizedRssFeedConfig);
-
+    if (isSuperAdmin && hasRssConfigUpdate) {
       await prisma.appSetting.upsert({
         where: { id: 'global' },
-        update: appSettingUpdate,
-        create: { id: 'global', ...appSettingUpdate },
+        update: { adminRssFeedIdsJson: JSON.stringify(normalizedRssFeedConfig) },
+        create: { id: 'global', adminRssFeedIdsJson: JSON.stringify(normalizedRssFeedConfig) },
       });
       await cacheDel(CACHE_KEYS.appSetting);
     }

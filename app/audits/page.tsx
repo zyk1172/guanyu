@@ -7,6 +7,7 @@ import { prisma } from '@/lib/prisma';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { getReportLanguageLabel, getThinkingDepthLabel } from '@/lib/types';
 import { UiText } from '@/components/LanguageProvider';
+import { withHistoricalAuditModelName } from '@/lib/audit-model-display';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +28,7 @@ export default async function PublicAuditsPage() {
       source: true,
       newsSummary: true,
       modelName: true,
+      modelDisplayNameSnapshot: true,
       reasoningDepth: true,
       reportLanguage: true,
       credibilityScore: true,
@@ -58,7 +60,7 @@ export default async function PublicAuditsPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {audits.map((audit) => (
+            {audits.map(withHistoricalAuditModelName).map((audit) => (
               <article key={audit.id} className="rounded-xl border border-gray-150 bg-white p-4 shadow-sm transition hover:border-gray-300 dark:border-gray-850 dark:bg-gray-950 dark:hover:border-gray-700">
                 <div className="flex flex-wrap items-center gap-1.5 text-xxs font-bold text-gray-400">
                   <span>{audit.source || <UiText id="publicAudits.unknownSource" />}</span>

@@ -2,6 +2,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import PDFDocument from 'pdfkit';
 import { parseExportReport } from '@/lib/report-export-content';
+import {
+  exportAppendixNotice,
+  exportCopy,
+  exportDisclaimer,
+  exportFieldLabel,
+  exportLocalizedValue,
+  getExportBrand,
+  normalizeExportLanguage,
+} from '@/lib/export-language-core.mjs';
 
 type AuditForPdf = {
   id: string;
@@ -22,7 +31,10 @@ type AuditForPdf = {
 type ReportItem = Record<string, unknown>;
 
 const PAGE = { width: 595.28, height: 841.89, left: 60, right: 60, top: 70, bottom: 58 };
-const FONT_PATH = path.join(process.cwd(), 'public', 'fonts', 'NotoSansSC-Regular.ttf');
+const FONT_PATHS = {
+  default: path.join(process.cwd(), 'public', 'fonts', 'NotoSansSC-Regular.ttf'),
+  korean: path.join(process.cwd(), 'public', 'fonts', 'NotoSansKR-Variable.ttf'),
+};
 const MAX_APPENDIX_CHARS = 32_000;
 const MAX_SECTION_ITEMS = 24;
 const MAX_ITEM_CHARS = 2_500;
@@ -35,12 +47,8 @@ function isChinese(language: string) {
   return language.toLowerCase().startsWith('zh');
 }
 
-function needsCjkFont(language: string) {
-  return /^(zh|ja|ko)(-|$)/i.test(language);
-}
-
 function copy(language: string, zh: string, en: string) {
-  return isChinese(language) ? zh : en;
+  return exportCopy(language, zh, en);
 }
 
 function plain(value: unknown): string {
@@ -78,23 +86,7 @@ function itemBody(item: ReportItem) {
 }
 
 function localizedValue(value: unknown, language: string) {
-  const raw = plain(value);
-  const zh = isChinese(language);
-  const localized: Record<string, [string, string]> = {
-    source_supported: ['原文支持', 'Supported by the article'],
-    externally_verified: ['外部已核验', 'Externally verified'],
-    partially_supported: ['部分支持', 'Partially supported'],
-    pending_verification: ['待核验', 'Pending verification'],
-    unable_to_verify: ['暂无法确认', 'Unable to verify'],
-    '原文支持': ['原文支持', 'Supported by the article'],
-    '外部已核验': ['外部已核验', 'Externally verified'],
-    '部分支持': ['部分支持', 'Partially supported'],
-    '待核验': ['待核验', 'Pending verification'],
-    '暂无法确认': ['暂无法确认', 'Unable to verify'],
-    high: ['高', 'High'], medium: ['中', 'Medium'], low: ['低', 'Low'],
-    '高': ['高', 'High'], '中': ['中', 'Medium'], '低': ['低', 'Low'],
-  };
-  return localized[raw]?.[zh ? 0 : 1] ?? raw;
+  return exportLocalizedValue(language, plain(value));
 }
 
 function fieldLabel(language: string, key: string) {
@@ -102,7 +94,8 @@ function fieldLabel(language: string, key: string) {
   const labels: Record<string, [string, string]> = {
     judgmentType: ['判断类型', 'Judgment type'], evidenceGrade: ['证据等级', 'Evidence grade'], verificationStatus: ['核验状态', 'Verification status'], speculationRisk: ['推测不确定性', 'Speculation uncertainty'], whyItMatters: ['重要性', 'Why it matters'], nextVerification: ['下一步核验', 'Next verification'], limitation: ['局限', 'Limitation'], supportsNarrative: ['支持的原文叙事', 'Narrative supported'], possibleBenefit: ['可能利益', 'Potential benefit'], possibleCost: ['可能代价', 'Potential cost'], currentEvidenceStatus: ['当前证据', 'Current evidence'], neededVerification: ['需要核验', 'Required verification'], materialType: ['材料类型', 'Material type'], priority: ['优先级', 'Priority'], source: ['来源', 'Source'], url: ['链接', 'URL'],
   };
-  return labels[key]?.[zh ? 0 : 1] ?? key;
+  const fallback = labels[key]?.[zh ? 0 : 1] ?? key;
+  return exportFieldLabel(language, key, fallback);
 }
 
 function scoreValue(scores: ReportItem, ...keys: string[]) {
@@ -120,8 +113,7 @@ function parseReport(audit: AuditForPdf): ReportItem {
 function reportAppendix(content: string, language: string) {
   const clean = plain(content);
   if (clean.length <= MAX_APPENDIX_CHARS) return clean;
-  const notice = copy(language, `\n\n[为确保正式文件可稳定生成，附录仅保留原文前 ${MAX_APPENDIX_CHARS.toLocaleString('zh-CN')} 字；完整原文仍可在观隅报告页面查阅。]`, `\n\n[To keep this formal export reliable, the appendix includes the first ${MAX_APPENDIX_CHARS.toLocaleString('en-US')} characters. The complete source remains available on the Guanyu report page.]`);
-  return `${clean.slice(0, MAX_APPENDIX_CHARS)}${notice}`;
+  return `${clean.slice(0, MAX_APPENDIX_CHARS)}${exportAppendixNotice(language, MAX_APPENDIX_CHARS, 'pdf')}`;
 }
 
 class AcademicPdf {
@@ -158,7 +150,8 @@ class AcademicPdf {
   }
 
   private drawContentHeader() {
-    this.doc.font(this.auxiliaryFontName).fontSize(7.3).fillColor(MUTED).text('GUANYU / NEWS NARRATIVE REVIEW REPORT', PAGE.left, 30, { width: this.width });
+    const brand = getExportBrand(this.language);
+    this.doc.font(this.auxiliaryFontName).fontSize(7.3).fillColor(MUTED).text(`${brand.name} / ${copy(this.language, '新闻叙事审视报告', 'News Narrative Review Report')}`, PAGE.left, 30, { width: this.width });
     this.doc.moveTo(PAGE.left, 44).lineTo(PAGE.width - PAGE.right, 44).lineWidth(0.4).strokeColor(RULE).stroke();
   }
 
@@ -241,8 +234,9 @@ class AcademicPdf {
   }
 
   private cover(report: ReportItem) {
+    const brand = getExportBrand(this.language);
     this.addPage();
-    this.useFont(10).text(needsCjkFont(this.language) ? 'GUANYU / 观隅' : 'GUANYU', PAGE.left, 56, { width: this.width });
+    this.useFont(10).text(brand.name, PAGE.left, 56, { width: this.width });
     this.doc.moveTo(PAGE.left, 82).lineTo(PAGE.width - PAGE.right, 82).lineWidth(0.7).strokeColor(RULE).stroke();
     this.useFont(24).text(copy(this.language, '新闻叙事审视报告', 'News Narrative Review Report'), PAGE.left, 170, { width: this.width, lineGap: 6 });
     this.useFont(15).text(this.audit.title, PAGE.left, 258, { width: this.width, lineGap: 5 });
@@ -261,7 +255,7 @@ class AcademicPdf {
       this.useFont(8, MUTED).text(label, x, y, { width: 220 });
       this.useFont(9).text(truncate(value, 76), x, y + 16, { width: 220, lineGap: 2 });
     });
-    const disclaimer = copy(this.language, '本报告基于公开信息及系统分析生成，旨在辅助事实核验、叙事审视和风险研判，不构成法律、投资或其他专业意见。', 'This report is generated from public information and analytical processing. It supports factual review and risk analysis, and is not legal, investment, or other professional advice.');
+    const disclaimer = exportDisclaimer(this.language);
     this.useFont(8, MUTED).text(disclaimer, PAGE.left, 750, { width: this.width, lineGap: 3 });
   }
 
@@ -348,6 +342,7 @@ class AcademicPdf {
   }
 
   private headersAndFooters() {
+    const brand = getExportBrand(this.language);
     const range = this.doc.bufferedPageRange();
     const total = range.count;
     for (let index = range.start; index < range.start + range.count; index += 1) {
@@ -359,7 +354,7 @@ class AcademicPdf {
       this.doc.page.margins.bottom = 0;
       // The footer has an independent font subset so page finishing cannot
       // remap glyphs that were already written by the report body.
-      this.doc.font(this.auxiliaryFontName).fontSize(7.1).fillColor(MUTED).text('GUANYU | NEWS NARRATIVE REVIEW REPORT', PAGE.left, PAGE.height - 34, { width: this.width - 72 });
+      this.doc.font(this.auxiliaryFontName).fontSize(7.1).fillColor(MUTED).text(`${brand.name} | ${copy(this.language, '新闻叙事审视报告', 'News Narrative Review Report')}`, PAGE.left, PAGE.height - 34, { width: this.width - 72 });
       this.doc.font(this.auxiliaryFontName).fontSize(7.1).fillColor(MUTED).text(`${index + 1} / ${total}`, PAGE.width - PAGE.right - 48, PAGE.height - 34, { width: 48, align: 'right' });
       this.doc.font(this.auxiliaryFontName).fontSize(6.5).fillColor(MUTED).text(`v${this.audit.reportVersion} | ${this.audit.createdAt.toISOString().slice(0, 10)}`, PAGE.left, PAGE.height - 20, { width: this.width });
       this.doc.page.margins.bottom = originalBottomMargin;
@@ -460,13 +455,15 @@ class AcademicPdf {
 }
 
 async function renderPass(audit: AuditForPdf, language: string, contentsOverride?: Array<{ title: string; page: number }>) {
-  if (!fs.existsSync(FONT_PATH)) throw new Error('PDF 字体文件不可用。');
-  const document = new PDFDocument({ autoFirstPage: false, bufferPages: true, size: 'A4', margins: { top: PAGE.top, bottom: PAGE.bottom, left: PAGE.left, right: PAGE.right }, info: { Title: audit.title, Author: '观隅 / Guanyu', Subject: copy(language, '新闻叙事审视报告', 'News Narrative Review Report'), Keywords: `Guanyu, news narrative review, ${audit.id}`, CreationDate: audit.createdAt } });
+  const fontPath = language === 'ko-KR' ? FONT_PATHS.korean : FONT_PATHS.default;
+  if (!fs.existsSync(fontPath)) throw new Error(`PDF 字体文件不可用 (${language})。`);
+  const brand = getExportBrand(language);
+  const document = new PDFDocument({ font: fontPath, autoFirstPage: false, bufferPages: true, size: 'A4', margins: { top: PAGE.top, bottom: PAGE.bottom, left: PAGE.left, right: PAGE.right }, info: { Title: audit.title, Author: brand.name, Subject: copy(language, '新闻叙事审视报告', 'News Narrative Review Report'), Keywords: `${brand.name}, news narrative review, ${audit.id}`, CreationDate: audit.createdAt } });
   // Never use PDFKit's built-in Helvetica: its AFM file is omitted by some
   // serverless tracing bundles. Both embedded subsets come from our deployed
   // font file and remain available in local and Vercel runtimes.
-  document.registerFont('GuanyuBody', FONT_PATH);
-  document.registerFont('GuanyuAuxiliary', FONT_PATH);
+  document.registerFont('GuanyuBody', fontPath);
+  document.registerFont('GuanyuAuxiliary', fontPath);
   const output = new Promise<Buffer>((resolve, reject) => {
     const chunks: Buffer[] = [];
     document.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
@@ -479,7 +476,7 @@ async function renderPass(audit: AuditForPdf, language: string, contentsOverride
 }
 
 export async function renderProfessionalPdf(audit: AuditForPdf): Promise<Buffer> {
-  const language = audit.reportLanguage || 'zh-CN';
+  const language = normalizeExportLanguage(audit.reportLanguage || 'zh-CN');
   // The first pass captures stable pagination. The final pass writes the
   // directory before body text so CJK glyph mappings cannot be invalidated.
   const pagination = await renderPass(audit, language);

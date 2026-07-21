@@ -9,11 +9,15 @@ import { searchWeb, WebSearchOptions } from '@/lib/search';
 import { decryptSecret } from '@/lib/secret';
 import { chooseModelConfig } from '@/lib/model-config';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
-import { buildUsagePlan, getOrCreateAppSetting, refundAnalysisUsage, reserveAnalysisUsage } from '@/lib/billing';
+import { buildUsagePlan, commitUsageWithResult, getOrCreateAppSetting, refundAnalysisUsage, reserveAnalysisUsage } from '@/lib/billing';
 import { normalizeReportLanguage } from '@/lib/types';
 import { getAnalysisTimeoutMs, getModelOutputTokenBudget, normalizeThinkingDepthCore } from '@/lib/reasoning-depth-core.mjs';
 import { formatUnconfirmedItem } from '@/lib/report-display-core.mjs';
-import { safeOutboundRequest } from '@/lib/safe-outbound';
+import { applyModelSourceCleanup } from '@/lib/source-content-cleanup.mjs';
+import { operationCostCents } from '@/lib/platform-model-core.mjs';
+import { decodePlatformModelSnapshot, platformModelSnapshot, resolvePlatformModel, type PlatformModelSnapshot } from '@/lib/platform-models';
+import { invokeModel, type RuntimeUsage } from '@/lib/model-runtime';
+import { recordModelUsage } from '@/lib/model-usage';
 import type { UsagePlan, UsageSource } from '@/lib/billing';
 import type {
   AnalysisMode,
@@ -425,77 +429,8 @@ async function buildDeepSearchGroups(base: { title?: string; source?: string; co
   return Promise.all(queries.map(async (query) => searchWeb(query.slice(0, 260), 3, searchOptions)));
 }
 
-async function callChatCompletions(params: {
-  baseURL: string;
-  apiKey: string;
-  modelName: string;
-  system: string;
-  userPrompt: string;
-  timeoutMs?: number;
-  maxTokens?: number;
-  allowPrivateAdminEndpoint?: boolean;
-}) {
-  let response: { status: number; body: Buffer };
-  try {
-    response = await safeOutboundRequest(`${params.baseURL.replace(/\/$/, '')}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${params.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: params.modelName,
-        messages: [
-          { role: 'system', content: params.system },
-          { role: 'user', content: params.userPrompt },
-        ],
-        temperature: 0.1,
-        response_format: { type: 'json_object' },
-        ...(params.maxTokens ? { max_tokens: params.maxTokens } : {}),
-      }),
-      timeoutMs: params.timeoutMs ?? getAnalysisTimeoutMs(process.env.GUANYU_LLM_TIMEOUT_MS),
-      maxBytes: 8 * 1024 * 1024,
-      requireHttps: process.env.NODE_ENV === 'production' && !params.allowPrivateAdminEndpoint,
-      allowPrivateAddress: params.allowPrivateAdminEndpoint,
-    });
-  } catch (error: any) {
-    const isTimeout = error?.name === 'TimeoutError' || error?.name === 'AbortError' || /超时|timeout/i.test(String(error?.message || ''));
-    return {
-      ok: false as const,
-      status: isTimeout ? 504 : 502,
-      text: String(error?.message || error),
-      message: '',
-      usedTokenBudget: Boolean(params.maxTokens),
-    };
-  }
-
-  const text = response.body.toString('utf8');
-  if (response.status < 200 || response.status >= 300) {
-    if (response.status === 400 && params.maxTokens && /(?:max_?tokens?|token limit|output token)/i.test(text)) {
-      console.warn('[model-output-budget] provider rejected max_tokens; retrying without an explicit output budget');
-      return callChatCompletions({ ...params, maxTokens: undefined });
-    }
-    return { ok: false as const, status: response.status, text, message: '', usedTokenBudget: Boolean(params.maxTokens) };
-  }
-
-  let data: any = null;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    data = null;
-  }
-
-  return {
-    ok: true as const,
-    status: response.status,
-    text,
-    message: data?.choices?.[0]?.message?.content || '',
-    usedTokenBudget: Boolean(params.maxTokens),
-  };
-}
-
 function modelErrorMessage(status: number, usageSource: UsageSource) {
-  const scope = usageSource === 'custom' ? '你的个人模型配置' : '管理员全局模型配置';
+  const scope = usageSource === 'custom' ? '你的个人模型配置' : '本次选择的平台模型配置';
   if (status === 401 || status === 403) {
     return `${scope}的 API Key 无效、未生效或没有调用权限，请检查密钥是否完整、是否填入了正确账号，以及模型服务商是否已启用该 Key。`;
   }
@@ -546,34 +481,83 @@ export async function POST(request: Request) {
     ]);
 
     const body = await request.json();
-    const { title, source, content, focus, reportLanguage, modelSource } = body;
+    const { title, source, content, focus, reportLanguage, modelSource, sourceUrl, platformModelConfigId } = body;
+    const expectedInternalSecret = process.env.INTERNAL_API_SECRET || process.env.NEXTAUTH_SECRET;
+    const isInternalRequest = Boolean(
+      expectedInternalSecret
+      && request.headers.get('x-guanyu-internal-auth') === expectedInternalSecret
+      && request.headers.get('x-guanyu-internal-user-id') === currentUser.id,
+    );
+    const internalJobId = isInternalRequest ? String(body._jobId || '').trim().slice(0, 120) : '';
 
     if (!content || content.trim().length < 50) {
       return NextResponse.json({ error: '新闻正文太短，最少需要 50 个字符。' }, { status: 400 });
     }
 
     const truncatedContent = content.slice(0, MAX_NEWS_CONTENT_LENGTH);
-    const actualReasoningDepth = normalizeThinkingDepthCore(userSettings?.defaultReasoningDepth);
+    const sourceContentIsWeb = /^https?:\/\/[^\s]+$/i.test(String(sourceUrl || '').trim());
+    const userReasoningDepth = normalizeThinkingDepthCore(userSettings?.defaultReasoningDepth);
     const actualAnalysisMode = 'deep' as AnalysisMode;
     const actualReportLanguage = normalizeReportLanguage(reportLanguage || userSettings?.defaultReportLanguage);
     const actualIsPublic = userSettings?.defaultIsPublic !== undefined ? userSettings.defaultIsPublic : true;
-    const preliminaryPlan = await buildUsagePlan(currentUser.id, actualAnalysisMode, modelSource);
-    const modelConfig = chooseModelConfig({ usageSource: preliminaryPlan.source, userSettings, appSetting });
-    if (!modelConfig.apiKey || !modelConfig.modelName || !modelConfig.baseURL) {
-      return NextResponse.json({
-        error: preliminaryPlan.source === 'custom'
-          ? '自定义 API 配置不完整，请在账号管理中保存模型名称、接口地址和 API Key。'
-          : '平台 DeepSeek 模型 API 未配置，请联系管理员。',
-      }, { status: 500 });
+    let selectedPlatformSnapshot: PlatformModelSnapshot | null = null;
+    let modelConfig: { apiKey: string; modelName: string; baseURL: string };
+    let actualReasoningDepth = userReasoningDepth;
+    const requestedSource = (modelSource || userSettings?.modelSource) === 'custom' ? 'custom' : 'platform';
+
+    if (requestedSource === 'platform') {
+      selectedPlatformSnapshot = isInternalRequest
+        ? decodePlatformModelSnapshot(body._platformModelSnapshot)
+        : platformModelSnapshot(await resolvePlatformModel({
+            selectedId: platformModelConfigId,
+            userDefaultId: userSettings?.defaultPlatformModelConfigId,
+            operation: 'analysis',
+          }));
+      if (!selectedPlatformSnapshot) {
+        return NextResponse.json({ error: '任务中的平台模型快照无效，本次未扣除点数。' }, { status: 409 });
+      }
+      const apiKey = decryptSecret(selectedPlatformSnapshot.apiKeyEncrypted);
+      if (!apiKey) return NextResponse.json({ error: '所选平台模型未配置可用的 API Key，请联系管理员。' }, { status: 503 });
+      modelConfig = { apiKey, modelName: selectedPlatformSnapshot.modelId, baseURL: selectedPlatformSnapshot.baseUrl };
+      actualReasoningDepth = normalizeThinkingDepthCore(selectedPlatformSnapshot.reasoningDepth);
+      const expectedCostCents = operationCostCents('analysis', selectedPlatformSnapshot.multiplierBps);
+      if (isInternalRequest && Number(body._creditCostCents) !== expectedCostCents) {
+        return NextResponse.json({ error: '任务点数快照校验失败，本次未扣除点数。' }, { status: 409 });
+      }
+      const planOptions = {
+        platformCostCents: expectedCostCents,
+        modelSnapshot: {
+          configId: selectedPlatformSnapshot.configId,
+          displayName: selectedPlatformSnapshot.displayName,
+          modelName: selectedPlatformSnapshot.modelId,
+          multiplierBps: selectedPlatformSnapshot.multiplierBps,
+          configVersion: selectedPlatformSnapshot.configVersion,
+        },
+      };
+      usageReservation = isInternalRequest
+        ? await buildUsagePlan(currentUser.id, actualAnalysisMode, 'platform', planOptions)
+        : await reserveAnalysisUsage(currentUser.id, actualAnalysisMode, 'platform', planOptions);
+    } else {
+      const customPlan = await buildUsagePlan(currentUser.id, actualAnalysisMode, 'custom');
+      modelConfig = chooseModelConfig({ usageSource: customPlan.source, userSettings, appSetting });
+      if (!modelConfig.apiKey || !modelConfig.modelName || !modelConfig.baseURL) {
+        return NextResponse.json({ error: '自定义 API 配置不完整，请在账号管理中保存模型名称、接口地址和 API Key。' }, { status: 400 });
+      }
+      usageReservation = isInternalRequest
+        ? customPlan
+        : await reserveAnalysisUsage(currentUser.id, actualAnalysisMode, 'custom');
     }
-    usageReservation = await reserveAnalysisUsage(currentUser.id, actualAnalysisMode, modelSource);
     const usagePlan = usageReservation;
+    usagePlan.idempotencyKey = internalJobId ? `analysis-job:${internalJobId}` : `analysis-request:${crypto.randomUUID()}`;
     const configuredAdminBaseURL = process.env.OPENAI_BASE_URL;
     const allowPrivateAdminEndpoint = usagePlan.source !== 'custom'
       && process.env.ALLOW_PRIVATE_ADMIN_LLM === 'true'
       && Boolean(configuredAdminBaseURL)
       && modelConfig.baseURL.replace(/\/$/, '') === configuredAdminBaseURL!.replace(/\/$/, '');
-    const searchOptions = buildSearchOptions({ usageSource: usagePlan.source, userSettings, appSetting, reportLanguage: actualReportLanguage });
+    const configuredSearchMode = selectedPlatformSnapshot?.searchMode || 'platform';
+    const searchOptions = usagePlan.source === 'platform' && configuredSearchMode !== 'platform'
+      ? { provider: 'none' as const, locale: actualReportLanguage }
+      : buildSearchOptions({ usageSource: usagePlan.source, userSettings, appSetting, reportLanguage: actualReportLanguage });
     if (usagePlan.source === 'custom' && searchOptions.provider === 'none') {
       await releaseReservation();
       return NextResponse.json({ error: '自定义 API 模式进行新闻分析时，需要同时配置并启用自己的联网搜索 API；系统不会改用平台搜索。' }, { status: 400 });
@@ -585,8 +569,11 @@ export async function POST(request: Request) {
       ? (await buildDeepSearchGroups({ title, source, content: truncatedContent, reportLanguage: actualReportLanguage }, searchOptions)).flat()
       : [];
     const allSearchSources = [...factCheckSources, ...deepSources];
-    const webSearchContext = buildSearchContext(allSearchSources);
-    const searchSourceCounts = allSearchSources.reduce<Record<string, number>>((counts, item) => {
+    let webSearchContext = buildSearchContext(allSearchSources);
+    const platformSearchRequestCount = searchOptions.provider === 'none' || !searchQuery
+      ? 0
+      : 4 * (searchOptions.provider === 'multi' ? 2 : 1);
+    let searchSourceCounts = allSearchSources.reduce<Record<string, number>>((counts, item) => {
       const provider = item.provider || 'unknown';
       counts[provider] = (counts[provider] || 0) + 1;
       return counts;
@@ -606,43 +593,90 @@ export async function POST(request: Request) {
       reasoningDepth: actualReasoningDepth,
       reportLanguage: actualReportLanguage,
       webSearchContext,
+      sourceUrl: sourceContentIsWeb ? String(sourceUrl).trim().slice(0, 2048) : undefined,
     };
     const { system, user: userPrompt } = buildPrompt(promptInput);
 
     let usedFallbackPrompt = false;
     const outputTokenBudget = getModelOutputTokenBudget(actualReasoningDepth);
-    let llmResult = await callChatCompletions({
-      baseURL: modelConfig.baseURL,
-      apiKey: modelConfig.apiKey,
-      modelName: modelConfig.modelName,
+    const startedAt = Date.now();
+    let totalRuntimeUsage: RuntimeUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, nativeSearchRequests: 0 };
+    const addRuntimeUsage = (usage: RuntimeUsage) => {
+      totalRuntimeUsage = {
+        inputTokens: totalRuntimeUsage.inputTokens + usage.inputTokens,
+        outputTokens: totalRuntimeUsage.outputTokens + usage.outputTokens,
+        cacheReadTokens: totalRuntimeUsage.cacheReadTokens + usage.cacheReadTokens,
+        nativeSearchRequests: totalRuntimeUsage.nativeSearchRequests + usage.nativeSearchRequests,
+      };
+    };
+    const recordFailedUsage = async (errorCode: string) => {
+      await recordModelUsage({
+        userId: currentUser.id,
+        jobId: internalJobId || null,
+        operation: 'analysis',
+        status: 'failed',
+        source: usagePlan.source,
+        snapshot: selectedPlatformSnapshot,
+        creditCostCents: 0,
+        usage: totalRuntimeUsage,
+        platformSearchRequests: platformSearchRequestCount,
+        durationMs: Date.now() - startedAt,
+        errorCode,
+      }).catch((error) => console.error('Record failed model usage failed:', error));
+    };
+    const invoke = async (invocationSystem: string, invocationPrompt: string, timeoutMs?: number, nativeSearch = false) => {
+      const result = await invokeModel({
+        provider: selectedPlatformSnapshot?.provider || 'openai_compatible',
+        baseUrl: modelConfig.baseURL,
+        apiKey: modelConfig.apiKey,
+        modelId: modelConfig.modelName,
+        reasoningDepth: actualReasoningDepth,
+        system: invocationSystem,
+        userPrompt: invocationPrompt,
+        timeoutMs: timeoutMs ?? getAnalysisTimeoutMs(process.env.GUANYU_LLM_TIMEOUT_MS),
+        maxTokens: outputTokenBudget,
+        jsonMode: true,
+        nativeSearch,
+        allowPrivateAddress: allowPrivateAdminEndpoint,
+      });
+      addRuntimeUsage(result.usage);
+      return result;
+    };
+    const nativeSearchEnabled = usagePlan.source === 'platform' && configuredSearchMode === 'native';
+    let llmResult = await invoke(
       system,
       userPrompt,
-      maxTokens: outputTokenBudget,
-      allowPrivateAdminEndpoint,
-    });
+      undefined,
+      nativeSearchEnabled,
+    );
+
+    if (llmResult.sources.length) {
+      for (const sourceItem of llmResult.sources) {
+        allSearchSources.push({ title: sourceItem.title, url: sourceItem.url, snippet: sourceItem.snippet || '', provider: sourceItem.provider });
+      }
+      webSearchContext = buildSearchContext(allSearchSources);
+      searchSourceCounts = allSearchSources.reduce<Record<string, number>>((counts, item) => {
+        const provider = item.provider || 'unknown';
+        counts[provider] = (counts[provider] || 0) + 1;
+        return counts;
+      }, {});
+    }
 
     if (!llmResult.ok && llmResult.status >= 500) {
       const fallbackPrompt = buildCompactFallbackPrompt(promptInput);
       usedFallbackPrompt = true;
-      llmResult = await callChatCompletions({
-        baseURL: modelConfig.baseURL,
-        apiKey: modelConfig.apiKey,
-        modelName: modelConfig.modelName,
-        system: fallbackPrompt.system,
-        userPrompt: fallbackPrompt.user,
-        timeoutMs: 75_000,
-        maxTokens: outputTokenBudget,
-        allowPrivateAdminEndpoint,
-      });
+      llmResult = await invoke(fallbackPrompt.system, fallbackPrompt.user, 75_000, nativeSearchEnabled);
     }
 
     if (!llmResult.ok) {
-      console.error('LLM API error:', llmResult.text);
+      console.error('LLM API error:', llmResult.errorCode || llmResult.status);
+      await recordFailedUsage(llmResult.errorCode || `upstream_${llmResult.status}`);
       await releaseReservation();
       return NextResponse.json({ error: modelErrorMessage(llmResult.status, usagePlan.source) }, { status: 500 });
     }
 
     if (!llmResult.message) {
+      await recordFailedUsage('empty_response');
       await releaseReservation();
       return NextResponse.json({ error: '模型审视返回内容为空，请重新尝试。' }, { status: 500 });
     }
@@ -654,49 +688,50 @@ export async function POST(request: Request) {
       console.error('JSON Parse error:', parseError, 'Raw response:', llmResult.message);
       if (!usedFallbackPrompt) {
         const fallbackPrompt = buildCompactFallbackPrompt(promptInput);
-        const fallbackResult = await callChatCompletions({
-          baseURL: modelConfig.baseURL,
-          apiKey: modelConfig.apiKey,
-          modelName: modelConfig.modelName,
-          system: fallbackPrompt.system,
-          userPrompt: fallbackPrompt.user,
-          timeoutMs: 75_000,
-          maxTokens: outputTokenBudget,
-          allowPrivateAdminEndpoint,
-        });
+        const fallbackResult = await invoke(fallbackPrompt.system, fallbackPrompt.user, 75_000, false);
         if (fallbackResult.ok && fallbackResult.message) {
-          parsedJSON = parseAssistantJSON(fallbackResult.message);
-          usedFallbackPrompt = true;
+          try {
+            parsedJSON = parseAssistantJSON(fallbackResult.message);
+            usedFallbackPrompt = true;
+          } catch (fallbackParseError) {
+            console.error('Compact fallback JSON parse error:', fallbackParseError);
+          }
         }
       }
       if (!parsedJSON) {
+        await recordFailedUsage('invalid_json');
         await releaseReservation();
         return NextResponse.json({ error: '大模型返回格式异常，无法转换为结构化 JSON，请重试。' }, { status: 500 });
       }
     }
 
+    const sourceCleanup = applyModelSourceCleanup(
+      truncatedContent,
+      parsedJSON?.sourceCleanup,
+      sourceContentIsWeb,
+    );
+
     if (actualReportLanguage !== 'zh-CN' && hasUnexpectedReportProse(parsedJSON, actualReportLanguage)) {
-      const localizedResult = await callChatCompletions({
-        baseURL: modelConfig.baseURL,
-        apiKey: modelConfig.apiKey,
-        modelName: modelConfig.modelName,
-        system: buildReportLanguageSystemGuard(actualReportLanguage),
-        userPrompt: buildReportLanguageJsonRepairPrompt(parsedJSON, actualReportLanguage),
-        timeoutMs: 90_000,
-        maxTokens: outputTokenBudget,
-        allowPrivateAdminEndpoint,
-      });
+      const localizedResult = await invoke(
+        buildReportLanguageSystemGuard(actualReportLanguage),
+        buildReportLanguageJsonRepairPrompt(parsedJSON, actualReportLanguage),
+        90_000,
+        false,
+      );
       if (!localizedResult.ok || !localizedResult.message) {
+        await recordFailedUsage(localizedResult.errorCode || 'language_repair_failed');
         await releaseReservation();
         return NextResponse.json({ error: getLanguageRepairErrorMessage(actualReportLanguage) }, { status: 502 });
       }
       try {
         parsedJSON = parseAssistantJSON(localizedResult.message);
       } catch {
+        await recordFailedUsage('language_repair_invalid_json');
         await releaseReservation();
         return NextResponse.json({ error: getLanguageRepairErrorMessage(actualReportLanguage) }, { status: 502 });
       }
       if (hasUnexpectedReportProse(parsedJSON, actualReportLanguage)) {
+        await recordFailedUsage('language_repair_mismatch');
         await releaseReservation();
         return NextResponse.json({ error: getLanguageRepairErrorMessage(actualReportLanguage) }, { status: 502 });
       }
@@ -706,11 +741,11 @@ export async function POST(request: Request) {
     const normalizedResult = normalizeReport({
       parsed: parsedJSON,
       mode: actualAnalysisMode,
-      factCheckSources: [...factCheckSources, ...deepSources],
+      factCheckSources: allSearchSources,
       meta: {
         title: title || '未命名新闻标题',
         source: source || '未知来源',
-        modelName: modelConfig.modelName,
+        modelName: selectedPlatformSnapshot?.displayName || modelConfig.modelName,
         reasoningDepth: actualReasoningDepth,
         reportLanguage: actualReportLanguage,
         createdAt,
@@ -722,16 +757,27 @@ export async function POST(request: Request) {
     normalizedResult.generationMeta = {
       usedCompactFallback: usedFallbackPrompt,
       hasWebSearchContext: Boolean(webSearchContext),
-      searchProvider: searchOptions.provider || 'none',
+      searchProvider: usagePlan.source === 'platform' && configuredSearchMode === 'native'
+        ? `${selectedPlatformSnapshot?.provider || 'model'}-native`
+        : searchOptions.provider || 'none',
       searchResultCount: allSearchSources.length,
       searchSourceCounts,
       usageSource: usagePlan.source,
       pointCost: usagePlan.costPoints,
+      platformModelConfigId: selectedPlatformSnapshot?.configId || null,
+      modelDisplayName: selectedPlatformSnapshot?.displayName || modelConfig.modelName,
+      modelProvider: selectedPlatformSnapshot?.provider || 'openai_compatible',
+      modelMultiplier: selectedPlatformSnapshot ? selectedPlatformSnapshot.multiplierBps / 100 : null,
+      modelConfigVersion: selectedPlatformSnapshot?.configVersion || null,
       reportLanguage: actualReportLanguage,
       reasoningDepth: actualReasoningDepth,
       outputTokenBudget,
       tokenBudgetApplied: llmResult.usedTokenBudget,
       requestTimeoutMs: getAnalysisTimeoutMs(process.env.GUANYU_LLM_TIMEOUT_MS),
+      sourceCleanupApplied: sourceCleanup.applied,
+      sourceCleanupRemovedLines: sourceCleanup.removedLineCount,
+      sourceCleanupRemovedFragments: sourceCleanup.removedFragmentCount,
+      sourceCleanupRetainedRatio: sourceCleanup.retainedRatio,
     };
 
     const scores = normalizedResult.scores;
@@ -739,7 +785,8 @@ export async function POST(request: Request) {
     const normalizedPublishedAt = normalizedResult.meta?.publishedAt || '';
     const normalizedPublishedAtConfidence = normalizedResult.meta?.publishedAtConfidence || 'unknown';
 
-    const dbRecord = await prisma.audit.create({
+    const committed = await commitUsageWithResult(usagePlan, async (tx, pointTransaction) => {
+      const dbRecord = await tx.audit.create({
         data: {
           userId: currentUser.id,
           title: title || '未命名新闻标题',
@@ -749,12 +796,19 @@ export async function POST(request: Request) {
           publishedAtConfidence: normalizedPublishedAtConfidence,
           reportType: normalizedResult.reportType,
           readingValue: normalizedResult.readingValue,
-          originalContent: truncatedContent,
+          originalContent: sourceCleanup.content,
           focus: focus || '',
           analysisMode: actualAnalysisMode,
           reportLanguage: actualReportLanguage,
           reasoningDepth: actualReasoningDepth,
           modelName: modelConfig.modelName,
+          platformModelConfigIdSnapshot: selectedPlatformSnapshot?.configId,
+          modelDisplayNameSnapshot: selectedPlatformSnapshot?.displayName || modelConfig.modelName,
+          modelProviderSnapshot: selectedPlatformSnapshot?.provider || 'openai_compatible',
+          modelSearchModeSnapshot: selectedPlatformSnapshot?.searchMode || (usagePlan.source === 'custom' ? 'custom' : 'platform'),
+          modelMultiplierBpsSnapshot: selectedPlatformSnapshot?.multiplierBps,
+          modelConfigVersionSnapshot: selectedPlatformSnapshot?.configVersion,
+          modelCreditCostCents: usagePlan.costCents,
           newsSummary: newsSummaryText,
           auditResultJson: JSON.stringify(normalizedResult),
           credibilityScore: scores.credibility,
@@ -766,7 +820,26 @@ export async function POST(request: Request) {
           viewCount: 0,
           heatScore: 0,
         },
+      });
+      if (pointTransaction) {
+        await tx.pointTransaction.update({ where: { id: pointTransaction.id }, data: { auditId: dbRecord.id } });
+      }
+      return dbRecord;
     });
+    const dbRecord = committed.result;
+    await recordModelUsage({
+      userId: currentUser.id,
+      auditId: dbRecord.id,
+      jobId: internalJobId || null,
+      operation: 'analysis',
+      status: 'success',
+      source: usagePlan.source,
+      snapshot: selectedPlatformSnapshot,
+      creditCostCents: usagePlan.costCents,
+      usage: totalRuntimeUsage,
+      platformSearchRequests: platformSearchRequestCount,
+      durationMs: Date.now() - startedAt,
+    }).catch((error) => console.error('Record model usage failed:', error));
     usageReservation = null;
     if (actualIsPublic) {
       // 新公开审视应尽快出现在热门榜，主动失效热榜缓存

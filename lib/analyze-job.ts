@@ -4,6 +4,10 @@ import { releaseAnalyzeJobAdmission, reserveAnalyzeJobAdmission } from '@/lib/ra
 import { POST as analyzeNews } from '@/app/api/analyze/route';
 import { notifyReportCompleted } from '@/lib/email';
 import { normalizeReportLanguage, type ReportLanguage } from '@/lib/types';
+import { buildUsagePlan, getUsageSource } from '@/lib/billing';
+import { operationCostCents } from '@/lib/platform-model-core.mjs';
+import { encodePlatformModelSnapshot, platformModelSnapshot, resolvePlatformModel } from '@/lib/platform-models';
+import { withHistoricalAuditModelName } from '@/lib/audit-model-display';
 
 const MAX_NEWS_CONTENT_LENGTH = 30_000;
 
@@ -13,7 +17,20 @@ export type AnalyzeJobInput = {
   content: string;
   focus?: string;
   reportLanguage?: ReportLanguage;
+  sourceUrl?: string;
+  modelSource?: 'platform' | 'custom';
+  platformModelConfigId?: string;
 };
+
+function normalizeSourceUrl(value: unknown) {
+  const raw = String(value || '').trim().slice(0, 2048);
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.toString() : '';
+  } catch {
+    return '';
+  }
+}
 
 export function normalizeAnalyzeJobInput(input: Partial<AnalyzeJobInput>) {
   return {
@@ -21,6 +38,9 @@ export function normalizeAnalyzeJobInput(input: Partial<AnalyzeJobInput>) {
     source: String(input.source || '').trim().slice(0, 180),
     content: String(input.content || '').trim().slice(0, MAX_NEWS_CONTENT_LENGTH),
     focus: String(input.focus || '').trim().slice(0, 1000),
+    sourceUrl: normalizeSourceUrl(input.sourceUrl),
+    modelSource: input.modelSource === 'custom' ? 'custom' : 'platform',
+    platformModelConfigId: String(input.platformModelConfigId || '').trim().slice(0, 120),
     ...(typeof input.reportLanguage === 'string'
       ? { reportLanguage: normalizeReportLanguage(input.reportLanguage) }
       : {}),
@@ -37,11 +57,42 @@ export async function createAnalyzeJob(userId: string, input: Partial<AnalyzeJob
 
   const admission = await reserveAnalyzeJobAdmission(userId);
   try {
+    const settings = await prisma.userSettings.findUnique({
+      where: { userId },
+      select: { modelSource: true, defaultPlatformModelConfigId: true },
+    });
+    const usageSource = await getUsageSource(userId, input.modelSource || settings?.modelSource || 'platform');
+    let snapshotJson: string | null = null;
+    let creditCostCents = 0;
+    if (usageSource === 'platform') {
+      const selectedModel = await resolvePlatformModel({
+        selectedId: input.platformModelConfigId,
+        userDefaultId: settings?.defaultPlatformModelConfigId,
+        operation: 'analysis',
+      });
+      const snapshot = platformModelSnapshot(selectedModel);
+      creditCostCents = operationCostCents('analysis', snapshot.multiplierBps);
+      snapshotJson = encodePlatformModelSnapshot(snapshot);
+      await buildUsagePlan(userId, 'deep', 'platform', {
+        platformCostCents: creditCostCents,
+        modelSnapshot: {
+          configId: snapshot.configId,
+          displayName: snapshot.displayName,
+          modelName: snapshot.modelId,
+          multiplierBps: snapshot.multiplierBps,
+          configVersion: snapshot.configVersion,
+        },
+      });
+    } else {
+      await buildUsagePlan(userId, 'deep', 'custom');
+    }
     return await prisma.auditJob.create({
       data: {
         userId,
         status: 'pending',
-        inputJson: JSON.stringify({ ...normalizedInput, admissionEventId: admission.id }),
+        inputJson: JSON.stringify({ ...normalizedInput, modelSource: usageSource, admissionEventId: admission.id }),
+        modelSnapshotJson: snapshotJson,
+        creditCostCents,
       },
     });
   } catch (error) {
@@ -80,7 +131,12 @@ export async function runAnalyzeJob(jobId: string) {
         'x-guanyu-internal-user-id': job.userId,
         'x-guanyu-force-save': 'true',
       },
-      body: JSON.stringify(input),
+      body: JSON.stringify({
+        ...input,
+        _jobId: job.id,
+        _platformModelSnapshot: job.modelSnapshotJson,
+        _creditCostCents: job.creditCostCents,
+      }),
     });
 
     const response = await analyzeNews(analyzeRequest);
@@ -114,6 +170,7 @@ export async function runAnalyzeJob(jobId: string) {
           source: true,
           reportLanguage: true,
           modelName: true,
+          modelDisplayNameSnapshot: true,
           reasoningDepth: true,
           createdAt: true,
           auditResultJson: true,
@@ -129,7 +186,7 @@ export async function runAnalyzeJob(jobId: string) {
         }
         await notifyReportCompleted({
           userEmail: audit.user.email,
-          audit,
+          audit: withHistoricalAuditModelName(audit),
           report,
         });
       }

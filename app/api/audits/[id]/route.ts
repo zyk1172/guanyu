@@ -4,6 +4,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { cacheDelByPrefix, CACHE_KEYS } from '@/lib/cache';
 import { getClientIp, reserveAuditViewCount } from '@/lib/rate-limit';
+import { withHistoricalAuditModelName } from '@/lib/audit-model-display';
 
 async function invalidateAuditCaches() {
   await cacheDelByPrefix(CACHE_KEYS.hotAuditsPrefix);
@@ -60,7 +61,7 @@ export async function GET(
     });
 
     return NextResponse.json({
-      ...audit,
+      ...withHistoricalAuditModelName(audit),
       canManage: currentAudit.userId === userId || isSuperAdmin,
       viewCount: audit.viewCount + (shouldCountView ? 1 : 0),
       heatScore: audit.heatScore + (shouldCountView ? 1 : 0),

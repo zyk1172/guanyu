@@ -6,6 +6,7 @@ import { cacheDel, CACHE_KEYS } from '@/lib/cache';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { notifyAccountAccessChanged, notifyCreditsGranted, notifyOrderDecision, sendTrackedEmail } from '@/lib/email';
 import { prisma } from '@/lib/prisma';
+import { calculateProAccessExpiry } from '@/lib/pro-access-core.mjs';
 import { encryptSecret } from '@/lib/secret';
 
 async function requireAdmin(request: Request) {
@@ -134,17 +135,14 @@ export async function PATCH(request: NextRequest) {
 
   if (action === 'settings') {
     const update: any = {
-      adminModelName: String(body.adminModelName || '').trim() || 'gpt-4o',
-      adminLlmBaseUrl: String(body.adminLlmBaseUrl || '').trim() || 'https://api.openai.com/v1',
       enableAdminTavilySearch: Boolean(body.enableAdminTavilySearch),
       enableAdminSerperSearch: Boolean(body.enableAdminSerperSearch),
       alipayQrImageUrl: String(body.alipayQrImageUrl || '').trim(),
       alipayPointsQrImageUrl: String(body.alipayPointsQrImageUrl || '/alipay-points.jpg').trim(),
       alipayByokQrImageUrl: String(body.alipayByokQrImageUrl || '/alipay-byok.jpg').trim(),
       paypalQrImageUrl: String(body.paypalQrImageUrl || '/paypal-qr.jpg').trim(),
-      alipayQrNote: String(body.alipayQrNote || '').trim() || '基础点数包到账 30 点；专业点数包到账 80 点，并附赠待激活的 Pro 专业权益。付款备注请填写账号邮箱、昵称或转账时间。',
+      alipayQrNote: String(body.alipayQrNote || '').trim() || '基础点数包到账 30 点；专业点数包到账 80 点，付款确认后立即开始 30 天 Pro 专业权益。付款备注请填写账号邮箱、昵称或转账时间。',
     };
-    if (String(body.adminLlmApiKey || '').trim()) update.adminLlmApiKeyEncrypted = encryptSecret(String(body.adminLlmApiKey).trim());
     if (String(body.adminTavilyApiKey || '').trim()) update.adminTavilyApiKeyEncrypted = encryptSecret(String(body.adminTavilyApiKey).trim());
     if (String(body.adminSerperApiKey || '').trim()) update.adminSerperApiKeyEncrypted = encryptSecret(String(body.adminSerperApiKey).trim());
 
@@ -185,8 +183,7 @@ export async function PATCH(request: NextRequest) {
     const target = await prisma.user.findUnique({ where: { id: userId }, select: { proAccessExpiresAt: true } });
     if (!target) return NextResponse.json({ error: '用户不存在。' }, { status: 404 });
     const now = new Date();
-    const base = target.proAccessExpiresAt && target.proAccessExpiresAt > now ? target.proAccessExpiresAt : now;
-    const expiresAt = new Date(Math.min(base.getTime() + 30 * 24 * 60 * 60 * 1000, now.getTime() + 90 * 24 * 60 * 60 * 1000));
+    const expiresAt = calculateProAccessExpiry(now, target.proAccessExpiresAt, 30);
     await prisma.user.update({ where: { id: userId }, data: { proAccessActivatedAt: new Date(), proAccessExpiresAt: expiresAt, pendingProAccessDays: 0, pendingProAccessExpiresAt: null } });
     return NextResponse.json({ ok: true, expiresAt });
   }

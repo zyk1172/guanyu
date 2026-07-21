@@ -25,6 +25,7 @@ import InteractiveQA, { ChatMessage } from './InteractiveQA';
 import DiscussionBoard from './DiscussionBoard';
 import { useUiLanguage } from './LanguageProvider';
 import ReadWorthVerdict from './ReadWorthVerdict';
+import { PlatformModelSelector, type ModelSourceSelection } from './PlatformModelSelector';
 import VerificationRoadmap from './VerificationRoadmap';
 import { computeReadWorth } from '../lib/readWorth';
 import {
@@ -386,6 +387,10 @@ function useNormalizedResult(result: AnalysisResult, auditMeta?: AnalysisResultP
     if (isDeep(clean)) {
       return {
         ...clean,
+        meta: {
+          ...clean.meta,
+          modelName: auditMeta?.modelName || clean.meta.modelName,
+        },
         onlineVerification: {
           ...clean.onlineVerification,
           unableToConfirm: (clean.onlineVerification?.unableToConfirm || [])
@@ -909,9 +914,14 @@ function completionPreviewHtml(value: string) {
 }
 
 function AiCompletionButton({ auditId, reportLanguage }: { auditId: string; reportLanguage: string }) {
+  const { t: uiText } = useUiLanguage();
   const [markdown, setMarkdown] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showControls, setShowControls] = useState(false);
+  const [modelSource, setModelSource] = useState<ModelSourceSelection>('platform');
+  const [platformModelConfigId, setPlatformModelConfigId] = useState('');
+  const [estimatedCost, setEstimatedCost] = useState('2');
   const text = (key: string) => getReportText(key, reportLanguage);
 
   const generate = async () => {
@@ -921,7 +931,7 @@ function AiCompletionButton({ auditId, reportLanguage }: { auditId: string; repo
       const response = await fetch(`/api/audits/${encodeURIComponent(auditId)}/completion`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ requestId: crypto.randomUUID() }),
+        body: JSON.stringify({ requestId: crypto.randomUUID(), modelSource, platformModelConfigId }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || text('completionFailed'));
@@ -946,9 +956,27 @@ function AiCompletionButton({ auditId, reportLanguage }: { auditId: string; repo
 
   return (
     <>
-      <button type="button" onClick={generate} disabled={isGenerating} className="rounded-lg border border-[var(--color-success)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-bold text-[var(--color-success)] transition hover:bg-[var(--color-card-hover)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60">
+      <button type="button" onClick={() => setShowControls((value) => !value)} disabled={isGenerating} className="rounded-lg border border-[var(--color-success)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-bold text-[var(--color-success)] transition hover:bg-[var(--color-card-hover)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60">
         {isGenerating ? text('generatingCompletion') : text('aiCompletion')}
       </button>
+      {showControls && (
+        <div className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+          <PlatformModelSelector
+            compact
+            operation="completion"
+            source={modelSource}
+            onSourceChange={setModelSource}
+            selectedId={platformModelConfigId}
+            onSelectedIdChange={setPlatformModelConfigId}
+            onEstimatedCostChange={(cost) => setEstimatedCost(cost)}
+          />
+          <div className="mt-2 flex justify-end">
+            <button type="button" onClick={generate} disabled={isGenerating || (modelSource === 'platform' && !platformModelConfigId)} className="rounded-lg bg-[var(--color-primary)] px-3 py-2 text-xs font-black text-white transition hover:bg-[var(--color-primary-hover)] active:scale-[0.98] disabled:opacity-50">
+              {isGenerating ? text('generatingCompletion') : `${text('aiCompletion')} · ${modelSource === 'custom' ? '0' : estimatedCost} ${uiText('modelSelector.credits', '点')}`}
+            </button>
+          </div>
+        </div>
+      )}
       {error && <span className="w-full text-right text-xxs font-semibold text-[var(--color-danger)]">{error}</span>}
       {markdown && (
         <section className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-sm sm:p-4">

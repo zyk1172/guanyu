@@ -32,10 +32,13 @@ export async function POST(request: Request) {
       source: body.source,
       content: body.content,
       focus: body.focus,
+      sourceUrl: body.sourceUrl,
       reportLanguage: body.reportLanguage || reportLanguageFromRequest(request),
+      modelSource: body.modelSource,
+      platformModelConfigId: body.platformModelConfigId,
     });
-  } catch {
-    return NextResponse.json({ error: '新闻正文太短，最少需要 50 个字符。' }, { status: 400 });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : '创建观隅分析任务失败。' }, { status: 400 });
   }
 
   after(() => runAnalyzeJob(job.id));
