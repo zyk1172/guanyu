@@ -196,17 +196,23 @@ export async function PATCH(request: Request) {
         apiKey,
         modelId: existing.modelId,
         reasoningDepth: existing.reasoningDepth,
+        nativeSearch: existing.searchMode === 'native',
         allowPrivateAddress: process.env.NODE_ENV !== 'production',
       });
+      const testMessage = result.passed
+        ? `连接成功 · ${result.durationMs}ms${existing.searchMode === 'native' ? ' · 原生联网可用' : ''} · 输入 ${result.usage.inputTokens} / 输出 ${result.usage.outputTokens} Token`
+        : existing.searchMode === 'native' && result.ok && !result.nativeSearchPassed
+          ? `模型连接成功，但未检测到原生联网结果（${result.durationMs}ms）。请确认模型型号支持联网且已开通搜索服务。`
+          : `连接失败（${result.errorCode || result.status}，${result.durationMs}ms）。`;
       const tested = await prisma.platformModelConfig.update({
         where: { id },
         data: {
           lastTestStatus: result.passed ? 'passed' : 'failed',
-          lastTestMessage: result.passed ? '连接成功。' : `连接失败（${result.errorCode || result.status}）。`,
+          lastTestMessage: testMessage,
           lastTestedAt: new Date(),
         },
       });
-      return NextResponse.json({ model: safeAdminPlatformModel(tested), passed: result.passed });
+      return NextResponse.json({ model: safeAdminPlatformModel(tested), passed: result.passed, message: testMessage });
     }
 
     if (action === 'setDefault') {

@@ -85,7 +85,7 @@ export function PlatformModelSelector({
   return (
     <div className={`rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] ${compact ? 'p-2' : 'p-3'}`} data-model-selector={operation}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-xs font-black text-[var(--color-text)]">{t('modelSelector.title', '本次使用模型')}</span>
+        <span className="text-xs font-black text-[var(--color-text)]">{t('modelSelector.activeTitle', '当前激活模型')}</span>
         <div className="inline-flex rounded-[var(--radius-button)] border border-[var(--color-border)] bg-[var(--color-input-bg)] p-0.5">
           <button
             type="button"
@@ -111,7 +111,7 @@ export function PlatformModelSelector({
             value={selected?.id || ''}
             disabled={loading || !models.length}
             onChange={(event) => onSelectedIdChange(event.target.value)}
-            className="w-full rounded-[var(--radius-button)] border border-[var(--color-input-border)] bg-[var(--color-input-bg)] px-3 py-2 text-sm font-bold text-[var(--color-text)] outline-none transition focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary-soft)]"
+            className="w-full rounded-[var(--radius-button)] border border-[var(--color-input-border)] bg-[var(--color-input-bg)] px-3 py-2 text-xs font-semibold text-[var(--color-text)] outline-none transition focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary-soft)]"
           >
             {models.map((model) => (
               <option key={model.id} value={model.id}>

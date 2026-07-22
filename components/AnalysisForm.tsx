@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { AnalysisMode, ReportLanguage, normalizeReportLanguage } from '../lib/types';
 import { useUiLanguage } from './LanguageProvider';
-import { PlatformModelSelector, type ModelSourceSelection } from './PlatformModelSelector';
+import { useActiveModel } from './useActiveModel';
 
 interface AnalysisFormProps {
   onSubmit: (data: {
@@ -13,8 +13,6 @@ interface AnalysisFormProps {
     mode: AnalysisMode;
     reportLanguage: ReportLanguage;
     sourceUrl?: string;
-    modelSource: ModelSourceSelection;
-    platformModelConfigId?: string;
   }) => void;
   isLoading: boolean;
 }
@@ -89,9 +87,7 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
   const [isParsing, setIsParsing] = useState(false);
   const [parseFailure, setParseFailure] = useState<string | null>(null);
   const [creditBalance, setCreditBalance] = useState<number | null>(null);
-  const [modelSource, setModelSource] = useState<ModelSourceSelection>('platform');
-  const [platformModelConfigId, setPlatformModelConfigId] = useState('');
-  const [estimatedCost, setEstimatedCost] = useState('3');
+  const activeModel = useActiveModel('analysis');
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
@@ -155,7 +151,7 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!content.trim() || content.trim().length < 50) return;
-    onSubmit({ title, source, content, focus, mode, reportLanguage, modelSource, ...(platformModelConfigId ? { platformModelConfigId } : {}), ...(parsedSourceUrl ? { sourceUrl: parsedSourceUrl } : {}) });
+    onSubmit({ title, source, content, focus, mode, reportLanguage, ...(parsedSourceUrl ? { sourceUrl: parsedSourceUrl } : {}) });
   };
 
   const isFormValid = content.trim().length >= 50;
@@ -286,19 +282,10 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
           />
         </div>
 
-        <PlatformModelSelector
-          operation="analysis"
-          source={modelSource}
-          onSourceChange={setModelSource}
-          selectedId={platformModelConfigId}
-          onSelectedIdChange={setPlatformModelConfigId}
-          onEstimatedCostChange={(cost) => setEstimatedCost(cost)}
-        />
-
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border border-[var(--color-warning)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs font-semibold leading-relaxed text-[var(--color-text)]">
-          <span>{modelSource === 'custom'
+          <span>{activeModel.source === 'custom'
             ? t('modelSelector.customCharge', '本次使用自定义 API，不消耗平台点数。')
-            : t('modelSelector.estimatedCharge', '预计消耗 {credits} 点；仅在报告成功保存后扣除。', { credits: estimatedCost })}</span>
+            : t('modelSelector.estimatedCharge', '预计消耗 {credits} 点；仅在报告成功保存后扣除。', { credits: activeModel.estimatedCost })}</span>
           {creditBalance !== null && (
             <span className="shrink-0 font-black text-[var(--color-primary)]">
               {t('billing.remainingCredits', undefined, { credits: Number.isInteger(creditBalance) ? String(creditBalance) : creditBalance.toFixed(1) })}

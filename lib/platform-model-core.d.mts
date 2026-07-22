@@ -1,4 +1,4 @@
-export type PlatformModelProvider = 'openai_compatible' | 'openai' | 'gemini' | 'anthropic';
+export type PlatformModelProvider = 'openai_compatible' | 'openai' | 'gemini' | 'anthropic' | 'xiaomi_mimo' | 'qwen' | 'moonshot' | 'zhipu';
 export type PlatformModelSearchMode = 'platform' | 'native' | 'none';
 export type PlatformModelOperation = 'analysis' | 'completion' | 'followup';
 

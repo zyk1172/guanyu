@@ -25,7 +25,7 @@ import InteractiveQA, { ChatMessage } from './InteractiveQA';
 import DiscussionBoard from './DiscussionBoard';
 import { useUiLanguage } from './LanguageProvider';
 import ReadWorthVerdict from './ReadWorthVerdict';
-import { PlatformModelSelector, type ModelSourceSelection } from './PlatformModelSelector';
+import { useActiveModel } from './useActiveModel';
 import VerificationRoadmap from './VerificationRoadmap';
 import { computeReadWorth } from '../lib/readWorth';
 import {
@@ -919,9 +919,7 @@ function AiCompletionButton({ auditId, reportLanguage }: { auditId: string; repo
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showControls, setShowControls] = useState(false);
-  const [modelSource, setModelSource] = useState<ModelSourceSelection>('platform');
-  const [platformModelConfigId, setPlatformModelConfigId] = useState('');
-  const [estimatedCost, setEstimatedCost] = useState('2');
+  const activeModel = useActiveModel('completion');
   const text = (key: string) => getReportText(key, reportLanguage);
 
   const generate = async () => {
@@ -931,7 +929,7 @@ function AiCompletionButton({ auditId, reportLanguage }: { auditId: string; repo
       const response = await fetch(`/api/audits/${encodeURIComponent(auditId)}/completion`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ requestId: crypto.randomUUID(), modelSource, platformModelConfigId }),
+        body: JSON.stringify({ requestId: crypto.randomUUID() }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || text('completionFailed'));
@@ -961,18 +959,12 @@ function AiCompletionButton({ auditId, reportLanguage }: { auditId: string; repo
       </button>
       {showControls && (
         <div className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
-          <PlatformModelSelector
-            compact
-            operation="completion"
-            source={modelSource}
-            onSourceChange={setModelSource}
-            selectedId={platformModelConfigId}
-            onSelectedIdChange={setPlatformModelConfigId}
-            onEstimatedCostChange={(cost) => setEstimatedCost(cost)}
-          />
-          <div className="mt-2 flex justify-end">
-            <button type="button" onClick={generate} disabled={isGenerating || (modelSource === 'platform' && !platformModelConfigId)} className="rounded-lg bg-[var(--color-primary)] px-3 py-2 text-xs font-black text-white transition hover:bg-[var(--color-primary-hover)] active:scale-[0.98] disabled:opacity-50">
-              {isGenerating ? text('generatingCompletion') : `${text('aiCompletion')} · ${modelSource === 'custom' ? '0' : estimatedCost} ${uiText('modelSelector.credits', '点')}`}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2">
+            <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">
+              {uiText('modelSelector.accountModelHint', '使用账号设置中当前激活的模型。')}
+            </p>
+            <button type="button" onClick={generate} disabled={isGenerating || activeModel.loading} className="rounded-lg bg-[var(--color-primary)] px-3 py-2 text-xs font-black text-white transition hover:bg-[var(--color-primary-hover)] active:scale-[0.98] disabled:opacity-50">
+              {isGenerating ? text('generatingCompletion') : `${text('aiCompletion')} · ${activeModel.source === 'custom' ? '0' : activeModel.estimatedCost} ${uiText('modelSelector.credits', '点')}`}
             </button>
           </div>
         </div>

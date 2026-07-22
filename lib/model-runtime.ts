@@ -62,6 +62,33 @@ function dedupeSources(sources: RuntimeSearchSource[]) {
   });
 }
 
+function structuredSearchSources(payload: any, provider: string) {
+  const sources: RuntimeSearchSource[] = [];
+  const visit = (value: unknown, depth = 0) => {
+    if (!value || depth > 7) return;
+    if (Array.isArray(value)) {
+      value.forEach((item) => visit(item, depth + 1));
+      return;
+    }
+    if (typeof value !== 'object') return;
+    const item = value as Record<string, unknown>;
+    const url = item.url || item.link || item.uri;
+    if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
+      sources.push({
+        title: String(item.title || item.name || item.site_name || item.media || url),
+        url,
+        snippet: String(item.summary || item.snippet || item.content || '').slice(0, 800),
+        provider,
+      });
+    }
+    Object.entries(item).forEach(([key, nested]) => {
+      if (/annotation|citation|source|search|result|ground/i.test(key)) visit(nested, depth + 1);
+    });
+  };
+  visit(payload);
+  return dedupeSources(sources);
+}
+
 function openAiSources(payload: any) {
   const sources: RuntimeSearchSource[] = [];
   for (const item of Array.isArray(payload?.output) ? payload.output : []) {
@@ -98,6 +125,75 @@ function openAiReasoning(reasoningDepth?: string) {
   if (reasoningDepth === 'high') return { effort: 'high' };
   if (reasoningDepth === 'extreme') return { effort: 'xhigh' };
   return undefined;
+}
+
+function reasoningBudget(reasoningDepth?: string) {
+  if (reasoningDepth === 'none') return 0;
+  if (reasoningDepth === 'low') return 1024;
+  if (reasoningDepth === 'medium') return 4096;
+  if (reasoningDepth === 'high') return 8192;
+  return 16384;
+}
+
+function qwenThinking(reasoningDepth?: string) {
+  return {
+    enable_thinking: reasoningDepth !== 'none',
+    ...(reasoningDepth !== 'none' ? { thinking_budget: reasoningBudget(reasoningDepth) } : {}),
+  };
+}
+
+function kimiReasoning(reasoningDepth?: string) {
+  if (reasoningDepth === 'none') return 'low';
+  if (reasoningDepth === 'low' || reasoningDepth === 'medium') return 'low';
+  if (reasoningDepth === 'high') return 'high';
+  return 'max';
+}
+
+function zhipuThinking(reasoningDepth?: string) {
+  return {
+    thinking: { type: reasoningDepth === 'none' ? 'disabled' : 'enabled' },
+    reasoning_effort: reasoningDepth === 'extreme' ? 'max' : reasoningDepth || 'medium',
+  };
+}
+
+function chatUsage(payload: any, nativeSearchRequests = 0): RuntimeUsage {
+  const usage = payload?.usage || {};
+  return {
+    inputTokens: int(usage.prompt_tokens || usage.input_tokens),
+    outputTokens: int(usage.completion_tokens || usage.output_tokens),
+    cacheReadTokens: int(usage.prompt_tokens_details?.cached_tokens || usage.input_tokens_details?.cached_tokens),
+    nativeSearchRequests: Math.max(
+      nativeSearchRequests,
+      int(usage.web_search_usage?.tool_usage),
+      Array.isArray(payload?.web_search) ? payload.web_search.length : 0,
+    ),
+  };
+}
+
+async function postChatCompletion(params: InvokeModelParams, body: Record<string, unknown>, headers?: Record<string, string>) {
+  const response = await safeOutboundRequest(`${params.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers: headers || { 'Content-Type': 'application/json', Authorization: `Bearer ${params.apiKey}` },
+    body: JSON.stringify(body),
+    timeoutMs: params.timeoutMs,
+    maxBytes: 8 * 1024 * 1024,
+    requireHttps: process.env.NODE_ENV === 'production' && !params.allowPrivateAddress,
+    allowPrivateAddress: params.allowPrivateAddress,
+  });
+  return { response, payload: JSON.parse(response.body.toString('utf8') || '{}') };
+}
+
+function standardChatBody(params: InvokeModelParams) {
+  return {
+    model: params.modelId,
+    messages: [
+      { role: 'system', content: params.system },
+      { role: 'user', content: params.userPrompt },
+    ],
+    temperature: 0.1,
+    stream: false,
+    ...(params.jsonMode ? { response_format: { type: 'json_object' } } : {}),
+  };
 }
 
 function geminiThinking(modelId: string, reasoningDepth?: string) {
@@ -321,11 +417,161 @@ async function invokeAnthropic(params: InvokeModelParams): Promise<ModelInvocati
   };
 }
 
+async function invokeXiaomiMimo(params: InvokeModelParams): Promise<ModelInvocationResult> {
+  const body = {
+    ...standardChatBody(params),
+    ...(params.maxTokens ? { max_completion_tokens: params.maxTokens } : {}),
+    thinking: { type: params.reasoningDepth === 'none' ? 'disabled' : 'enabled' },
+    ...(params.nativeSearch ? {
+      tools: [{ type: 'web_search', max_keyword: 3, force_search: true, limit: 5 }],
+      tool_choice: 'auto',
+    } : {}),
+  };
+  const { response, payload } = await postChatCompletion(params, body, {
+    'Content-Type': 'application/json',
+    'api-key': params.apiKey,
+    Authorization: `Bearer ${params.apiKey}`,
+  });
+  const message = payload?.choices?.[0]?.message || {};
+  const sources = structuredSearchSources(message?.annotations || payload?.web_search || [], 'xiaomi-mimo-native');
+  return {
+    ok: response.status >= 200 && response.status < 300,
+    status: response.status,
+    message: String(message?.content || '').trim(),
+    errorCode: response.status >= 400 ? `upstream_${response.status}` : undefined,
+    usedTokenBudget: Boolean(params.maxTokens),
+    sources,
+    usage: chatUsage(payload, sources.length ? Math.max(1, int(payload?.usage?.web_search_usage?.tool_usage)) : 0),
+  };
+}
+
+async function invokeQwen(params: InvokeModelParams): Promise<ModelInvocationResult> {
+  const body = {
+    ...standardChatBody(params),
+    ...(params.maxTokens ? { max_tokens: params.maxTokens } : {}),
+    ...qwenThinking(params.reasoningDepth),
+    ...(params.nativeSearch ? {
+      enable_search: true,
+      search_options: { forced_search: true, search_strategy: params.reasoningDepth === 'extreme' ? 'max' : 'turbo', enable_source: true },
+    } : {}),
+  };
+  const { response, payload } = await postChatCompletion(params, body);
+  const sources = structuredSearchSources(payload?.search_info || payload?.web_search || payload?.choices?.[0]?.message?.annotations || [], 'qwen-native');
+  return {
+    ok: response.status >= 200 && response.status < 300,
+    status: response.status,
+    message: String(payload?.choices?.[0]?.message?.content || '').trim(),
+    errorCode: response.status >= 400 ? `upstream_${response.status}` : undefined,
+    usedTokenBudget: Boolean(params.maxTokens),
+    sources,
+    usage: chatUsage(payload, params.nativeSearch ? Math.max(1, sources.length ? 1 : 0) : 0),
+  };
+}
+
+async function invokeZhipu(params: InvokeModelParams): Promise<ModelInvocationResult> {
+  const body = {
+    ...standardChatBody(params),
+    ...(params.maxTokens ? { max_tokens: params.maxTokens } : {}),
+    ...zhipuThinking(params.reasoningDepth),
+    ...(params.nativeSearch ? {
+      tools: [{ type: 'web_search', web_search: { enable: true, search_engine: 'search_pro', search_result: true, count: 8, content_size: 'high' } }],
+      tool_choice: 'auto',
+    } : {}),
+  };
+  const { response, payload } = await postChatCompletion(params, body);
+  const sources = structuredSearchSources(payload?.web_search || payload?.choices?.[0]?.message?.annotations || [], 'zhipu-native');
+  return {
+    ok: response.status >= 200 && response.status < 300,
+    status: response.status,
+    message: String(payload?.choices?.[0]?.message?.content || '').trim(),
+    errorCode: response.status >= 400 ? `upstream_${response.status}` : undefined,
+    usedTokenBudget: Boolean(params.maxTokens),
+    sources,
+    usage: chatUsage(payload, params.nativeSearch ? Math.max(1, sources.length ? 1 : 0) : 0),
+  };
+}
+
+async function invokeMoonshot(params: InvokeModelParams): Promise<ModelInvocationResult> {
+  const messages: any[] = [
+    { role: 'system', content: params.system },
+    { role: 'user', content: params.userPrompt },
+  ];
+  const tools = params.nativeSearch ? [{ type: 'builtin_function', function: { name: '$web_search' } }] : undefined;
+  let lastPayload: any = {};
+  let lastStatus = 502;
+  const gatheredSources: RuntimeSearchSource[] = [];
+  let searchRequests = 0;
+  let usage: RuntimeUsage = { ...EMPTY_USAGE };
+
+  for (let attempt = 0; attempt < (params.nativeSearch ? 4 : 1); attempt += 1) {
+    const { response, payload } = await postChatCompletion(params, {
+      model: params.modelId,
+      messages,
+      stream: false,
+      temperature: 0.1,
+      reasoning_effort: kimiReasoning(params.reasoningDepth),
+      ...(params.maxTokens ? { max_tokens: params.maxTokens } : {}),
+      ...(params.jsonMode ? { response_format: { type: 'json_object' } } : {}),
+      ...(tools ? { tools } : {}),
+    });
+    lastPayload = payload;
+    lastStatus = response.status;
+    const currentUsage = chatUsage(payload);
+    usage = {
+      inputTokens: usage.inputTokens + currentUsage.inputTokens,
+      outputTokens: usage.outputTokens + currentUsage.outputTokens,
+      cacheReadTokens: usage.cacheReadTokens + currentUsage.cacheReadTokens,
+      nativeSearchRequests: searchRequests,
+    };
+    if (response.status < 200 || response.status >= 300) break;
+    const choice = payload?.choices?.[0] || {};
+    const message = choice?.message || {};
+    const toolCalls = Array.isArray(message?.tool_calls) ? message.tool_calls : [];
+    if (choice?.finish_reason !== 'tool_calls' || !toolCalls.length) {
+      return {
+        ok: true,
+        status: response.status,
+        message: String(message?.content || '').trim(),
+        usedTokenBudget: Boolean(params.maxTokens),
+        sources: dedupeSources(gatheredSources),
+        usage: { ...usage, nativeSearchRequests: searchRequests },
+      };
+    }
+    messages.push(message);
+    for (const toolCall of toolCalls) {
+      if (toolCall?.function?.name !== '$web_search') continue;
+      searchRequests += 1;
+      let argumentsObject: unknown = {};
+      try { argumentsObject = JSON.parse(String(toolCall.function.arguments || '{}')); } catch {}
+      gatheredSources.push(...structuredSearchSources(argumentsObject, 'moonshot-native'));
+      messages.push({
+        role: 'tool',
+        tool_call_id: toolCall.id,
+        name: '$web_search',
+        content: JSON.stringify(argumentsObject),
+      });
+    }
+  }
+  return {
+    ok: false,
+    status: lastStatus,
+    message: String(lastPayload?.choices?.[0]?.message?.content || '').trim(),
+    errorCode: lastStatus >= 400 ? `upstream_${lastStatus}` : 'native_search_loop_exceeded',
+    usedTokenBudget: Boolean(params.maxTokens),
+    sources: dedupeSources(gatheredSources),
+    usage: { ...usage, nativeSearchRequests: searchRequests },
+  };
+}
+
 export async function invokeModel(params: InvokeModelParams): Promise<ModelInvocationResult> {
   try {
     if (params.provider === 'openai') return await invokeOpenAiResponses(params);
     if (params.provider === 'gemini') return await invokeGemini(params);
     if (params.provider === 'anthropic') return await invokeAnthropic(params);
+    if (params.provider === 'xiaomi_mimo') return await invokeXiaomiMimo(params);
+    if (params.provider === 'qwen') return await invokeQwen(params);
+    if (params.provider === 'moonshot') return await invokeMoonshot(params);
+    if (params.provider === 'zhipu') return await invokeZhipu(params);
     return await invokeOpenAiCompatible(params);
   } catch (error: any) {
     const isTimeout = error?.name === 'TimeoutError' || error?.name === 'AbortError' || /超时|timeout/i.test(String(error?.message || ''));
@@ -341,15 +587,26 @@ export async function invokeModel(params: InvokeModelParams): Promise<ModelInvoc
   }
 }
 
-export async function testModelConnection(params: Omit<InvokeModelParams, 'system' | 'userPrompt' | 'timeoutMs' | 'maxTokens' | 'jsonMode' | 'nativeSearch'>) {
+export async function testModelConnection(params: Omit<InvokeModelParams, 'system' | 'userPrompt' | 'timeoutMs' | 'maxTokens' | 'jsonMode' | 'nativeSearch'> & { nativeSearch?: boolean }) {
+  const startedAt = Date.now();
   const result = await invokeModel({
     ...params,
-    system: 'You are a connectivity test. Do not use tools.',
-    userPrompt: 'Reply with exactly GUANYU_MODEL_OK',
-    timeoutMs: 45_000,
-    maxTokens: 64,
+    system: params.nativeSearch
+      ? 'You are a connectivity and native web-search test. Use the configured web-search tool once, then include GUANYU_MODEL_OK in the final answer.'
+      : 'You are a connectivity test. Do not use tools.',
+    userPrompt: params.nativeSearch
+      ? 'Search the web for the official homepage of the configured model provider. Reply with GUANYU_MODEL_OK and one source URL.'
+      : 'Reply with exactly GUANYU_MODEL_OK',
+    timeoutMs: 90_000,
+    maxTokens: 512,
     jsonMode: false,
-    nativeSearch: false,
+    nativeSearch: Boolean(params.nativeSearch),
   });
-  return { ...result, passed: result.ok && /GUANYU_MODEL_OK/i.test(result.message) };
+  const nativeSearchPassed = !params.nativeSearch || result.usage.nativeSearchRequests > 0 || result.sources.length > 0;
+  return {
+    ...result,
+    durationMs: Date.now() - startedAt,
+    nativeSearchPassed,
+    passed: result.ok && /GUANYU_MODEL_OK/i.test(result.message) && nativeSearchPassed,
+  };
 }

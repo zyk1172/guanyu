@@ -367,7 +367,7 @@ test('registration captcha uses a longer non-ambiguous visual code', () => {
   assert.equal(isCaptchaTextSafe('O0I1L'), false);
 });
 
-test('AI completion prompt requires marked verified, contextual, and unresolved material', () => {
+test('AI completion prompt requires a professional article with localized uncertainty labels', () => {
   const prompt = buildAiCompletionPrompt({
     title: 'Example report',
     source: 'Example source',
@@ -379,10 +379,10 @@ test('AI completion prompt requires marked verified, contextual, and unresolved 
     },
   });
 
-  assert.match(prompt.system, /neutral, evidence-led news editor/i);
-  assert.match(prompt.system, /green/i);
-  assert.match(prompt.system, /red/i);
-  assert.equal(validateCompletionMarkdown('## Revised article\n\n<span style="color:#047857">Verified fact</span>'), true);
+  assert.match(prompt.system, /inverted-pyramid/i);
+  assert.match(prompt.system, /\[Unverified\]/i);
+  assert.match(prompt.system, /Do not dump score cards/i);
+  assert.equal(validateCompletionMarkdown(`# Revised article\n\n${'A factual lead paragraph. '.repeat(8)}\n\n## What is known\n\n${'Known facts with attribution. '.repeat(8)}\n\n## Evidence and attributed accounts\n\n${'Evidence is described carefully. '.repeat(8)}\n\n## Unresolved questions\n\n${'[Unverified] A material claim remains unresolved. '.repeat(8)}\n\n## Context and implications\n\n${'Context for readers. '.repeat(8)}`), true);
   assert.equal(validateCompletionMarkdown(''), false);
 });
 

@@ -2,7 +2,6 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useUiLanguage } from '@/components/LanguageProvider';
-import { PlatformModelSelector, type ModelSourceSelection } from '@/components/PlatformModelSelector';
 
 export type RssHeadline = {
   id: string;
@@ -30,7 +29,7 @@ export default function RssNewsPanel({
   isAnalyzing,
   desktopHeight,
 }: {
-  onAnalyzeHeadline: (headline: RssHeadline, model: { modelSource: ModelSourceSelection; platformModelConfigId?: string }) => Promise<void> | void;
+  onAnalyzeHeadline: (headline: RssHeadline) => Promise<void> | void;
   isAnalyzing: boolean;
   desktopHeight?: number;
 }) {
@@ -40,8 +39,6 @@ export default function RssNewsPanel({
   const [error, setError] = useState('');
   const [activeSourceId, setActiveSourceId] = useState('all');
   const [activeHeadlineId, setActiveHeadlineId] = useState('');
-  const [modelSource, setModelSource] = useState<ModelSourceSelection>('platform');
-  const [platformModelConfigId, setPlatformModelConfigId] = useState('');
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
   const isPointerInsideRef = useRef(false);
   const isAutoScrollingRef = useRef(false);
@@ -113,7 +110,7 @@ export default function RssNewsPanel({
   const handleAnalyze = async (headline: RssHeadline) => {
     setActiveHeadlineId(headline.id);
     try {
-      await onAnalyzeHeadline(headline, { modelSource, ...(platformModelConfigId ? { platformModelConfigId } : {}) });
+      await onAnalyzeHeadline(headline);
     } finally {
       setActiveHeadlineId('');
     }
@@ -134,7 +131,7 @@ export default function RssNewsPanel({
             type="button"
             onClick={() => void loadHeadlines()}
             disabled={isLoading || isAnalyzing}
-            className="rounded-md border border-[var(--color-border)] px-2 py-1 text-xxs font-bold text-[var(--color-link)] transition hover:bg-[var(--color-card-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+            className="shrink-0 whitespace-nowrap rounded-md border border-[var(--color-border)] px-2 py-1 text-xxs font-bold text-[var(--color-link)] transition hover:bg-[var(--color-card-hover)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isLoading ? t('rss.loading') : t('rss.refresh')}
           </button>
@@ -154,16 +151,6 @@ export default function RssNewsPanel({
           </label>
         ) : null}
 
-        <div className="mt-2">
-          <PlatformModelSelector
-            compact
-            operation="analysis"
-            source={modelSource}
-            onSourceChange={setModelSource}
-            selectedId={platformModelConfigId}
-            onSelectedIdChange={setPlatformModelConfigId}
-          />
-        </div>
       </div>
 
       <div

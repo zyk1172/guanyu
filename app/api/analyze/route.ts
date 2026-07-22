@@ -481,7 +481,7 @@ export async function POST(request: Request) {
     ]);
 
     const body = await request.json();
-    const { title, source, content, focus, reportLanguage, modelSource, sourceUrl, platformModelConfigId } = body;
+    const { title, source, content, focus, reportLanguage, sourceUrl } = body;
     const expectedInternalSecret = process.env.INTERNAL_API_SECRET || process.env.NEXTAUTH_SECRET;
     const isInternalRequest = Boolean(
       expectedInternalSecret
@@ -503,13 +503,15 @@ export async function POST(request: Request) {
     let selectedPlatformSnapshot: PlatformModelSnapshot | null = null;
     let modelConfig: { apiKey: string; modelName: string; baseURL: string };
     let actualReasoningDepth = userReasoningDepth;
-    const requestedSource = (modelSource || userSettings?.modelSource) === 'custom' ? 'custom' : 'platform';
+    const requestedSource = isInternalRequest
+      ? (body.modelSource === 'custom' ? 'custom' : 'platform')
+      : (userSettings?.modelSource === 'custom' ? 'custom' : 'platform');
 
     if (requestedSource === 'platform') {
       selectedPlatformSnapshot = isInternalRequest
         ? decodePlatformModelSnapshot(body._platformModelSnapshot)
         : platformModelSnapshot(await resolvePlatformModel({
-            selectedId: platformModelConfigId,
+            selectedId: userSettings?.defaultPlatformModelConfigId,
             userDefaultId: userSettings?.defaultPlatformModelConfigId,
             operation: 'analysis',
           }));

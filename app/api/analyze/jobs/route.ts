@@ -34,8 +34,6 @@ export async function POST(request: Request) {
       focus: body.focus,
       sourceUrl: body.sourceUrl,
       reportLanguage: body.reportLanguage || reportLanguageFromRequest(request),
-      modelSource: body.modelSource,
-      platformModelConfigId: body.platformModelConfigId,
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : '创建观隅分析任务失败。' }, { status: 400 });

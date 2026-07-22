@@ -27,7 +27,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: '只有报告创建者可以重新分析。' }, { status: 403 });
   }
 
-  const body = await request.json().catch(() => ({}));
   try {
     const job = await createAnalyzeJob(user.id, {
       title: audit.title,
@@ -35,8 +34,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       content: audit.originalContent,
       focus: audit.focus || '',
       reportLanguage: normalizeReportLanguage(audit.reportLanguage),
-      modelSource: body.modelSource,
-      platformModelConfigId: body.platformModelConfigId,
     });
     after(() => runAnalyzeJob(job.id));
     return NextResponse.json({ ok: true, jobId: job.id, status: job.status });

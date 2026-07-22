@@ -177,8 +177,8 @@ class AcademicPdf {
     this.doc.moveDown(options.gap ?? 0.55);
   }
 
-  private heading(title: string) {
-    this.ensureSpace(78);
+  private heading(title: string, minimumFollowingHeight = 0) {
+    this.ensureSpace(78 + Math.min(240, Math.max(0, minimumFollowingHeight)));
     this.contents.push({ title, page: this.pageIndex() + 1 });
     this.useFont(14.5).text(title, { width: this.width, lineGap: 2 });
     this.doc.moveDown(0.35);
@@ -200,8 +200,18 @@ class AcademicPdf {
   private labeledList(label: string, value: unknown) {
     const entries = Array.isArray(value) ? value.map(plain).filter(Boolean) : [];
     if (!entries.length) return;
+    this.doc.font(this.fontName).fontSize(10.4);
+    const labelHeight = this.doc.heightOfString(label, { width: this.width, lineGap: 2 });
+    this.doc.font(this.fontName).fontSize(9.5);
+    const firstEntriesHeight = entries.slice(0, 2).reduce((total, entry, index) => total + this.doc.heightOfString(`${index + 1}. ${entry}`, { width: this.width, lineGap: 9.5 * 0.28 }) + 7, 0);
+    this.ensureSpace(Math.min(230, labelHeight + firstEntriesHeight + 18));
     this.subheading(label);
-    entries.forEach((entry, index) => this.paragraph(`${index + 1}. ${entry}`, { size: 9.5, gap: 0.25 }));
+    entries.forEach((entry, index) => {
+      this.doc.font(this.fontName).fontSize(9.5);
+      const entryHeight = this.doc.heightOfString(`${index + 1}. ${entry}`, { width: this.width, lineGap: 9.5 * 0.28 });
+      this.ensureSpace(Math.min(180, entryHeight + 10));
+      this.paragraph(`${index + 1}. ${entry}`, { size: 9.5, gap: 0.25 });
+    });
     this.doc.moveDown(0.15);
   }
 
@@ -383,7 +393,7 @@ class AcademicPdf {
     this.readingAssessment(report);
     this.heading(copy(this.language, '3. 核心指标与评分理由', '3. Core indicators and score rationale'));
     this.metrics(report);
-    this.heading(copy(this.language, '4. 结论分层', '4. Layers of conclusion'));
+    this.heading(copy(this.language, '4. 结论分层', '4. Layers of conclusion'), 190);
     this.conclusionLayers(report);
 
     const contentSections: Array<[string, unknown, 'items' | 'bullets' | 'paragraph']> = [

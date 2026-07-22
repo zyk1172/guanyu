@@ -18,8 +18,6 @@ export type AnalyzeJobInput = {
   focus?: string;
   reportLanguage?: ReportLanguage;
   sourceUrl?: string;
-  modelSource?: 'platform' | 'custom';
-  platformModelConfigId?: string;
 };
 
 function normalizeSourceUrl(value: unknown) {
@@ -39,8 +37,6 @@ export function normalizeAnalyzeJobInput(input: Partial<AnalyzeJobInput>) {
     content: String(input.content || '').trim().slice(0, MAX_NEWS_CONTENT_LENGTH),
     focus: String(input.focus || '').trim().slice(0, 1000),
     sourceUrl: normalizeSourceUrl(input.sourceUrl),
-    modelSource: input.modelSource === 'custom' ? 'custom' : 'platform',
-    platformModelConfigId: String(input.platformModelConfigId || '').trim().slice(0, 120),
     ...(typeof input.reportLanguage === 'string'
       ? { reportLanguage: normalizeReportLanguage(input.reportLanguage) }
       : {}),
@@ -61,12 +57,12 @@ export async function createAnalyzeJob(userId: string, input: Partial<AnalyzeJob
       where: { userId },
       select: { modelSource: true, defaultPlatformModelConfigId: true },
     });
-    const usageSource = await getUsageSource(userId, input.modelSource || settings?.modelSource || 'platform');
+    const usageSource = await getUsageSource(userId, settings?.modelSource || 'platform');
     let snapshotJson: string | null = null;
     let creditCostCents = 0;
     if (usageSource === 'platform') {
       const selectedModel = await resolvePlatformModel({
-        selectedId: input.platformModelConfigId,
+        selectedId: settings?.defaultPlatformModelConfigId,
         userDefaultId: settings?.defaultPlatformModelConfigId,
         operation: 'analysis',
       });

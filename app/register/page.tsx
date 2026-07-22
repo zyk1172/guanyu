@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useUiLanguage } from '@/components/LanguageProvider';
+import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { getBrandIdentity } from '@/lib/brand-core.mjs';
 
 export default function RegisterPage() {
@@ -119,8 +120,9 @@ export default function RegisterPage() {
   };
 
   return (
-    <main className="min-h-screen bg-gray-50 dark:bg-black font-sans flex items-center justify-center py-10 px-4">
-      <div className="animate-fade-up max-w-md w-full space-y-6 bg-white dark:bg-gray-950 p-7 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm">
+    <main className="relative flex min-h-screen items-center justify-center bg-[var(--color-bg)] px-4 py-10 font-sans">
+      <div className="absolute right-4 top-4 z-20 sm:right-6 sm:top-6"><LanguageSwitcher variant="auth" /></div>
+      <div className="animate-fade-up w-full max-w-md space-y-6 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-7 shadow-[var(--shadow-card)]">
         <div className="text-center">
           <Image
             src="/guanyu-icon.png"

@@ -21,6 +21,17 @@ async function withModelServer(run: (baseUrl: string, captured: CapturedRequest[
         response.end(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'GEMINI_OK' }] } }], usageMetadata: { promptTokenCount: 8, candidatesTokenCount: 2 } }));
       } else if (request.url?.endsWith('/messages')) {
         response.end(JSON.stringify({ content: [{ type: 'text', text: 'CLAUDE_OK' }], usage: { input_tokens: 7, output_tokens: 2 } }));
+      } else if (body.tools?.[0]?.type === 'builtin_function') {
+        const hasToolResult = body.messages?.some((message: any) => message.role === 'tool');
+        response.end(JSON.stringify(hasToolResult
+          ? { choices: [{ finish_reason: 'stop', message: { content: 'KIMI_OK GUANYU_MODEL_OK' } }], usage: { prompt_tokens: 9, completion_tokens: 2 } }
+          : { choices: [{ finish_reason: 'tool_calls', message: { content: '', tool_calls: [{ id: 'search-1', type: 'function', function: { name: '$web_search', arguments: JSON.stringify({ results: [{ title: 'Moonshot', url: 'https://platform.moonshot.cn' }] }) } }] } }], usage: { prompt_tokens: 8, completion_tokens: 1 } }));
+      } else if (body.enable_search) {
+        response.end(JSON.stringify({ choices: [{ message: { content: 'QWEN_OK GUANYU_MODEL_OK', annotations: [{ title: 'Qwen', url: 'https://help.aliyun.com/model-studio' }] } }], usage: { prompt_tokens: 6, completion_tokens: 2 } }));
+      } else if (body.tools?.[0]?.web_search) {
+        response.end(JSON.stringify({ choices: [{ message: { content: 'ZHIPU_OK GUANYU_MODEL_OK' } }], web_search: [{ title: 'Zhipu', url: 'https://open.bigmodel.cn' }], usage: { prompt_tokens: 6, completion_tokens: 2 } }));
+      } else if (body.tools?.[0]?.max_keyword) {
+        response.end(JSON.stringify({ choices: [{ message: { content: 'MIMO_OK GUANYU_MODEL_OK', annotations: [{ title: 'MiMo', url: 'https://mimo.mi.com' }] } }], usage: { prompt_tokens: 6, completion_tokens: 2, web_search_usage: { tool_usage: 1 } } }));
       } else {
         response.end(JSON.stringify({ choices: [{ message: { content: 'COMPATIBLE_OK' } }], usage: { prompt_tokens: 6, completion_tokens: 2 } }));
       }
@@ -75,6 +86,38 @@ test('provider adapters map reasoning and native search without changing compati
     assert.equal(captured[3].body.reasoning, undefined);
     assert.equal(captured[3].body.thinking, undefined);
     assert.equal(captured[3].body.model, 'deepseek-v4-pro');
+  });
+});
+
+test('Chinese provider adapters use provider-native thinking and web search contracts', async () => {
+  await withModelServer(async (baseUrl, captured) => {
+    const mimo = await invokeModel({ ...BASE, provider: 'xiaomi_mimo', baseUrl: `${baseUrl}/v1`, modelId: 'mimo-v2.5-pro', reasoningDepth: 'high', nativeSearch: true });
+    const qwen = await invokeModel({ ...BASE, provider: 'qwen', baseUrl: `${baseUrl}/v1`, modelId: 'qwen-plus', reasoningDepth: 'extreme', nativeSearch: true });
+    const zhipu = await invokeModel({ ...BASE, provider: 'zhipu', baseUrl: `${baseUrl}/v1`, modelId: 'glm-5', reasoningDepth: 'high', nativeSearch: true });
+    const kimi = await invokeModel({ ...BASE, provider: 'moonshot', baseUrl: `${baseUrl}/v1`, modelId: 'kimi-k3', reasoningDepth: 'extreme', nativeSearch: true });
+
+    assert.equal(mimo.message, 'MIMO_OK GUANYU_MODEL_OK');
+    assert.equal(mimo.usage.nativeSearchRequests, 1);
+    assert.equal(captured[0].body.thinking.type, 'enabled');
+    assert.equal(captured[0].body.tools[0].type, 'web_search');
+    assert.equal(captured[0].body.max_completion_tokens, 5_000);
+
+    assert.equal(qwen.message, 'QWEN_OK GUANYU_MODEL_OK');
+    assert.equal(captured[1].body.enable_thinking, true);
+    assert.equal(captured[1].body.thinking_budget, 16_384);
+    assert.equal(captured[1].body.enable_search, true);
+    assert.equal(captured[1].body.search_options.search_strategy, 'max');
+
+    assert.equal(zhipu.message, 'ZHIPU_OK GUANYU_MODEL_OK');
+    assert.deepEqual(captured[2].body.thinking, { type: 'enabled' });
+    assert.equal(captured[2].body.tools[0].type, 'web_search');
+    assert.equal(captured[2].body.tools[0].web_search.search_engine, 'search_pro');
+
+    assert.equal(kimi.message, 'KIMI_OK GUANYU_MODEL_OK');
+    assert.equal(kimi.usage.nativeSearchRequests, 1);
+    assert.equal(captured[3].body.reasoning_effort, 'max');
+    assert.equal(captured[3].body.tools[0].function.name, '$web_search');
+    assert.equal(captured[4].body.messages.at(-1).role, 'tool');
   });
 });
 

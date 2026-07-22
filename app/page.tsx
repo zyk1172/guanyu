@@ -19,7 +19,6 @@ import {
   getAnalysisJobResolution,
   normalizeActiveAnalysisJobId,
 } from '../lib/analysis-job-client-core.mjs';
-import type { ModelSourceSelection } from '../components/PlatformModelSelector';
 
 interface HotAudit {
   id: string;
@@ -43,8 +42,6 @@ interface AuditSubmitData {
   mode: AnalysisMode;
   reportLanguage: ReportLanguage;
   sourceUrl?: string;
-  modelSource: ModelSourceSelection;
-  platformModelConfigId?: string;
 }
 
 export default function Home() {
@@ -217,7 +214,7 @@ export default function Home() {
     }
   };
 
-  const handleAnalyzeRssHeadline = async (headline: RssHeadline, model: { modelSource: ModelSourceSelection; platformModelConfigId?: string }) => {
+  const handleAnalyzeRssHeadline = async (headline: RssHeadline) => {
     setError(null);
     try {
       const response = await fetch('/api/parse-url', {
@@ -237,7 +234,6 @@ export default function Home() {
         mode: 'deep',
         reportLanguage: language,
         sourceUrl: article.url || headline.url,
-        ...model,
       });
     } catch (rssError: any) {
       setError(rssError?.message || t('rss.parseFailed'));

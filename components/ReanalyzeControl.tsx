@@ -1,16 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { PlatformModelSelector, type ModelSourceSelection } from '@/components/PlatformModelSelector';
 import { useUiLanguage } from '@/components/LanguageProvider';
+import { useActiveModel } from '@/components/useActiveModel';
 import { ACTIVE_ANALYSIS_JOB_STORAGE_KEY } from '@/lib/analysis-job-client-core.mjs';
 
 export default function ReanalyzeControl({ auditId }: { auditId: string }) {
   const { t } = useUiLanguage();
   const [open, setOpen] = useState(false);
-  const [source, setSource] = useState<ModelSourceSelection>('platform');
-  const [modelId, setModelId] = useState('');
-  const [estimatedCost, setEstimatedCost] = useState('3');
+  const activeModel = useActiveModel('analysis');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -21,7 +19,7 @@ export default function ReanalyzeControl({ auditId }: { auditId: string }) {
       const response = await fetch(`/api/audits/${encodeURIComponent(auditId)}/reanalyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ modelSource: source, platformModelConfigId: source === 'platform' ? modelId : undefined }),
+        body: JSON.stringify({}),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.jobId) throw new Error(data.error || t('reanalyze.failed', '无法创建重新分析任务。'));
@@ -49,24 +47,16 @@ export default function ReanalyzeControl({ auditId }: { auditId: string }) {
           {submitting
             ? t('reanalyze.submitting', '正在创建任务…')
             : open
-              ? `${t('reanalyze.confirm', '确认重新分析')} · ${source === 'custom' ? '0' : estimatedCost} ${t('modelSelector.credits', '点')}`
+              ? `${t('reanalyze.confirm', '确认重新分析')} · ${activeModel.source === 'custom' ? '0' : activeModel.estimatedCost} ${t('modelSelector.credits', '点')}`
               : t('reanalyze.title', '重新分析')}
         </button>
       </div>
       {open && (
         <div className="mt-3">
-          <PlatformModelSelector
-            operation="analysis"
-            source={source}
-            onSourceChange={setSource}
-            selectedId={modelId}
-            onSelectedIdChange={setModelId}
-            onEstimatedCostChange={(cost) => setEstimatedCost(cost)}
-          />
-          <p className="mt-2 text-xs text-[var(--color-text-muted)]">
-            {source === 'custom'
+          <p className="rounded-[var(--radius-button)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs text-[var(--color-text-muted)]">
+            {activeModel.source === 'custom'
               ? t('modelSelector.customCharge', '本次使用自定义 API，不消耗平台点数。')
-              : t('modelSelector.estimatedCharge', '预计消耗 {credits} 点；仅在任务成功后扣除。', { credits: estimatedCost })}
+              : t('modelSelector.estimatedCharge', '预计消耗 {credits} 点；仅在任务成功后扣除。', { credits: activeModel.estimatedCost })}
           </p>
         </div>
       )}

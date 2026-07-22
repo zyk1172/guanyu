@@ -8,14 +8,12 @@ import { platformModelSnapshot, resolvePlatformModel, type PlatformModelSnapshot
 export async function resolveOperationModel(params: {
   userId: string;
   operation: PlatformModelOperation;
-  requestedSource?: string | null;
-  platformModelConfigId?: string | null;
 }) {
   const [settings, appSetting] = await Promise.all([
     prisma.userSettings.findUnique({ where: { userId: params.userId } }),
     getOrCreateAppSetting(),
   ]);
-  const source = await getUsageSource(params.userId, params.requestedSource || settings?.modelSource || 'platform');
+  const source = await getUsageSource(params.userId, settings?.modelSource || 'platform');
   if (source === 'custom') {
     const custom = chooseModelConfig({ usageSource: 'custom', userSettings: settings, appSetting });
     if (!custom.apiKey || !custom.baseURL || !custom.modelName) {
@@ -35,7 +33,7 @@ export async function resolveOperationModel(params: {
   }
 
   const config = await resolvePlatformModel({
-    selectedId: params.platformModelConfigId,
+    selectedId: settings?.defaultPlatformModelConfigId,
     userDefaultId: settings?.defaultPlatformModelConfigId,
     operation: params.operation,
   });

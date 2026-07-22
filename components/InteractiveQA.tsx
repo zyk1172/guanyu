@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useUiLanguage } from './LanguageProvider';
-import { PlatformModelSelector, type ModelSourceSelection } from './PlatformModelSelector';
+import { useActiveModel } from './useActiveModel';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -21,9 +21,7 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
   const [input, setInput] = useState('');
   const [isSending, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [modelSource, setModelSource] = useState<ModelSourceSelection>('platform');
-  const [platformModelConfigId, setPlatformModelConfigId] = useState('');
-  const [estimatedCost, setEstimatedCost] = useState('1');
+  const activeModel = useActiveModel('followup');
   const messages = controlledMessages ?? localMessages;
   const updateMessages = (nextMessages: ChatMessage[]) => {
     if (onMessagesChange) onMessagesChange(nextMessages);
@@ -54,8 +52,6 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
           requestId: crypto.randomUUID(),
           chatHistory: messages,
           interfaceLanguage: language,
-          modelSource,
-          platformModelConfigId,
         }),
       });
 
@@ -125,16 +121,6 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
         )}
       </div>
 
-      <PlatformModelSelector
-        compact
-        operation="followup"
-        source={modelSource}
-        onSourceChange={setModelSource}
-        selectedId={platformModelConfigId}
-        onSelectedIdChange={setPlatformModelConfigId}
-        onEstimatedCostChange={(cost) => setEstimatedCost(cost)}
-      />
-
       {/* 提问表单输入 */}
       <form onSubmit={handleSend} className="flex gap-2 border-t border-gray-100 dark:border-gray-900 pt-3">
         <input
@@ -147,10 +133,10 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
         />
         <button
           type="submit"
-          disabled={isSending || !input.trim() || (modelSource === 'platform' && !platformModelConfigId)}
+          disabled={isSending || !input.trim() || activeModel.loading}
           className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-200 dark:disabled:bg-gray-850 text-white rounded-lg font-bold text-xs shadow-sm transition flex-shrink-0"
         >
-          {t('qa.ask')} · {modelSource === 'custom' ? '0' : estimatedCost} {t('modelSelector.credits', '点')}
+          {t('qa.ask')} · {activeModel.source === 'custom' ? '0' : activeModel.estimatedCost} {t('modelSelector.credits', '点')}
         </button>
       </form>
     </div>

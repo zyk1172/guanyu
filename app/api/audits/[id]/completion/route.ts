@@ -88,8 +88,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       operationModel = await resolveOperationModel({
         userId: user.id,
         operation: 'completion',
-        requestedSource: body.modelSource,
-        platformModelConfigId: body.platformModelConfigId,
       });
     } catch (error) {
       return NextResponse.json({ error: error instanceof Error ? error.message : '所选模型暂时不可用，本次未扣除点数。' }, { status: 400 });

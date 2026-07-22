@@ -152,8 +152,6 @@ ${recentHistory.map((h) => `${h.role === 'user' ? '用户' : 'AI'}: ${h.content}
       operationModel = await resolveOperationModel({
         userId: user.id,
         operation: 'followup',
-        requestedSource: body.modelSource,
-        platformModelConfigId: body.platformModelConfigId,
       });
     } catch (error) {
       return NextResponse.json({ error: error instanceof Error ? error.message : '所选模型暂时不可用，本次未扣除点数。' }, { status: 400 });
