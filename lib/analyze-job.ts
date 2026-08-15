@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { prisma } from '@/lib/prisma';
 import { releaseAnalyzeJobAdmission, reserveAnalyzeJobAdmission } from '@/lib/rate-limit';
@@ -10,6 +11,9 @@ import { encodePlatformModelSnapshot, platformModelSnapshot, resolvePlatformMode
 import { withHistoricalAuditModelName } from '@/lib/audit-model-display';
 
 const MAX_NEWS_CONTENT_LENGTH = 30_000;
+const JOB_LEASE_MS = 10 * 60 * 1000;
+const JOB_RETRY_DELAY_MS = 30 * 1000;
+const JOB_MAX_ATTEMPTS = Math.max(1, Number(process.env.PLATFORM_ANALYSIS_MAX_RETRIES || 1) + 1);
 
 export type AnalyzeJobInput = {
   title: string;
@@ -86,6 +90,8 @@ export async function createAnalyzeJob(userId: string, input: Partial<AnalyzeJob
       data: {
         userId,
         status: 'pending',
+        attemptCount: 0,
+        nextAttemptAt: new Date(),
         inputJson: JSON.stringify({ ...normalizedInput, modelSource: usageSource, admissionEventId: admission.id }),
         modelSnapshotJson: snapshotJson,
         creditCostCents,
@@ -98,14 +104,42 @@ export async function createAnalyzeJob(userId: string, input: Partial<AnalyzeJob
 }
 
 export async function runAnalyzeJob(jobId: string) {
+  const now = new Date();
   const claim = await prisma.auditJob.updateMany({
-    where: { id: jobId, status: 'pending' },
-    data: { status: 'running', error: null },
+    where: {
+      id: jobId,
+      OR: [
+        { status: 'pending' },
+        { status: 'running', leaseExpiresAt: { lt: now } },
+      ],
+    },
+    data: {
+      status: 'running',
+      error: null,
+      attemptCount: { increment: 1 },
+      leaseExpiresAt: new Date(now.getTime() + JOB_LEASE_MS),
+      lastHeartbeatAt: now,
+      workerId: `run-${randomUUID()}`,
+    },
   });
   if (claim.count !== 1) return;
 
   const job = await prisma.auditJob.findUnique({ where: { id: jobId } });
   if (!job) return;
+  if (job.attemptCount > JOB_MAX_ATTEMPTS) {
+    await prisma.auditJob.update({
+      where: { id: jobId },
+      data: {
+        status: 'failed',
+        error: '审视任务重试次数已用完。',
+        leaseExpiresAt: null,
+        lastHeartbeatAt: null,
+        workerId: null,
+        inputRetentionExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      },
+    });
+    return;
+  }
 
   try {
     const storedInput = JSON.parse(job.inputJson);
@@ -127,6 +161,11 @@ export async function runAnalyzeJob(jobId: string) {
         status: 'completed',
         auditId: data.auditId || '',
         error: null,
+        attemptCount: job.attemptCount,
+        leaseExpiresAt: null,
+        lastHeartbeatAt: null,
+        nextAttemptAt: null,
+        workerId: null,
         inputJson: JSON.stringify({
           auditId: data.auditId || '',
           completedAt: new Date().toISOString(),
@@ -166,15 +205,22 @@ export async function runAnalyzeJob(jobId: string) {
       }
     }
   } catch (error: any) {
-    try {
-      const storedInput = JSON.parse(job.inputJson);
-      await releaseAnalyzeJobAdmission(job.userId, storedInput.admissionEventId);
-    } catch {}
+    const retryable = job.attemptCount < JOB_MAX_ATTEMPTS;
+    if (!retryable) {
+      try {
+        const storedInput = JSON.parse(job.inputJson);
+        await releaseAnalyzeJobAdmission(job.userId, storedInput.admissionEventId);
+      } catch {}
+    }
     await prisma.auditJob.update({
       where: { id: jobId },
       data: {
-        status: 'failed',
+        status: retryable ? 'pending' : 'failed',
         error: error?.message || '审视任务执行失败。',
+        leaseExpiresAt: null,
+        lastHeartbeatAt: null,
+        workerId: null,
+        nextAttemptAt: retryable ? new Date(Date.now() + JOB_RETRY_DELAY_MS) : null,
         inputRetentionExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       },
     });

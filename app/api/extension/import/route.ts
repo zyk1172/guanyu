@@ -1,6 +1,7 @@
 import { after, NextResponse } from 'next/server';
 import { authenticateExtensionRequest } from '@/lib/extension-auth';
 import { createAnalyzeJob, runAnalyzeJob } from '@/lib/analyze-job';
+import { prisma } from '@/lib/prisma';
 
 const MAX_TEXT_LENGTH = 30_000;
 const MAX_SELECTED_LENGTH = 20_000;
@@ -53,6 +54,24 @@ export async function POST(request: Request) {
   }
 
   const sourceHost = new URL(url).hostname;
+  if (action === 'save') {
+    const saved = await prisma.savedArticle.create({
+      data: {
+        userId: session.userId,
+        title,
+        source: sourceHost || url,
+        url,
+        content,
+        selectedText: selectedText || null,
+      },
+    });
+    return NextResponse.json({
+      ok: true,
+      savedId: saved.id,
+      message: '已保存到观隅，未开始分析，未消耗点数。',
+    });
+  }
+
   const job = await createAnalyzeJob(session.userId, {
     title,
     source: sourceHost || url,

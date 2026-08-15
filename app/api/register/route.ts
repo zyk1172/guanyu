@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { hashPassword } from '@/lib/auth';
 import { setSessionCookie } from '@/lib/session-cookie';
-import { isSuperAdminIdentity } from '@/lib/admin-core.mjs';
 import { verifyEmailCode } from '@/lib/captcha';
 import { sendWelcomeEmail } from '@/lib/email';
 import { grantSignupBonus } from '@/lib/billing';
@@ -77,10 +76,7 @@ export async function POST(request: NextRequest) {
       data: {
         email,
         password: hashPassword(password),
-        role: isSuperAdminIdentity({ email }, {
-          SUPER_ADMIN_EMAILS: process.env.SUPER_ADMIN_EMAILS,
-          SUPER_ADMIN_IDS: process.env.SUPER_ADMIN_IDS,
-        }) ? 'super_admin' : 'user',
+        role: 'user',
         settings: {
           create: {
             defaultModelName: process.env.OPENAI_MODEL_DEFAULT || 'gpt-4o',

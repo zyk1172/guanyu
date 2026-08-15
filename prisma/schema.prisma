@@ -47,6 +47,7 @@ model User {
   exportArtifacts           ExportArtifact[]
   modelUsageEvents          ModelUsageEvent[]
   serviceOperations         ServiceOperation[]
+  savedArticles             SavedArticle[]
 }
 
 model ServiceOperation {
@@ -148,22 +149,42 @@ model Audit {
 }
 
 model AuditJob {
-  id                String   @id @default(cuid())
-  userId            String
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  status            String   @default("pending") // pending, running, completed, failed
-  inputJson         String
-  modelSnapshotJson String?
-  creditCostCents   Int?
-  auditId           String?
-  error             String?
+  id                     String    @id @default(cuid())
+  userId                 String
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status                 String    @default("pending") // pending, running, completed, failed
+  attemptCount           Int       @default(0)
+  leaseExpiresAt         DateTime?
+  lastHeartbeatAt        DateTime?
+  nextAttemptAt          DateTime?
+  workerId               String?
+  inputJson              String
+  modelSnapshotJson      String?
+  creditCostCents        Int?
+  auditId                String?
+  error                  String?
   inputRetentionExpiresAt DateTime?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
   @@index([userId])
   @@index([status])
   @@index([createdAt])
+}
+
+model SavedArticle {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title        String
+  source       String
+  url          String
+  content      String
+  selectedText String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId, createdAt])
 }
 
 model EmailDelivery {
@@ -335,9 +356,11 @@ model PurchaseOrder {
   providerTransactionId String?   @unique
   paymentEmail          String?
   webhookEventId        String?   @unique
+  clientRequestId       String?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
+  @@unique([userId, clientRequestId])
   @@index([userId])
   @@index([status])
   @@index([createdAt])

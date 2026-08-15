@@ -9,7 +9,6 @@ import { getEffectiveRssSourceConfig, getRssSourceCatalog, normalizeRssSourceCon
 import { assertPublicOutboundUrl } from '@/lib/safe-outbound';
 import { cacheDel, CACHE_KEYS } from '@/lib/cache';
 
-const VALID_ANALYSIS_MODES = new Set(['quick', 'deep']);
 const VALID_THINKING_DEPTHS = new Set(['none', 'low', 'medium', 'high', 'extreme', 'quick', 'standard', 'deep', 'exhaustive']);
 const VALID_TAVILY_DEPTHS = new Set(['basic', 'advanced']);
 const VALID_REPORT_LANGUAGES = new Set(['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'ko-KR', 'de-DE', 'it-IT']);
@@ -178,7 +177,6 @@ export async function PATCH(request: Request) {
       serperApiKey,
       defaultReasoningDepth,
       defaultReportLanguage,
-      defaultAnalysisMode,
       defaultIsPublic,
       defaultSaveResult,
       defaultEnableCharts,
@@ -186,7 +184,6 @@ export async function PATCH(request: Request) {
       defaultPlatformModelConfigId,
       rssFeedConfig,
     } = body;
-    const safeAnalysisMode = VALID_ANALYSIS_MODES.has(defaultAnalysisMode) ? defaultAnalysisMode : 'deep';
     const safeReasoningDepth = normalizeThinkingDepth(defaultReasoningDepth);
     const safeReportLanguage = VALID_REPORT_LANGUAGES.has(defaultReportLanguage) ? defaultReportLanguage : 'zh-CN';
     const requestedPlatformModelId = String(defaultPlatformModelConfigId || '').trim().slice(0, 120);
@@ -275,7 +272,6 @@ export async function PATCH(request: Request) {
         serperApiKeyEncrypted: canUseOwnApi && trimmedSerperApiKey ? encryptSecret(trimmedSerperApiKey) : null,
         defaultReasoningDepth: safeReasoningDepth,
         defaultReportLanguage: safeReportLanguage,
-        defaultAnalysisMode: safeAnalysisMode,
         defaultIsPublic: defaultIsPublic !== undefined ? defaultIsPublic : false,
         defaultSaveResult: defaultSaveResult !== undefined ? defaultSaveResult : true,
         defaultEnableCharts: defaultEnableCharts !== undefined ? defaultEnableCharts : true,

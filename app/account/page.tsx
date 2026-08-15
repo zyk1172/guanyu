@@ -148,6 +148,7 @@ export default function AccountPage() {
   const [orderProgressStage, setOrderProgressStage] = useState<OrderProgressStage>('idle');
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
   const orderRequestLock = useRef(false);
+  const orderRequestIdRef = useRef<string | null>(null);
   const [paymentNote, setPaymentNote] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -396,11 +397,12 @@ export default function AccountPage() {
     setIsCreatingOrder(true);
     setOrderProgressStage('submitting');
     setBillingMessage(t('order.creatingDetail'));
+    orderRequestIdRef.current = orderRequestIdRef.current || crypto.randomUUID();
     try {
       const res = await fetch('/api/billing/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productId: selectedPackageType, paymentMethod, paymentNote }),
+        body: JSON.stringify({ productId: selectedPackageType, paymentMethod, paymentNote, clientRequestId: orderRequestIdRef.current }),
       });
       const data = await res.json();
       if (!res.ok) {

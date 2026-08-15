@@ -50,6 +50,18 @@ export function ensureRuntimeSchema() {
         ADD COLUMN IF NOT EXISTS "inputRetentionExpiresAt" TIMESTAMP(3);
       `);
       await prisma.$executeRawUnsafe(`
+        ALTER TABLE "AuditJob"
+        ADD COLUMN IF NOT EXISTS "attemptCount" INTEGER NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS "leaseExpiresAt" TIMESTAMP(3),
+        ADD COLUMN IF NOT EXISTS "lastHeartbeatAt" TIMESTAMP(3),
+        ADD COLUMN IF NOT EXISTS "nextAttemptAt" TIMESTAMP(3),
+        ADD COLUMN IF NOT EXISTS "workerId" TEXT;
+      `);
+      await prisma.$executeRawUnsafe(`
+        ALTER TABLE "PurchaseOrder"
+        ADD COLUMN IF NOT EXISTS "clientRequestId" TEXT;
+      `);
+      await prisma.$executeRawUnsafe(`
         ALTER TABLE "UserSettings"
         ALTER COLUMN "defaultIsPublic" SET DEFAULT false;
       `);
@@ -271,6 +283,38 @@ export function ensureRuntimeSchema() {
       `);
       await prisma.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS "AccountDeletionLog_createdAt_idx" ON "AccountDeletionLog"("createdAt");
+      `);
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "SavedArticle" (
+          "id" TEXT NOT NULL,
+          "userId" TEXT NOT NULL,
+          "title" TEXT NOT NULL,
+          "source" TEXT NOT NULL,
+          "url" TEXT NOT NULL,
+          "content" TEXT NOT NULL,
+          "selectedText" TEXT,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "SavedArticle_pkey" PRIMARY KEY ("id")
+        );
+      `);
+      await prisma.$executeRawUnsafe(`
+        CREATE UNIQUE INDEX IF NOT EXISTS "PurchaseOrder_userId_clientRequestId_key" ON "PurchaseOrder"("userId", "clientRequestId");
+      `);
+      await prisma.$executeRawUnsafe(`
+        CREATE INDEX IF NOT EXISTS "SavedArticle_userId_createdAt_idx" ON "SavedArticle"("userId", "createdAt");
+      `);
+      await prisma.$executeRawUnsafe(`
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'SavedArticle_userId_fkey'
+          ) THEN
+            ALTER TABLE "SavedArticle"
+            ADD CONSTRAINT "SavedArticle_userId_fkey"
+            FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+          END IF;
+        END $$;
       `);
       } finally {
         await prisma.$executeRawUnsafe('SELECT pg_advisory_unlock(83672703);').catch(() => {});

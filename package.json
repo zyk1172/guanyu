@@ -17,7 +17,8 @@
     "test:backup": "tsx scripts/backup-smoke.ts",
     "test:permissions": "tsx scripts/ordinary-user-permission-smoke.ts",
     "test:platform-models": "node --test scripts/platform-model-core.test.mjs",
-    "test:model-runtime": "tsx --test scripts/model-runtime.test.ts"
+    "test:model-runtime": "tsx --test scripts/model-runtime.test.ts",
+    "bootstrap:admin": "tsx scripts/bootstrap-admin.ts"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",

@@ -13,6 +13,7 @@ export async function exportUserData(userId: string) {
     exportArtifacts,
     rssFeeds,
     extensionSessions,
+    savedArticles,
   ] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId } }),
     prisma.userSettings.findUnique({ where: { userId } }),
@@ -24,6 +25,7 @@ export async function exportUserData(userId: string) {
     prisma.exportArtifact.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
     prisma.rssFeed.findMany({ where: { ownerUserId: userId }, orderBy: { createdAt: 'desc' } }),
     prisma.extensionSession.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
+    prisma.savedArticle.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
   ]);
 
   if (!user) throw new Error('账号不存在。');
@@ -64,6 +66,7 @@ export async function exportUserData(userId: string) {
     exportArtifacts,
     rssFeeds,
     extensionSessions,
+    savedArticles,
   };
 }
 
@@ -132,7 +135,34 @@ export async function cleanupExpiredAuditJobInputs() {
       error: '任务超时，原始输入已按保留期清理。',
     },
   });
-  return { failed, staleRunning };
+  const maxAttempts = Math.max(1, Number(process.env.PLATFORM_ANALYSIS_MAX_RETRIES || 1) + 1);
+  const expiredLeaseJobs = await prisma.auditJob.findMany({
+    where: { status: 'running', leaseExpiresAt: { lt: now } },
+    select: { id: true, attemptCount: true },
+  });
+  for (const job of expiredLeaseJobs) {
+    const terminal = job.attemptCount >= maxAttempts;
+    await prisma.auditJob.update({
+      where: { id: job.id },
+      data: terminal
+        ? {
+            status: 'failed',
+            error: '审视任务执行超时，重试次数已用完。',
+            leaseExpiresAt: null,
+            lastHeartbeatAt: null,
+            workerId: null,
+            inputRetentionExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          }
+        : {
+            status: 'pending',
+            leaseExpiresAt: null,
+            lastHeartbeatAt: null,
+            workerId: null,
+            nextAttemptAt: now,
+          },
+    });
+  }
+  return { failed, staleRunning, recoveredExpiredLeases: expiredLeaseJobs.length };
 }
 
 export async function runPrivacyCleanup() {

@@ -16,6 +16,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
   const paymentNote = String(body.paymentNote || '').trim().slice(0, 200);
   const paymentMethod = String(body.paymentMethod || 'alipay_qr');
+  const clientRequestId = String(body.clientRequestId || '').trim().slice(0, 100);
   const account = await prisma.user.findUnique({
     where: { id: user.id },
     select: {
@@ -35,6 +36,9 @@ export async function POST(request: NextRequest) {
   if (!paymentNote) {
     return NextResponse.json({ error: '请填写付款备注，建议写账号邮箱、付款平台昵称或转账时间。' }, { status: 400 });
   }
+  if (!clientRequestId) {
+    return NextResponse.json({ error: '缺少订单请求标识，请刷新页面后重试。' }, { status: 400 });
+  }
 
   if (!isSupportedPaymentMethod(paymentMethod)) {
     return NextResponse.json({ error: '不支持的付款方式。' }, { status: 400 });
@@ -45,6 +49,32 @@ export async function POST(request: NextRequest) {
     packageDefinition = getPackageDefinition(String(body.productId || body.packageType || 'STARTER'), paymentMethod as 'alipay_qr' | 'paypal_qr');
   } catch {
     return NextResponse.json({ error: '无效的套餐。' }, { status: 400 });
+  }
+
+  const existing = await prisma.purchaseOrder.findUnique({
+    where: { userId_clientRequestId: { userId: user.id, clientRequestId } },
+  });
+  if (existing) {
+    return NextResponse.json(existing);
+  }
+
+  const openStatuses = ['PENDING', 'PAYMENT_SUBMITTED', 'PAID'];
+  const [openOrderCount, recentOrderCount] = await Promise.all([
+    prisma.purchaseOrder.count({
+      where: { userId: user.id, status: { in: openStatuses } },
+    }),
+    prisma.purchaseOrder.count({
+      where: {
+        userId: user.id,
+        createdAt: { gte: new Date(Date.now() - 60_000) },
+      },
+    }),
+  ]);
+  if (openOrderCount >= 3) {
+    return NextResponse.json({ error: '已有待处理订单，请先等待管理员确认。' }, { status: 429 });
+  }
+  if (recentOrderCount >= 2) {
+    return NextResponse.json({ error: '创建订单过于频繁，请稍后再试。' }, { status: 429 });
   }
 
   const order = await prisma.purchaseOrder.create({
@@ -60,6 +90,7 @@ export async function POST(request: NextRequest) {
       paymentMethod,
       paymentProvider: paymentMethod === 'paypal_qr' ? 'paypal' : 'alipay',
       paymentNote,
+      clientRequestId,
     },
   });
 
