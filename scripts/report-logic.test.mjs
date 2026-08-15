@@ -126,19 +126,36 @@ test('prefers JSON-LD article publication dates over generic metadata', () => {
   assert.equal(result.publishedAtSource, 'json_ld');
 });
 
-test('read worth verdict uses only productized labels', () => {
-  const labels = new Set(['值得细读', '可以略读', '不值一读', '暂无法判断']);
-  const cases = [
-    { credibility: 88, informationCompleteness: 82, narrativeBias: 35, evidenceStrength: 84, speculationRisk: 20 },
-    { credibility: 62, informationCompleteness: 55, narrativeBias: 58, evidenceStrength: 52, speculationRisk: 48 },
-    { credibility: 24, informationCompleteness: 28, narrativeBias: 86, evidenceStrength: 22, speculationRisk: 82 },
-    { credibility: 52, informationCompleteness: 38, narrativeBias: 65, evidenceStrength: 30, speculationRisk: 72 },
-  ];
+test('reading utility sets a neutral tier independently from evidence quality', () => {
+  const highUtility = {
+    publicImportance: 90,
+    informationGain: 82,
+    uniqueness: 78,
+    explanatoryDepth: 76,
+    actionability: 70,
+    informationDensity: 72,
+  };
+  const lowEvidence = { credibility: 32, informationCompleteness: 40, narrativeBias: 75, evidenceStrength: 28, speculationRisk: 82 };
+  const deep = computeReadWorthCore({ scores: lowEvidence, readingUtility: highUtility, hasSufficientMaterial: true });
+  assert.equal(deep.label, '深度阅读');
+  assert.equal(deep.evidencePosture, 'lead_reference');
 
-  for (const scores of cases) {
-    const verdict = computeReadWorthCore({ scores });
-    assert.equal(labels.has(verdict.label), true);
-  }
+  const lowUtility = {
+    publicImportance: 25,
+    informationGain: 28,
+    uniqueness: 20,
+    explanatoryDepth: 30,
+    actionability: 24,
+    informationDensity: 35,
+  };
+  const highEvidence = { credibility: 88, informationCompleteness: 82, narrativeBias: 20, evidenceStrength: 86, speculationRisk: 18 };
+  const limited = computeReadWorthCore({ scores: highEvidence, readingUtility: lowUtility, hasSufficientMaterial: true });
+  assert.equal(limited.label, '有限参考');
+  assert.equal(limited.evidencePosture, 'fact_reference');
+
+  const insufficient = computeReadWorthCore({ scores: highEvidence, hasSufficientMaterial: false });
+  assert.equal(insufficient.label, '材料不足');
+  assert.equal(insufficient.evidencePosture, 'insufficient_material');
 });
 
 test('background analysis resumes from a stored job and prioritizes an available report', () => {
@@ -331,7 +348,7 @@ test('English report guard rejects Chinese prose while allowing fixed enum value
   const guard = buildReportLanguageSystemGuard('en-US');
   assert.match(guard, /All reader-facing JSON string values must be English/);
   assert.equal(hasUnexpectedChineseReportProse({
-    readingValue: '值得细读',
+    readingValue: '深度阅读',
     speculationRisk: '中',
     newsSummary: 'The report is written in English.',
   }), false);
@@ -348,10 +365,10 @@ test('all non-Chinese report languages have a strict target-language guard', () 
 });
 
 test('Chinese reading labels group two characters per vertical row', () => {
-  assert.deepEqual(getReadWorthAnimationTokens('不值一读', 'zh-CN'), ['不值', '一读']);
-  assert.deepEqual(getReadWorthAnimationTokens('值得细读', 'zh-CN'), ['值得', '细读']);
-  assert.deepEqual(getReadWorthAnimationTokens('暂无法判断', 'zh-CN'), ['暂无', '法判', '断']);
-  assert.deepEqual(getReadWorthAnimationTokens('Not Worth Reading', 'en-US'), ['Not', 'Worth', 'Reading']);
+  assert.deepEqual(getReadWorthAnimationTokens('深度阅读', 'zh-CN'), ['深度', '阅读']);
+  assert.deepEqual(getReadWorthAnimationTokens('概览阅读', 'zh-CN'), ['概览', '阅读']);
+  assert.deepEqual(getReadWorthAnimationTokens('有限参考', 'zh-CN'), ['有限', '参考']);
+  assert.deepEqual(getReadWorthAnimationTokens('材料不足', 'zh-CN'), ['材料', '不足']);
 });
 
 test('email delivery prefers SMTP but falls back to DirectMail and never marks no provider as delivered', () => {
@@ -511,6 +528,12 @@ test('formal export chrome is localized for every enabled report language', () =
   }
   assert.equal(exportCopy('ja-JP', '新闻叙事审视报告', 'News Narrative Review Report'), 'ニュース叙事検証レポート');
   assert.equal(exportLocalizedValue('ko-KR', 'pending_verification'), '검증 필요');
+  assert.equal(exportLocalizedValue('en-US', '深度阅读'), 'In-depth Reading');
+  assert.equal(exportLocalizedValue('zh-TW', '有限参考'), '有限參考');
+  assert.equal(exportLocalizedValue('ja-JP', '概览阅读'), '概要把握');
+  assert.equal(exportLocalizedValue('ko-KR', '有限参考'), '제한적 참고');
+  assert.equal(exportLocalizedValue('de-DE', '材料不足'), 'Unzureichende Grundlage');
+  assert.equal(exportLocalizedValue('it-IT', '概览阅读'), 'Lettura d’insieme');
   assert.equal(exportFieldLabel('de-DE', 'evidenceGrade', 'Evidence grade'), 'Belegstufe');
   assert.equal(getExportBrand('it-IT').name, 'Angolo Notizie');
 });
@@ -525,7 +548,7 @@ test('completion email contains a structured full report in the selected languag
     report: {
       newsSummary: '这是一段新闻摘要。',
       oneSentenceConclusion: '应核验关键数据。',
-      readingValue: '可以略读',
+      readingValue: '概览阅读',
       readingValueReason: '信息尚不完整。',
       scores: { credibility: 60, informationCompleteness: 45, narrativeBias: 68, evidenceStrength: 50, speculationRisk: 63 },
       keyFindings: [{ title: '关键发现', content: '发现说明', evidenceGrade: 'C', verificationStatus: 'source_supported', speculationRisk: '低', nextVerification: '查阅原始数据' }],
@@ -580,9 +603,9 @@ test('unconfirmed verification entries are rendered as reader-facing text, never
 });
 
 test('English reading-value animation keeps whole words together', () => {
-  assert.deepEqual(getReadWorthAnimationTokens('Skimmable', 'en-US'), ['Skimmable']);
-  assert.deepEqual(getReadWorthAnimationTokens('Not Worth Reading', 'en-US'), ['Not', 'Worth', 'Reading']);
-  assert.deepEqual(getReadWorthAnimationTokens('可以略读', 'zh-CN'), ['可以', '略读']);
+  assert.deepEqual(getReadWorthAnimationTokens('Overview Reading', 'en-US'), ['Overview', 'Reading']);
+  assert.deepEqual(getReadWorthAnimationTokens('Limited Reference', 'en-US'), ['Limited', 'Reference']);
+  assert.deepEqual(getReadWorthAnimationTokens('概览阅读', 'zh-CN'), ['概览', '阅读']);
 });
 
 test('Guanyu Card uses a dedicated five-field prompt and recovers JSON wrapped with model prose', () => {
@@ -592,7 +615,7 @@ test('Guanyu Card uses a dedicated five-field prompt and recovers JSON wrapped w
     reportLanguage: 'en-US',
     report: {
       oneSentenceConclusion: 'The article gives a useful event account but leaves its source data unclear.',
-      readingValue: '可以略读',
+      readingValue: '概览阅读',
       keyFindings: [{ title: 'Source gap', content: 'The evacuation figure is attributed to one source.' }],
       questionsToAsk: ['Which primary record supports the evacuation figure?'],
     },
@@ -609,14 +632,14 @@ test('Guanyu Card uses a dedicated five-field prompt and recovers JSON wrapped w
       mostCredible: 'The article directly documents the event location.',
       largestInformationGap: 'The evacuation total has no linked primary record.',
       mostWorthAsking: 'Which agency published the underlying evacuation count?',
-      readingValue: '可以略读',
+      readingValue: '概览阅读',
     }), 'en-US'),
     {
       oneSentenceView: 'Check the source trail behind the headline figure.',
       mostCredible: 'The article directly documents the event location.',
       largestInformationGap: 'The evacuation total has no linked primary record.',
       mostWorthAsking: 'Which agency published the underlying evacuation count?',
-      readingValue: '可以略读',
+      readingValue: '概览阅读',
     }
   );
 
@@ -625,14 +648,14 @@ test('Guanyu Card uses a dedicated five-field prompt and recovers JSON wrapped w
     mostCredible: 'A fact',
     largestInformationGap: 'A gap',
     mostWorthAsking: 'A question?',
-    readingValue: '可以略读',
+    readingValue: '概览阅读',
     extraField: 'not allowed',
   }), 'en-US'), {
     oneSentenceView: 'A view',
     mostCredible: 'A fact',
     largestInformationGap: 'A gap',
     mostWorthAsking: 'A question?',
-    readingValue: '可以略读',
+    readingValue: '概览阅读',
   });
 
   assert.equal(
@@ -643,15 +666,22 @@ test('Guanyu Card uses a dedicated five-field prompt and recovers JSON wrapped w
       mostWorthAsking: 'A question?',
       readingValue: 'Skimmable',
     })}`, 'en-US').readingValue,
-    '可以略读'
+    '概览阅读'
   );
+  assert.equal(parseGuanyuCardContent(JSON.stringify({
+    oneSentenceView: '要点',
+    mostCredible: '根拠',
+    largestInformationGap: '不足',
+    mostWorthAsking: '質問',
+    readingValue: '概要把握',
+  }), 'ja-JP').readingValue, '概览阅读');
 
   const longCard = parseGuanyuCardContent(JSON.stringify({
     oneSentenceView: 'a'.repeat(166),
     mostCredible: 'A fact',
     largestInformationGap: 'A gap',
     mostWorthAsking: 'A question?',
-    readingValue: '可以略读',
+    readingValue: '概览阅读',
   }), 'en-US');
   assert.equal(longCard.oneSentenceView.length, 166);
 });
@@ -661,7 +691,7 @@ test('Guanyu Card fallback remains shareable from persisted report fields', () =
     reportLanguage: 'zh-CN',
     report: {
       oneSentenceConclusion: '原文给出了事件经过，但关键统计口径仍需核对。',
-      readingValue: '可以略读',
+      readingValue: '概览阅读',
       quickSignals: {
         mostCredibleInfo: '事件地点与时间有原文明确表述。',
         biggestGap: '原文没有附上统计口径。',
@@ -673,7 +703,7 @@ test('Guanyu Card fallback remains shareable from persisted report fields', () =
     mostCredible: '事件地点与时间有原文明确表述。',
     largestInformationGap: '原文没有附上统计口径。',
     mostWorthAsking: '统计数字对应的原始记录是什么？',
-    readingValue: '可以略读',
+    readingValue: '概览阅读',
   });
 });
 
@@ -687,7 +717,16 @@ test('manual verification recalculates scores from the immutable report baseline
       evidenceStrength: 45,
       speculationRisk: 60,
     },
-    readingValueReason: '原始理由：关键数据存在缺口，阅读时应区分报道事实与待核验信息。',
+    readingValue: '概览阅读',
+    readingUtility: {
+      publicImportance: 60,
+      informationGain: 58,
+      uniqueness: 50,
+      explanatoryDepth: 55,
+      actionability: 52,
+      informationDensity: 62,
+    },
+    readingValueReason: '原始理由：报道提供了基本背景和后续核验线索。',
     verificationRoadmap: [
       { question: '核对机场运行记录', materialType: '数据', whyItMatters: '用于确认事件是否发生', priority: '高' },
       { question: '核对官方声明', materialType: '当事方回应', whyItMatters: '用于比较各方说法', priority: '中' },
@@ -704,8 +743,8 @@ test('manual verification recalculates scores from the immutable report baseline
     speculationRisk: 57,
   });
   assert.equal(first.report.manualVerifications.length, 1);
-  assert.equal(first.readingValue, '可以略读');
-  assert.equal(first.report.readingValueReason, '原始理由：关键数据存在缺口，阅读时应区分报道事实与待核验信息。');
+  assert.equal(first.readingValue, '概览阅读');
+  assert.equal(first.report.readingValueReason, '原始理由：报道提供了基本背景和后续核验线索。');
   assert.match(first.report.readingValueVerificationReason, /已找到可核验材料/);
   assert.match(first.report.evidenceVerificationSummary.pendingVerificationClaims[0], /已找到可核验材料/);
 
@@ -718,7 +757,8 @@ test('manual verification recalculates scores from the immutable report baseline
     speculationRisk: 63,
   });
   assert.equal(changed.report.manualVerifications.length, 1);
-  assert.equal(changed.report.readingValueReason, '原始理由：关键数据存在缺口，阅读时应区分报道事实与待核验信息。');
+  assert.equal(changed.readingValue, '概览阅读');
+  assert.equal(changed.report.readingValueReason, '原始理由：报道提供了基本背景和后续核验线索。');
   assert.match(changed.report.readingValueVerificationReason, /暂未找到可核验材料/);
   assert.match(changed.report.evidenceVerificationSummary.unableToVerifyClaims[0], /暂未找到可核验材料/);
 });

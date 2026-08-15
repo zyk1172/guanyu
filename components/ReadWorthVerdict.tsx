@@ -20,29 +20,29 @@ const PALETTE: Record<ReadWorthLabel, {
   halo: string;
   sweep: string;
 }> = {
-  值得细读: {
-    frame: 'border-emerald-300 bg-emerald-950 text-emerald-50 shadow-emerald-500/25',
-    text: 'text-emerald-50 [text-shadow:0_2px_18px_rgba(16,185,129,0.55)]',
-    halo: 'bg-emerald-400/25',
-    sweep: 'from-transparent via-emerald-100/35 to-transparent',
+  深度阅读: {
+    frame: 'border-teal-300/70 bg-teal-950 text-teal-50 shadow-teal-900/20',
+    text: 'text-teal-50 [text-shadow:0_2px_14px_rgba(13,148,136,0.35)]',
+    halo: 'bg-teal-400/18',
+    sweep: 'from-transparent via-teal-100/22 to-transparent',
   },
-  可以略读: {
-    frame: 'border-indigo-300 bg-indigo-950 text-indigo-50 shadow-indigo-500/25',
-    text: 'text-indigo-50 [text-shadow:0_2px_18px_rgba(99,102,241,0.55)]',
-    halo: 'bg-indigo-400/25',
-    sweep: 'from-transparent via-sky-100/35 to-transparent',
+  概览阅读: {
+    frame: 'border-blue-300/70 bg-blue-950 text-blue-50 shadow-blue-900/20',
+    text: 'text-blue-50 [text-shadow:0_2px_14px_rgba(59,130,246,0.35)]',
+    halo: 'bg-blue-400/18',
+    sweep: 'from-transparent via-blue-100/22 to-transparent',
   },
-  暂无法判断: {
-    frame: 'border-amber-300 bg-amber-950 text-amber-50 shadow-amber-500/25',
-    text: 'text-amber-50 [text-shadow:0_2px_18px_rgba(245,158,11,0.5)]',
-    halo: 'bg-amber-400/22',
-    sweep: 'from-transparent via-amber-100/32 to-transparent',
+  有限参考: {
+    frame: 'border-stone-300/70 bg-stone-800 text-stone-50 shadow-stone-900/20',
+    text: 'text-stone-50 [text-shadow:0_2px_14px_rgba(120,113,108,0.3)]',
+    halo: 'bg-stone-300/16',
+    sweep: 'from-transparent via-stone-100/20 to-transparent',
   },
-  不值一读: {
-    frame: 'border-red-300 bg-red-950 text-red-50 shadow-red-500/30',
-    text: 'text-red-50 [text-shadow:0_2px_18px_rgba(239,68,68,0.58)]',
-    halo: 'bg-red-500/28',
-    sweep: 'from-transparent via-red-100/38 to-transparent',
+  材料不足: {
+    frame: 'border-slate-300/70 bg-slate-800 text-slate-50 shadow-slate-900/20',
+    text: 'text-slate-50 [text-shadow:0_2px_14px_rgba(100,116,139,0.3)]',
+    halo: 'bg-slate-300/16',
+    sweep: 'from-transparent via-slate-100/20 to-transparent',
   },
 };
 

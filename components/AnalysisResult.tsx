@@ -9,10 +9,12 @@ import {
   EvidenceGrade,
   QuickAnalysisResult,
   ReadWorthLabel,
+  ReadWorthVerdict as ReadWorthVerdictType,
   ManualVerificationRecord,
   ManualVerificationOutcome,
   getReportLanguageLabel,
   getReadWorthDisplayLabel,
+  getReadWorthEvidenceGuidance,
   normalizeReportLanguage,
   SpeculationRisk,
   VerificationStatus,
@@ -243,6 +245,15 @@ function convertLegacyResult(result: any, auditMeta?: AnalysisResultProps['audit
     evidenceStrength: Number(scoreSummary.evidence_strength_score ?? 60),
     speculationRisk: Number(scoreSummary.speculation_risk_score ?? 45),
   };
+  const legacyReadWorth = computeReadWorth(result as AnalysisResult);
+  const readingUtility = legacyReadWorth.factors || {
+    publicImportance: 0,
+    informationGain: 0,
+    uniqueness: 0,
+    explanatoryDepth: 0,
+    actionability: 0,
+    informationDensity: 0,
+  };
   return {
     reportType: 'deep',
     methodology: '观隅九镜审读法',
@@ -272,9 +283,10 @@ function convertLegacyResult(result: any, auditMeta?: AnalysisResultProps['audit
     },
     newsSummary: result.news_summary || '',
     oneSentenceConclusion: result.one_sentence_conclusion || '',
-    readingValue: (result.read_worth?.label || '暂无法判断') as ReadWorthLabel,
-    readingValueReason: '历史记录未单独保存阅读价值理由；当前标签由评分和证据状态重新计算。',
-    read_worth: result.read_worth,
+    readingValue: legacyReadWorth.label,
+    readingValueReason: '历史记录未单独保存阅读价值理由；当前标签已按中性阅读档位兼容显示。',
+    readingUtility,
+    read_worth: legacyReadWorth,
     scores,
     scoreReasons: {
       credibility: scoreSummary.score_reasoning?.credibility_score || '',
@@ -465,7 +477,7 @@ function compactAside(total: number, limit: number, reportLanguage = 'zh-CN') {
   return <span className="text-xxs font-semibold text-gray-400">{!reportLanguage.startsWith('zh-') ? `Showing ${limit} of ${total}; the complete report is available in Markdown.` : `已优先显示 ${limit}/${total} 条，完整内容见 Markdown`}</span>;
 }
 
-function ReadingValueSection({ label, reason, manualVerifications = [], reportLanguage }: { label: ReadWorthLabel; reason?: string; manualVerifications?: ManualVerificationRecord[]; reportLanguage?: string }) {
+function ReadingValueSection({ label, reason, verdict, manualVerifications = [], reportLanguage }: { label: ReadWorthLabel; reason?: string; verdict?: ReadWorthVerdictType; manualVerifications?: ManualVerificationRecord[]; reportLanguage?: string }) {
   const language = normalizeReportLanguage(reportLanguage);
   const verifiedCount = manualVerifications.filter((item) => item.outcome === 'verified').length;
   const unverifiedCount = manualVerifications.filter((item) => item.outcome === 'unverified').length;
@@ -475,14 +487,19 @@ function ReadingValueSection({ label, reason, manualVerifications = [], reportLa
     ? originalReason.startsWith('已根据 ') && originalReason.includes('用户核验标记重新计算')
     : originalReason.startsWith('Recalculated from ') && originalReason.includes('user verification marks');
   const visibleReason = legacyVerificationOnlyReason
-    ? (!language.startsWith('zh-') ? 'This judgment combines information completeness, evidence strength, narrative steering, and unresolved verification questions.' : '该判断综合信息完整度、证据强度、叙事倾向性和待核验问题得出。')
+    ? (!language.startsWith('zh-') ? 'Reading value is based on expected information utility; evidence quality is shown separately as reading guidance.' : '阅读价值依据预期信息收益判断；证据质量另行作为阅读提示展示。')
     : originalReason;
+  const evidenceGuidance = getReadWorthEvidenceGuidance(verdict?.evidencePosture || 'cautious_reading', language);
   return (
     <Section title={getReportText('readingValue', language)}>
       <div data-verification-pulse className="grid gap-3 md:grid-cols-[minmax(240px,280px)_minmax(0,1fr)]">
         <ReadWorthVerdict label={label} displayLabel={getReadWorthDisplayLabel(label, language)} reportLanguage={language} />
         <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm leading-relaxed text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300">
-          {line(visibleReason, !language.startsWith('zh-') ? 'This judgment combines information completeness, evidence strength, narrative steering, and unresolved verification questions.' : '该判断综合信息完整度、证据强度、叙事倾向性和待核验问题得出。')}
+          {line(visibleReason, !language.startsWith('zh-') ? 'Reading value is based on expected information utility; evidence quality is shown separately as reading guidance.' : '阅读价值依据预期信息收益判断；证据质量另行作为阅读提示展示。')}
+          <p className="mt-2 border-t border-[var(--color-border)] pt-2 text-xs leading-relaxed text-[var(--color-text-muted)]">
+            <span className="mr-2 inline-flex rounded-md border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-2 py-0.5 font-bold text-[var(--color-text)]">{evidenceGuidance.label}</span>
+            {evidenceGuidance.guidance}
+          </p>
           {hasVerificationUpdate && (
             <p className="mt-2 border-t border-[var(--color-border)] pt-2 text-xs font-semibold leading-relaxed">
               <span className="text-[var(--color-text-muted)]">{language.startsWith('zh-') ? '核验更新：' : 'Verification update: '}</span>
@@ -1073,7 +1090,7 @@ function QuickReportView({ report, originalContent, qaMessages }: { report: Quic
     <>
       <Section title={reportLanguage === 'en-US' ? '1. Article at a glance' : '1. 原文速读'}><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{report.originalReading || report.newsSummary}</p></Section>
       <Section title={reportLanguage === 'en-US' ? '2. Core claim' : '2. 核心主张'}><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.coreClaim}</p></Section>
-      <ReadingValueSection label={report.readingValue} reason={report.readingValueReason} reportLanguage={report.meta.reportLanguage} />
+      <ReadingValueSection label={report.readingValue} reason={report.readingValueReason} verdict={report.read_worth} reportLanguage={report.meta.reportLanguage} />
       <Section title={reportLanguage === 'en-US' ? '4. One-sentence Guanyu view' : '4. 一句话观隅审视'}><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.oneSentenceJudgment}</p></Section>
       <Section title={reportLanguage === 'en-US' ? '5. Three key signals' : '5. 三个关键信号'}>
         <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
@@ -1124,7 +1141,7 @@ function DeepReportView({ report, originalContent, qaMessages, displayLimit, aud
           <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900 md:col-span-2"><div className="font-black">{text('readerImpression')}</div><p className="mt-1 leading-relaxed">{report.sourceInterpretation.likelyReaderImpression}</p></div>
         </div>
       </Section>
-      <ReadingValueSection label={report.readingValue} reason={report.readingValueReason} manualVerifications={report.manualVerifications} reportLanguage={report.meta.reportLanguage} />
+      <ReadingValueSection label={report.readingValue} reason={report.readingValueReason} verdict={report.read_worth} manualVerifications={report.manualVerifications} reportLanguage={report.meta.reportLanguage} />
       <Section title={text('readerGuide')}><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{report.normalReaderGuide}</p></Section>
       <Section title={text('oneSentence')}><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.oneSentenceConclusion}</p></Section>
       <ScoresSection report={report} />

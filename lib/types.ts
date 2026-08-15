@@ -47,15 +47,63 @@ export function getReportLanguageLabel(value: string | null | undefined, uiLangu
 
 export function getReadWorthDisplayLabel(label: ReadWorthLabel, language: string | null | undefined): string {
   const labels: Record<ReportLanguage, Record<ReadWorthLabel, string>> = {
-    'zh-CN': { 值得细读: '值得细读', 可以略读: '可以略读', 不值一读: '不值一读', 暂无法判断: '暂无法判断' },
-    'zh-TW': { 值得细读: '值得細讀', 可以略读: '可以略讀', 不值一读: '不值一讀', 暂无法判断: '暫無法判斷' },
-    'en-US': { 值得细读: 'Worth Reading', 可以略读: 'Skimmable', 不值一读: 'Not Worth Reading', 暂无法判断: 'Insufficient Information' },
-    'ja-JP': { 值得细读: '精読する価値あり', 可以略读: 'ざっと読む価値あり', 不值一读: '読む価値は低い', 暂无法判断: '判断材料が不足' },
-    'ko-KR': { 值得细读: '정독할 가치 있음', 可以略读: '훑어볼 만함', 不值一读: '읽을 가치 낮음', 暂无法判断: '판단 자료 부족' },
-    'de-DE': { 值得细读: 'Lesenswert', 可以略读: 'Ueberfliegbar', 不值一读: 'Nicht lesenswert', 暂无法判断: 'Nicht ausreichend beurteilbar' },
-    'it-IT': { 值得细读: 'Da leggere con attenzione', 可以略读: 'Da scorrere', 不值一读: 'Non merita lettura', 暂无法判断: 'Informazioni insufficienti' },
+    'zh-CN': { 深度阅读: '深度阅读', 概览阅读: '概览阅读', 有限参考: '有限参考', 材料不足: '材料不足' },
+    'zh-TW': { 深度阅读: '深度閱讀', 概览阅读: '概覽閱讀', 有限参考: '有限參考', 材料不足: '材料不足' },
+    'en-US': { 深度阅读: 'In-depth Reading', 概览阅读: 'Overview Reading', 有限参考: 'Limited Reference', 材料不足: 'Insufficient Material' },
+    'ja-JP': { 深度阅读: '精読向け', 概览阅读: '概要把握', 有限参考: '限定参考', 材料不足: '資料不足' },
+    'ko-KR': { 深度阅读: '심층 읽기', 概览阅读: '개요 읽기', 有限参考: '제한적 참고', 材料不足: '자료 부족' },
+    'de-DE': { 深度阅读: 'Vertiefende Lektüre', 概览阅读: 'Überblickslektüre', 有限参考: 'Begrenzter Referenzwert', 材料不足: 'Unzureichende Grundlage' },
+    'it-IT': { 深度阅读: 'Lettura approfondita', 概览阅读: 'Lettura d’insieme', 有限参考: 'Riferimento limitato', 材料不足: 'Materiale insufficiente' },
   };
   return labels[normalizeReportLanguage(language)][label];
+}
+
+export function getReadWorthEvidenceGuidance(posture: ReadWorthEvidencePosture, language: string | null | undefined) {
+  const copy: Record<ReportLanguage, Record<ReadWorthEvidencePosture, { label: string; guidance: string }>> = {
+    'zh-CN': {
+      fact_reference: { label: '事实参考', guidance: '当前证据基础较稳，可将主要事实作为参考，仍建议核对关键原始来源。' },
+      cautious_reading: { label: '审慎阅读', guidance: '内容具有阅读收益，但部分关键主张仍需结合原始材料或独立来源理解。' },
+      lead_reference: { label: '线索参考', guidance: '内容可用于了解议题与线索，不宜把关键主张直接视为已证实事实。' },
+      insufficient_material: { label: '材料不足', guidance: '现有材料不足以形成稳定的阅读收益和证据判断。' },
+    },
+    'zh-TW': {
+      fact_reference: { label: '事實參考', guidance: '目前證據基礎較穩，可將主要事實作為參考，仍建議核對關鍵原始來源。' },
+      cautious_reading: { label: '審慎閱讀', guidance: '內容具有閱讀收益，但部分關鍵主張仍需結合原始材料或獨立來源理解。' },
+      lead_reference: { label: '線索參考', guidance: '內容可用於了解議題與線索，不宜把關鍵主張直接視為已證實事實。' },
+      insufficient_material: { label: '材料不足', guidance: '現有材料不足以形成穩定的閱讀收益與證據判斷。' },
+    },
+    'en-US': {
+      fact_reference: { label: 'Factual reference', guidance: 'The evidence base is relatively stable. Key facts may be used as reference, while primary sources should still be checked.' },
+      cautious_reading: { label: 'Cautious reading', guidance: 'The article offers reading value, but some key claims still require primary or independent sources.' },
+      lead_reference: { label: 'Lead material', guidance: 'Use the article to understand the issue and identify leads, not as confirmation of its key claims.' },
+      insufficient_material: { label: 'Insufficient material', guidance: 'The available material is insufficient for a stable reading-value or evidence assessment.' },
+    },
+    'ja-JP': {
+      fact_reference: { label: '事実参照', guidance: '証拠基盤は比較的安定しています。主要事実は参照できますが、一次資料の確認を推奨します。' },
+      cautious_reading: { label: '慎重読解', guidance: '読む意義はありますが、一部の主要主張は一次資料や独立情報源との照合が必要です。' },
+      lead_reference: { label: '手掛かり', guidance: '論点や手掛かりの把握に用い、主要主張を確認済み事実として扱わないでください。' },
+      insufficient_material: { label: '資料不足', guidance: '安定した読解価値と証拠評価を行うための資料が不足しています。' },
+    },
+    'ko-KR': {
+      fact_reference: { label: '사실 참고', guidance: '근거 기반이 비교적 안정적입니다. 주요 사실은 참고할 수 있으나 핵심 원자료 확인을 권합니다.' },
+      cautious_reading: { label: '신중 검토', guidance: '읽을 가치는 있지만 일부 핵심 주장은 원자료나 독립 출처와 함께 검토해야 합니다.' },
+      lead_reference: { label: '단서 참고', guidance: '쟁점과 단서를 파악하는 용도로 사용하고 핵심 주장을 확인된 사실로 보지 마십시오.' },
+      insufficient_material: { label: '자료 부족', guidance: '안정적인 읽기 가치 및 근거 판단을 내리기에는 자료가 부족합니다.' },
+    },
+    'de-DE': {
+      fact_reference: { label: 'Faktenbasis', guidance: 'Die Beleglage ist relativ stabil. Kernaussagen können als Referenz dienen; Primärquellen sollten dennoch geprüft werden.' },
+      cautious_reading: { label: 'Vorsichtige Lektüre', guidance: 'Der Beitrag bietet Informationswert, doch zentrale Aussagen benötigen Primär- oder unabhängige Quellen.' },
+      lead_reference: { label: 'Hinweismaterial', guidance: 'Der Beitrag eignet sich zur Orientierung und Spurensuche, nicht als Bestätigung zentraler Aussagen.' },
+      insufficient_material: { label: 'Grundlage unzureichend', guidance: 'Das Material reicht für eine stabile Bewertung von Lektürewert und Beleglage nicht aus.' },
+    },
+    'it-IT': {
+      fact_reference: { label: 'Riferimento fattuale', guidance: 'La base probatoria e relativamente stabile. I fatti principali sono utilizzabili come riferimento, verificando comunque le fonti primarie.' },
+      cautious_reading: { label: 'Lettura prudente', guidance: 'Il contenuto offre valore informativo, ma alcune affermazioni richiedono fonti primarie o indipendenti.' },
+      lead_reference: { label: 'Fonte orientativa', guidance: 'Usa il contenuto per orientarti e individuare piste, non come conferma delle affermazioni principali.' },
+      insufficient_material: { label: 'Materiale insufficiente', guidance: 'Il materiale non basta per una valutazione stabile del valore di lettura e delle prove.' },
+    },
+  };
+  return copy[normalizeReportLanguage(language)][posture];
 }
 
 export const AUDIENCE_THEME_LABELS: Record<AudienceTheme, string> = {
@@ -231,23 +279,23 @@ export interface ReportMeta {
   scoring_note: string;
 }
 
-export type ReadWorthLabel = '值得细读' | '可以略读' | '不值一读' | '暂无法判断';
+export type ReadWorthLabel = '深度阅读' | '概览阅读' | '有限参考' | '材料不足';
+export type ReadWorthEvidencePosture = 'fact_reference' | 'cautious_reading' | 'lead_reference' | 'insufficient_material';
+
+export interface ReadingUtilityFactors {
+  publicImportance: number;
+  informationGain: number;
+  uniqueness: number;
+  explanatoryDepth: number;
+  actionability: number;
+  informationDensity: number;
+}
 
 export interface ReadWorthVerdict {
   label: ReadWorthLabel;
   score: number;
-  factors: {
-    credibility: number;
-    informationCompleteness: number;
-    narrativeBias: number;
-    evidenceStrength: number;
-    speculationRisk: number;
-    evidenceGradeScore: number;
-    weakEvidenceCount: number;
-    strongEvidenceCount: number;
-    missingPerspectivePenalty: number;
-    unconfirmedItemCount: number;
-  };
+  evidencePosture: ReadWorthEvidencePosture;
+  factors: ReadingUtilityFactors | null;
 }
 
 export interface ReportScores {
@@ -378,6 +426,7 @@ export interface QuickAnalysisResult {
   oneSentenceJudgment: string;
   readingValue: ReadWorthLabel;
   readingValueReason: string;
+  readingUtility: ReadingUtilityFactors;
   read_worth?: ReadWorthVerdict;
   scores: ReportScores;
   quickSignals: {
@@ -410,6 +459,7 @@ export interface DeepAnalysisResult {
   oneSentenceConclusion: string;
   readingValue: ReadWorthLabel;
   readingValueReason: string;
+  readingUtility: ReadingUtilityFactors;
   read_worth?: ReadWorthVerdict;
   scores: ReportScores;
   scoreReasons: Record<keyof ReportScores, string>;

@@ -30,7 +30,7 @@ export const GUANYU_SYSTEM_PROMPT = `你是「观隅」新闻叙事审视助手�
 5. 必须区分「原文明确事实」「基于原文的合理推断」「待外部验证的假设」。
 6. 关键判断必须包含 judgmentType、evidenceGrade、verificationStatus、speculationRisk、nextVerification 或等价字段。speculationRisk 表示推测不确定性，不是事实危险定性。
 7. 涉及劳动合规、财政风险、政治动机、管理缺陷、经济收益、责任归因、利益输送、连带责任等敏感判断，除非有 A/B 级材料直接支持，否则标为「待外部验证的假设」和 pending_verification。
-8. 不得使用粗俗、侮辱、发泄式评价。readingValue 只能为：值得细读、可以略读、不值一读、暂无法判断。
+8. 不得使用粗俗、侮辱、发泄式评价。readingValue 只能为：深度阅读、概览阅读、有限参考、材料不足。阅读价值衡量读者可能获得的信息收益，不等于证据强度或真假判断；证据较弱但公共意义、现场信息或观点代表性较高的内容仍可能值得深度阅读，但必须同时给出审慎的证据提示。
 9. 不要使用「未提供」「暂无」作为条目标题。材料不足时写「当前材料不足，无法形成可靠判断」，快速位置可省略。
 10. externally_verified 必须有外部来源或联网结果支撑，并在内容或 note 中说明来源依据；否则只能用 source_supported、partially_supported、pending_verification 或 unable_to_verify。
 11. 联网结果若只是背景、相似报道或间接材料，必须写「相关背景来源」或「暂无法核验」，不得写成事实已确认。
@@ -105,8 +105,16 @@ const DEEP_SCHEMA = `{
   },
   "newsSummary": "100到200字，只总结原文明确内容，不加入审视观点、外部信息或推测",
   "oneSentenceConclusion": "一句话审视结论，指出最值得警惕的信息缺口、叙事倾向或待验证问题",
-  "readingValue": "值得细读 | 可以略读 | 不值一读 | 暂无法判断",
-  "readingValueReason": "说明为什么给出这个阅读价值判断",
+  "readingValue": "深度阅读 | 概览阅读 | 有限参考 | 材料不足",
+  "readingValueReason": "只从阅读收益角度说明理由，并补充一句证据状态对应的阅读方式；不得因为证据较弱就直接否定阅读价值",
+  "readingUtility": {
+    "publicImportance": 0,
+    "informationGain": 0,
+    "uniqueness": 0,
+    "explanatoryDepth": 0,
+    "actionability": 0,
+    "informationDensity": 0
+  },
   "scores": {
     "credibility": 0,
     "informationCompleteness": 0,
@@ -206,6 +214,15 @@ const DEEP_SCHEMA = `{
 }`;
 
 const GUANYU_ANALYSIS_PROMPT = `当前模式：观隅分析。输出完整但不冗长的「观隅 · 新闻叙事审视报告」。
+
+阅读价值采用“信息收益”模型，不采用“证据越强越值得读”的简单模型：
+- publicImportance：事件对公共利益、重大决策或较广人群的关联程度。
+- informationGain：相对一般常识，读者能获得多少新增信息。
+- uniqueness：是否包含一手观察、独家材料、代表性观点或稀缺视角。
+- explanatoryDepth：是否帮助理解机制、背景、因果或复杂性。
+- actionability：是否帮助读者继续核验、判断、决策或采取行动。
+- informationDensity：有效信息相对篇幅的密度。
+六项均为 0 到 100 的整数，不得因证据薄弱而直接降低这些阅读收益分；证据薄弱应体现在 scores、核验状态和 readingValueReason 的审慎提示中。后台将按六项加权计算：72 分及以上为深度阅读，48 至 71 分为概览阅读，48 分以下为有限参考。只有正文缺失、严重残缺或无法辨认，导致阅读收益本身无法评估时，才使用材料不足。
 
 报告呈现顺序必须为：
 原文解读、阅读价值判断、给普通读者的读法、一句话观隅审视、核心指数、结论分层、最关键3个发现、支持原文叙事的证据、主要信息缺口、关键利益关系、替代解释对照、证据与核验状态、验证路线图、继续追问清单、目前不能直接得出的结论、风险提示、报告元信息、附录原文。

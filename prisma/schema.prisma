@@ -83,7 +83,7 @@ model Audit {
   publishedAtSource             String                    @default("unknown")
   publishedAtConfidence         String                    @default("unknown")
   reportType                    String                    @default("deep")
-  readingValue                  String                    @default("暂无法判断")
+  readingValue                  String                    @default("材料不足")
   originalContent               String
   focus                         String?
   analysisMode                  String // quick, deep

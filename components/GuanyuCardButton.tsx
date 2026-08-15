@@ -111,9 +111,9 @@ function paletteFromDocument(): ThemePalette {
 }
 
 function verdictColor(label: ReadWorthLabel, colors: ThemePalette) {
-  if (label === '值得细读') return colors.success;
-  if (label === '可以略读') return colors.warning;
-  if (label === '不值一读') return colors.danger;
+  if (label === '深度阅读') return colors.success;
+  if (label === '概览阅读') return colors.primary;
+  if (label === '有限参考') return colors.warning;
   return colors.muted;
 }
 

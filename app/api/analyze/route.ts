@@ -29,6 +29,7 @@ import type {
   VerificationStatusCode,
   JudgmentType,
   ReportLanguage,
+  ReadingUtilityFactors,
 } from '@/lib/types';
 
 export const maxDuration = 300;
@@ -115,6 +116,18 @@ function getScores(parsed: any): ReportScores {
     narrativeBias: clampScore(src.narrativeBias ?? src.narrative_bias_score, 45),
     evidenceStrength: clampScore(src.evidenceStrength ?? src.evidence_strength_score, 60),
     speculationRisk: clampScore(src.speculationRisk ?? src.speculation_risk_score, 45),
+  };
+}
+
+function getReadingUtility(parsed: any): ReadingUtilityFactors {
+  const src = parsed?.readingUtility || parsed?.reading_utility || {};
+  return {
+    publicImportance: clampScore(src.publicImportance ?? src.public_importance, 50),
+    informationGain: clampScore(src.informationGain ?? src.information_gain, 50),
+    uniqueness: clampScore(src.uniqueness, 50),
+    explanatoryDepth: clampScore(src.explanatoryDepth ?? src.explanatory_depth, 50),
+    actionability: clampScore(src.actionability, 50),
+    informationDensity: clampScore(src.informationDensity ?? src.information_density, 50),
   };
 }
 
@@ -214,6 +227,7 @@ function normalizeReport(params: {
   const onlineVerification = normalizeOnlineVerification(parsed, factCheckSources, reportLanguage);
   const hasExternalResults = onlineVerification.status === 'has_results';
   const scores = getScores(parsed);
+  const readingUtility = getReadingUtility(parsed);
   const timeAssessment = {
     publishedAt: normalizePublishedAt(parsed?.timeAssessment?.publishedAt || parsed?.time_assessment?.published_at),
     basis: String(parsed?.timeAssessment?.basis || parsed?.time_assessment?.basis || '模型未能给出可靠发布时间依据。'),
@@ -244,10 +258,11 @@ function normalizeReport(params: {
       coreClaim: String(parsed.coreClaim || parsed.core_claim || parsed.surface_narrative || '原文核心主张需要结合全文继续确认。'),
       newsSummary: String(parsed.newsSummary || parsed.news_summary || '当前材料不足，无法形成可靠摘要。'),
       oneSentenceJudgment: String(parsed.oneSentenceJudgment || parsed.one_sentence_conclusion || '需要结合更多来源核验报道中的关键信息缺口。'),
-      readingValue: '暂无法判断' as const,
+      readingValue: '材料不足' as const,
       readingValueReason: String(parsed.readingValueReason || parsed.reading_value_reason || (!reportLanguage.startsWith('zh-')
-        ? 'The available evidence is limited. Reading value depends on the article’s information completeness and external verification status.'
-        : '当前材料证据状态有限，阅读价值需要结合原文信息完整度和外部核验情况判断。')),
+        ? 'Reading value reflects expected information gain and public relevance; evidence quality separately determines how cautiously the article should be read.'
+        : '阅读价值反映预期信息收益和公共关联度；证据质量另行决定阅读时需要保持何种审慎程度。')),
+      readingUtility,
       scores,
       quickSignals: {
         mostCredibleInfo: String(parsed.quickSignals?.mostCredibleInfo || parsed.quick_signals?.most_credible_info || '原文明确出现、可直接定位到文本的事实信息相对更可信。'),
@@ -286,10 +301,11 @@ function normalizeReport(params: {
     },
     newsSummary: String(parsed.newsSummary || parsed.news_summary || '当前材料不足，无法形成可靠摘要。'),
     oneSentenceConclusion: String(parsed.oneSentenceConclusion || parsed.one_sentence_conclusion || '需要结合更多来源核验报道中的关键信息缺口。'),
-    readingValue: '暂无法判断' as const,
+    readingValue: '材料不足' as const,
     readingValueReason: String(parsed.readingValueReason || parsed.reading_value_reason || (!reportLanguage.startsWith('zh-')
-      ? 'Reading value is determined by information completeness, evidence strength, narrative steering, and unresolved verification questions.'
-      : '阅读价值由报道信息完整度、证据强度、叙事倾向性和待核验问题共同决定。')),
+      ? 'Reading value reflects public importance, information gain, uniqueness, explanatory depth, actionability, and information density. Evidence quality is shown separately as reading guidance.'
+      : '阅读价值由公共重要性、信息增量、独特性、解释深度、行动参考价值和信息密度决定；证据质量另行作为阅读提示展示。')),
+    readingUtility,
     scores,
     scoreReasons: {
       credibility: String(parsed.scoreReasons?.credibility || parsed.score_summary?.score_reasoning?.credibility_score || '当前材料不足，无法形成可靠判断。'),
