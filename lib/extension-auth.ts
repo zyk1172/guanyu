@@ -37,6 +37,7 @@ export async function authenticateExtensionRequest(request: Request) {
           id: true,
           email: true,
           name: true,
+          isBanned: true,
           creditBalance: true,
           creditBalanceCents: true,
           freeQuotaDate: true,
@@ -47,13 +48,15 @@ export async function authenticateExtensionRequest(request: Request) {
     },
   });
 
-  if (!session || session.revokedAt) return null;
+  if (!session || session.revokedAt || session.user.isBanned) return null;
   if (session.expiresAt && session.expiresAt.getTime() < Date.now()) return null;
 
-  await prisma.extensionSession.update({
-    where: { id: session.id },
-    data: { lastUsedAt: new Date() },
-  });
+  if (!session.lastUsedAt || Date.now() - session.lastUsedAt.getTime() > 10 * 60 * 1000) {
+    await prisma.extensionSession.update({
+      where: { id: session.id },
+      data: { lastUsedAt: new Date() },
+    });
+  }
 
   return session;
 }

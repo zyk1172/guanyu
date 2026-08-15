@@ -797,6 +797,22 @@ test('RSS parser normalizes RSS, RDF and Atom headlines without article body', (
   assert.deepEqual(atom, [{ id: 'example:https://example.com/three', sourceId: 'example', sourceName: 'Example', title: 'Third headline', url: 'https://example.com/three', publishedAt: '2026-07-13T10:00:00.000Z' }]);
 });
 
+test('RSS parser disables entity expansion and tolerates malformed XML', () => {
+  const malicious = parseRssXml(`<?xml version="1.0"?><!DOCTYPE rss [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><rss><channel><item><title>&xxe;</title><link>https://example.com/one</link></item></channel></rss>`, {
+    id: 'example',
+    name: 'Example',
+    feedUrl: 'https://example.com/feed.xml',
+  });
+  assert.ok(Array.isArray(malicious));
+  const title = String(malicious[0]?.title || '');
+  assert.equal(title.includes('/etc/passwd'), false);
+  assert.deepEqual(parseRssXml('<rss><channel><item>', {
+    id: 'example',
+    name: 'Example',
+    feedUrl: 'https://example.com/feed.xml',
+  }), []);
+});
+
 test('People Daily official headline source extracts current homepage titles instead of stale legacy RSS items', () => {
   const headlines = parseRssXml(`
     <html><body>

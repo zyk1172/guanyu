@@ -14,6 +14,11 @@ export async function exportUserData(userId: string) {
     rssFeeds,
     extensionSessions,
     savedArticles,
+    serviceOperations,
+    modelUsageEvents,
+    auditJobs,
+    discussionReports,
+    extensionLinkCodes,
   ] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId } }),
     prisma.userSettings.findUnique({ where: { userId } }),
@@ -26,6 +31,11 @@ export async function exportUserData(userId: string) {
     prisma.rssFeed.findMany({ where: { ownerUserId: userId }, orderBy: { createdAt: 'desc' } }),
     prisma.extensionSession.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
     prisma.savedArticle.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
+    prisma.serviceOperation.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
+    prisma.modelUsageEvent.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
+    prisma.auditJob.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
+    prisma.discussionReport.findMany({ where: { reporterUserId: userId }, orderBy: { createdAt: 'desc' } }),
+    prisma.extensionLinkCode.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
   ]);
 
   if (!user) throw new Error('账号不存在。');
@@ -46,7 +56,6 @@ export async function exportUserData(userId: string) {
     settings: settings ? {
       defaultReasoningDepth: settings.defaultReasoningDepth,
       defaultReportLanguage: settings.defaultReportLanguage,
-      defaultAnalysisMode: settings.defaultAnalysisMode,
       defaultIsPublic: settings.defaultIsPublic,
       defaultEnableCharts: settings.defaultEnableCharts,
       modelSource: settings.modelSource,
@@ -65,8 +74,45 @@ export async function exportUserData(userId: string) {
     emailDeliveries,
     exportArtifacts,
     rssFeeds,
-    extensionSessions,
+    extensionSessions: extensionSessions.map((session) => ({
+      id: session.id,
+      name: session.name,
+      browser: session.browser,
+      lastUsedAt: session.lastUsedAt,
+      expiresAt: session.expiresAt,
+      revokedAt: session.revokedAt,
+      createdAt: session.createdAt,
+    })),
     savedArticles,
+    serviceOperations: serviceOperations.map((operation) => ({
+      id: operation.id,
+      operation: operation.operation,
+      status: operation.status,
+      currentAttempt: operation.currentAttempt,
+      reservedCredits: operation.reservedCredits,
+      resultHash: operation.resultHash,
+      errorCode: operation.errorCode,
+      createdAt: operation.createdAt,
+      updatedAt: operation.updatedAt,
+    })),
+    modelUsageEvents,
+    auditJobs: auditJobs.map((job) => ({
+      id: job.id,
+      status: job.status,
+      auditId: job.auditId,
+      error: job.error,
+      attemptCount: job.attemptCount,
+      creditCostCents: job.creditCostCents,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+    })),
+    discussionReports,
+    extensionLinkCodes: extensionLinkCodes.map((code) => ({
+      id: code.id,
+      usedAt: code.usedAt,
+      expiresAt: code.expiresAt,
+      createdAt: code.createdAt,
+    })),
   };
 }
 
@@ -79,6 +125,9 @@ export async function deleteUserAccount(userId: string, email: string) {
     await tx.extensionSession.updateMany({
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date() },
+    });
+    await tx.verificationCode.deleteMany({
+      where: { email: String(email || '').trim().toLowerCase() },
     });
     await tx.emailDelivery.updateMany({
       where: { userId },
@@ -166,7 +215,34 @@ export async function cleanupExpiredAuditJobInputs() {
 }
 
 export async function runPrivacyCleanup() {
-  const emails = await anonymizeExpiredEmailDeliveries();
+  const retentionDays = Number(process.env.EMAIL_DELIVERY_RETENTION_DAYS || 90);
+  const emails = await anonymizeExpiredEmailDeliveries(retentionDays);
   const jobs = await cleanupExpiredAuditJobInputs();
-  return { emails, jobs };
+  const now = new Date();
+  const verificationCodes = await prisma.verificationCode.deleteMany({
+    where: {
+      OR: [
+        { consumedAt: { not: null } },
+        { expiresAt: { lt: now } },
+        { createdAt: { lt: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) } },
+      ],
+    },
+  });
+  const extensionLinkCodes = await prisma.extensionLinkCode.deleteMany({
+    where: {
+      OR: [
+        { usedAt: { not: null } },
+        { expiresAt: { lt: now } },
+      ],
+    },
+  });
+  const serviceOperations = await prisma.serviceOperation.updateMany({
+    where: {
+      status: 'COMPLETED',
+      createdAt: { lt: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) },
+      resultJson: { not: null },
+    },
+    data: { resultJson: null },
+  });
+  return { emails, jobs, verificationCodes, extensionLinkCodes, serviceOperations };
 }

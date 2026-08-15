@@ -31,6 +31,7 @@ import type {
   ReportLanguage,
   ReadingUtilityFactors,
 } from '@/lib/types';
+import { toClientError } from '@/lib/app-error';
 
 export const maxDuration = 300;
 
@@ -699,7 +700,7 @@ async function handleAnalyze(userId: string, body: any, executionContext: Analyz
     let parsedJSON: any;
     try {
       parsedJSON = parseAssistantJSON(llmResult.message);
-    } catch (parseError) {
+    } catch {
       console.error('Model JSON parse failed', {
         errorCode: 'invalid_json',
         responseLength: llmResult.message?.length || 0,
@@ -711,7 +712,7 @@ async function handleAnalyze(userId: string, body: any, executionContext: Analyz
           try {
             parsedJSON = parseAssistantJSON(fallbackResult.message);
             usedFallbackPrompt = true;
-          } catch (fallbackParseError) {
+          } catch {
             console.error('Compact fallback JSON parse failed', {
               errorCode: 'fallback_invalid_json',
               responseLength: fallbackResult.message?.length || 0,
@@ -874,8 +875,9 @@ async function handleAnalyze(userId: string, body: any, executionContext: Analyz
     });
   } catch (error: any) {
     await releaseReservation();
-    console.error('Route analyze error:', error);
-    return NextResponse.json({ error: error?.message || '服务器内部处理出错，请重试' }, { status: 500 });
+    console.error('Route analyze error', { code: 'internal_analyze', message: error instanceof Error ? error.message.slice(0, 500) : 'unknown' });
+    const clientError = toClientError(error);
+    return NextResponse.json({ error: clientError.message }, { status: clientError.status });
   }
 }
 

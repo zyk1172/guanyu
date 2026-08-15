@@ -44,7 +44,7 @@ export async function POST(request: Request) {
           tokenHash: hashExtensionSecret(token),
           name,
           browser,
-          expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         },
       });
     });

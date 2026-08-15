@@ -1,4 +1,4 @@
-const DEFAULT_BASE_URL = 'https://guanyu-seven.vercel.app';
+const DEFAULT_BASE_URL = 'https://www.guanyu.dynv6.net';
 
 const $ = (id) => document.getElementById(id);
 

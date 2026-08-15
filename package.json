@@ -9,6 +9,7 @@
     "postinstall": "prisma generate",
     "start": "next start",
     "lint": "eslint",
+    "ci": "npm run lint && npm run test:report && npm run test:round2 && npm run test:backup && npm run test:platform-models && npm run test:model-runtime && npm run build",
     "test:report": "node --test scripts/report-logic.test.mjs",
     "test:round2": "tsx --test scripts/round2-security.test.ts",
     "reset:business-data": "node scripts/reset-business-data.mjs",

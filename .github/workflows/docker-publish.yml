@@ -16,7 +16,32 @@ env:
   IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/guanyu
 
 jobs:
+  ci:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: "postgresql://guanyu:guanyu@localhost:5432/guanyu?schema=public&connection_limit=10&pool_timeout=20"
+      NEXTAUTH_SECRET: "ci-only-nextauth-secret"
+      NEXTAUTH_URL: "http://localhost:3000"
+      APP_ENCRYPTION_KEY: "ci-only-app-encryption-key"
+      HASH_PEPPER: "ci-only-hash-pepper"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Run CI checks
+        run: npm run ci
+
   publish:
+    needs: ci
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository

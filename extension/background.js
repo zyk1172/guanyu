@@ -31,7 +31,7 @@ async function extractPage(tab) {
 }
 
 async function sendToGuanyu(tab, action) {
-  const { extensionToken, guanyuBaseUrl = 'https://guanyu-seven.vercel.app' } = await chrome.storage.local.get(['extensionToken', 'guanyuBaseUrl']);
+  const { extensionToken, guanyuBaseUrl = 'https://www.guanyu.dynv6.net' } = await chrome.storage.local.get(['extensionToken', 'guanyuBaseUrl']);
   if (!extensionToken) throw new Error('未连接观隅账号。');
   const payload = await extractPage(tab);
   const response = await fetch(`${guanyuBaseUrl.replace(/\/$/, '')}/api/extension/import`, {
@@ -44,6 +44,7 @@ async function sendToGuanyu(tab, action) {
       ...payload,
       source: 'extension',
       action,
+      clientRequestId: crypto.randomUUID(),
     }),
   });
   const data = await response.json().catch(() => ({}));

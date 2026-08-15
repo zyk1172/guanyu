@@ -2,12 +2,14 @@ import { after, NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { getSuperAdminStatus } from '@/lib/admin';
 import { fulfillOrder, getOrCreateAppSetting, grantPoints, rejectOrder } from '@/lib/billing';
-import { cacheDel, CACHE_KEYS } from '@/lib/cache';
+import { cacheDel, cacheDelByPrefix, CACHE_KEYS } from '@/lib/cache';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { notifyAccountAccessChanged, notifyCreditsGranted, notifyOrderDecision, sendTrackedEmail } from '@/lib/email';
 import { prisma } from '@/lib/prisma';
 import { calculateProAccessExpiry } from '@/lib/pro-access-core.mjs';
 import { encryptSecret } from '@/lib/secret';
+import { deleteUserAccount } from '@/lib/privacy';
+import { verifyStepUp } from '@/lib/step-up';
 
 async function requireAdmin(request: Request) {
   const user = await getCurrentUser(request);
@@ -133,6 +135,13 @@ export async function PATCH(request: NextRequest) {
   const body = await request.json();
   const action = String(body.action || '');
 
+  if (['grant', 'grantProAccess', 'setUserBanned', 'deleteUser', 'sendUserEmail'].includes(action)) {
+    const confirmed = await verifyStepUp(admin.id, { password: String(body.stepUpPassword || '') });
+    if (!confirmed) {
+      return NextResponse.json({ error: '需要输入当前密码以执行敏感操作。' }, { status: 400 });
+    }
+  }
+
   if (action === 'settings') {
     const update: any = {
       enableAdminTavilySearch: Boolean(body.enableAdminTavilySearch),
@@ -195,10 +204,19 @@ export async function PATCH(request: NextRequest) {
     if (userId === admin.id && isBanned) {
       return NextResponse.json({ error: '不能封禁当前超级管理员账号。' }, { status: 400 });
     }
-    const updated = await prisma.user.update({
-      where: { id: userId },
-      data: { isBanned },
-      select: { id: true, email: true, isBanned: true },
+    const updated = await prisma.$transaction(async (tx) => {
+      const user = await tx.user.update({
+        where: { id: userId },
+        data: { isBanned, ...(isBanned ? { sessionVersion: { increment: 1 } } : {}) },
+        select: { id: true, email: true, isBanned: true },
+      });
+      if (isBanned) {
+        await tx.extensionSession.updateMany({
+          where: { userId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+      }
+      return user;
     });
     after(async () => {
       try {
@@ -221,7 +239,13 @@ export async function PATCH(request: NextRequest) {
     if (userId === admin.id) {
       return NextResponse.json({ error: '不能删除当前超级管理员账号。' }, { status: 400 });
     }
-    await prisma.user.delete({ where: { id: userId } });
+    const target = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+    if (!target) return NextResponse.json({ error: '用户不存在。' }, { status: 404 });
+    await deleteUserAccount(userId, target.email);
+    await Promise.all([
+      cacheDelByPrefix(CACHE_KEYS.hotAuditsPrefix),
+      cacheDelByPrefix('guanyu:cache:audit:'),
+    ]).catch(() => {});
     return NextResponse.json({ ok: true });
   }
 

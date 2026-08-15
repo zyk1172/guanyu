@@ -4,6 +4,7 @@ import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { notifyAdminsFeedback } from '@/lib/email';
 import { prisma } from '@/lib/prisma';
 import { reserveFeedbackAttempt } from '@/lib/rate-limit';
+import { toClientError } from '@/lib/app-error';
 
 const FEEDBACK_TYPES = new Set(['bug', 'feature', 'report', 'billing', 'other']);
 
@@ -58,9 +59,8 @@ export async function POST(request: Request) {
         : '反馈已记录，但管理员邮件暂未投递成功，请稍后重试。',
     });
   } catch (error) {
-    console.error('feedback submission failed', error);
-    return NextResponse.json({
-      error: error instanceof Error ? error.message : '反馈提交失败，请稍后再试。',
-    }, { status: 500 });
+    console.error('feedback submission failed', { code: 'feedback_submission_failed' });
+    const clientError = toClientError(error);
+    return NextResponse.json({ error: clientError.message }, { status: clientError.status });
   }
 }

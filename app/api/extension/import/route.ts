@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { after, NextResponse } from 'next/server';
 import { authenticateExtensionRequest } from '@/lib/extension-auth';
 import { createAnalyzeJob, runAnalyzeJob } from '@/lib/analyze-job';
@@ -33,7 +34,10 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const action = String(body.action || 'save');
+  const action = String(body.action || '').trim();
+  if (action !== 'save' && action !== 'analyze') {
+    return NextResponse.json({ error: '插件操作类型无效。' }, { status: 400 });
+  }
   const title = cleanText(String(body.title || ''), 160);
   const selectedText = cleanText(String(body.selectedText || ''), MAX_SELECTED_LENGTH);
   const pageText = cleanText(String(body.pageText || ''), MAX_TEXT_LENGTH);
@@ -55,6 +59,19 @@ export async function POST(request: Request) {
 
   const sourceHost = new URL(url).hostname;
   if (action === 'save') {
+    const clientRequestId = String(body.clientRequestId || body.requestId || '').trim().slice(0, 100) || `saved-${randomUUID()}`;
+    const recentCount = await prisma.savedArticle.count({
+      where: { userId: session.userId, createdAt: { gte: new Date(Date.now() - 60_000) } },
+    });
+    if (recentCount >= 10) {
+      return NextResponse.json({ error: '保存文章过于频繁，请稍后再试。' }, { status: 429 });
+    }
+    const existing = await prisma.savedArticle.findUnique({
+      where: { userId_clientRequestId: { userId: session.userId, clientRequestId } },
+    });
+    if (existing) {
+      return NextResponse.json({ ok: true, savedId: existing.id, repeated: true, message: '该网页已保存，未重复写入。' });
+    }
     const saved = await prisma.savedArticle.create({
       data: {
         userId: session.userId,
@@ -63,6 +80,7 @@ export async function POST(request: Request) {
         url,
         content,
         selectedText: selectedText || null,
+        clientRequestId,
       },
     });
     return NextResponse.json({
@@ -85,8 +103,6 @@ export async function POST(request: Request) {
     ok: true,
     jobId: job.id,
     jobUrl: `/my-audits?jobId=${encodeURIComponent(job.id)}`,
-    message: action === 'save'
-      ? '已发送到观隅，服务器正在后台生成审视报告。'
-      : '已开始生成观隅审视报告。',
+    message: '已开始生成观隅审视报告。',
   });
 }

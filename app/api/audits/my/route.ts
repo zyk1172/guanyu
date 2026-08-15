@@ -67,6 +67,7 @@ export async function GET(request: Request) {
         speculationRiskScore: true,
         isPublic: true,
         indexable: true,
+        isSourcePublic: true,
         viewCount: true,
         heatScore: true,
         createdAt: true,

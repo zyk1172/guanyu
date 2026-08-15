@@ -3,6 +3,7 @@ import { getSuperAdminStatus } from '@/lib/admin';
 import { getCurrentUser } from '@/lib/auth';
 import { backupSummary, createOperationsBackup, decodeOperationsBackup, encodeOperationsBackup, restoreOperationsBackup } from '@/lib/operations-backup';
 import { cacheDel, cacheDelByPrefix, CACHE_KEYS } from '@/lib/cache';
+import { verifyStepUp } from '@/lib/step-up';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -43,6 +44,8 @@ export async function POST(request: NextRequest) {
   if (!user) return NextResponse.json({ error: '只有超级管理员可以创建运营备份。' }, { status: 403 });
   try {
     const body = await request.json().catch(() => ({}));
+    const confirmed = await verifyStepUp(user.id, { password: String(body.stepUpPassword || '') });
+    if (!confirmed) return NextResponse.json({ error: '需要输入当前密码以执行敏感操作。' }, { status: 400 });
     const passphrase = String(body.passphrase || '');
     const { snapshot, filename } = await createOperationsBackup();
     const archive = encodeOperationsBackup(snapshot, passphrase);
@@ -58,6 +61,8 @@ export async function PUT(request: NextRequest) {
   if (!user) return NextResponse.json({ error: '只有超级管理员可以恢复运营备份。' }, { status: 403 });
   try {
     const form = await request.formData();
+    const confirmed = await verifyStepUp(user.id, { password: String(form.get('stepUpPassword') || '') });
+    if (!confirmed) return NextResponse.json({ error: '需要输入当前密码以执行敏感操作。' }, { status: 400 });
     const archive = form.get('archive');
     const passphrase = String(form.get('passphrase') || '');
     const confirmation = String(form.get('confirmation') || '');

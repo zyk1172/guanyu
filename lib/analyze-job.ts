@@ -201,7 +201,7 @@ export async function runAnalyzeJob(jobId: string) {
 
   try {
     const storedInput = JSON.parse(job.inputJson);
-    const { admissionEventId, modelSource, ...input } = storedInput;
+    const { modelSource, ...input } = storedInput;
     const data = await analyzeForUser({
       userId: job.userId,
       input,
@@ -242,7 +242,10 @@ export async function dispatchAnalyzeJobs(limit = 5) {
   const jobs = await prisma.auditJob.findMany({
     where: {
       status: 'pending',
-      nextAttemptAt: { lte: now },
+      OR: [
+        { nextAttemptAt: { lte: now } },
+        { nextAttemptAt: null },
+      ],
     },
     orderBy: { nextAttemptAt: 'asc' },
     take: limit,

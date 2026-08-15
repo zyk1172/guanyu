@@ -6,9 +6,9 @@ const snapshot: OperationsBackupSnapshot = {
   version: 1,
   createdAt: new Date('2026-07-18T00:00:00.000Z').toISOString(),
   notes: ['test'],
-  counts: { users: 1, audits: 1 },
+  counts: { users: 1, audits: 1, savedArticles: 1 },
   tables: {
-    appSettings: [], users: [{ id: 'user_1', email: 'admin@example.com', password: 'scrypt$hash' }], userSettings: [], audits: [{ id: 'audit_1', userId: 'user_1', title: 'Test' }], pointTransactions: [], purchaseOrders: [], rssFeeds: [], rssItems: [], discussionMessages: [], discussionReports: [], exportArtifacts: [], emailDeliveries: [],
+    appSettings: [], users: [{ id: 'user_1', email: 'admin@example.com', password: 'scrypt$hash' }], userSettings: [], audits: [{ id: 'audit_1', userId: 'user_1', title: 'Test' }], pointTransactions: [], purchaseOrders: [], rssFeeds: [], rssItems: [], discussionMessages: [], discussionReports: [], exportArtifacts: [], emailDeliveries: [], savedArticles: [{ id: 'saved_1', userId: 'user_1', title: 'Saved', source: 'example', url: 'https://example.com', content: 'text' }],
   },
   portableSecrets: { appSettings: [], userSettings: [] },
 };

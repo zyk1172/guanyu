@@ -102,13 +102,16 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { isPublic, indexable } = body;
+    const { isPublic, indexable, isSourcePublic } = body;
 
+    const nextIsPublic = isPublic !== undefined ? isPublic : audit.isPublic;
+    const nextIndexable = indexable !== undefined ? indexable : audit.indexable;
     const updatedAudit = await prisma.audit.update({
       where: { id },
       data: {
-        isPublic: isPublic !== undefined ? isPublic : audit.isPublic,
-        indexable: indexable !== undefined ? indexable : audit.indexable,
+        isPublic: nextIsPublic,
+        indexable: nextIndexable ? nextIsPublic : false,
+        isSourcePublic: isSourcePublic !== undefined ? isSourcePublic : audit.isSourcePublic,
       },
     });
 

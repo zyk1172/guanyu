@@ -34,12 +34,19 @@ export async function POST(request: NextRequest) {
     if (!verified) {
       return NextResponse.json({ error: '验证码错误、已过期，或已被使用。' }, { status: 400 });
     }
-    const updated = await prisma.user.update({
-      where: { id: account.id },
-      data: {
-        password: hashPassword(password),
-        sessionVersion: { increment: 1 },
-      },
+    const updated = await prisma.$transaction(async (tx) => {
+      const nextUser = await tx.user.update({
+        where: { id: account.id },
+        data: {
+          password: hashPassword(password),
+          sessionVersion: { increment: 1 },
+        },
+      });
+      await tx.extensionSession.updateMany({
+        where: { userId: account.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      return nextUser;
     });
     notifyPasswordChanged({ userId: updated.id, email: updated.email }).catch((error) => {
       console.error('password reset notification failed', error);

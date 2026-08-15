@@ -2,7 +2,6 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import Header from '@/components/Header';
 import AnalysisResultView from '@/components/AnalysisResult';
@@ -14,7 +13,6 @@ import ReanalyzeControl from '@/components/ReanalyzeControl';
 export default function AuditDetailsPage() {
   const params = useParams();
   const auditId = typeof params?.id === 'string' ? params.id : null;
-  const { data: session } = useSession();
   const { language, t } = useUiLanguage();
   const tRef = useRef(t);
 

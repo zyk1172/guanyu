@@ -14,7 +14,7 @@ export function publicAuditDto(audit: any) {
     modelName: audit.modelName,
     modelDisplayNameSnapshot: audit.modelDisplayNameSnapshot,
     newsSummary: audit.newsSummary,
-    originalContent: audit.originalContent,
+    originalContent: audit.isSourcePublic ? audit.originalContent : undefined,
     auditResultJson: audit.auditResultJson,
     credibilityScore: audit.credibilityScore,
     informationCompletenessScore: audit.informationCompletenessScore,
@@ -23,6 +23,7 @@ export function publicAuditDto(audit: any) {
     speculationRiskScore: audit.speculationRiskScore,
     isPublic: audit.isPublic,
     indexable: audit.indexable,
+    isSourcePublic: audit.isSourcePublic,
     viewCount: audit.viewCount,
     heatScore: audit.heatScore,
     completionMarkdown: audit.completionMarkdown,
@@ -36,6 +37,7 @@ export function publicAuditDto(audit: any) {
 export function ownerAuditDto(audit: any) {
   return {
     ...publicAuditDto(audit),
+    originalContent: audit.originalContent,
     focus: audit.focus,
   };
 }

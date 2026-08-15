@@ -6,6 +6,7 @@ import { hashPassword, verifyPassword } from '@/lib/password-core.mjs';
 import { prisma } from '@/lib/prisma';
 import { reservePasswordChangeAttempt } from '@/lib/rate-limit';
 import { assertSameOrigin, assertSecureAccountTransport } from '@/lib/request-security';
+import { setSessionCookie } from '@/lib/session-cookie';
 
 export async function PATCH(request: NextRequest) {
   try {
@@ -34,17 +35,26 @@ export async function PATCH(request: NextRequest) {
     if (!account || !verifyPassword(currentPassword, account.password).valid) {
       return NextResponse.json({ error: '当前密码不正确。' }, { status: 400 });
     }
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        password: hashPassword(newPassword),
-        sessionVersion: { increment: 1 },
-      },
+    const updated = await prisma.$transaction(async (tx) => {
+      const nextUser = await tx.user.update({
+        where: { id: user.id },
+        data: {
+          password: hashPassword(newPassword),
+          sessionVersion: { increment: 1 },
+        },
+      });
+      await tx.extensionSession.updateMany({
+        where: { userId: user.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      return nextUser;
     });
     notifyPasswordChanged({ userId: account.id, email: account.email }).catch((error) => {
       console.error('password change notification failed', error);
     });
-    return NextResponse.json({ ok: true, message: '密码已修改。我们已向你的邮箱发送安全通知。' });
+    const response = NextResponse.json({ ok: true, message: '密码已修改。我们已向你的邮箱发送安全通知。' });
+    await setSessionCookie(response, updated);
+    return response;
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : '密码修改失败，请稍后重试。' }, { status: 500 });
   }

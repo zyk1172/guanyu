@@ -260,7 +260,23 @@ export function ensureRuntimeSchema() {
         ADD COLUMN IF NOT EXISTS "sourceJobId" TEXT;
       `);
       await prisma.$executeRawUnsafe(`
+        ALTER TABLE "Audit"
+        ADD COLUMN IF NOT EXISTS "isSourcePublic" BOOLEAN NOT NULL DEFAULT false;
+      `);
+      await prisma.$executeRawUnsafe(`
+        ALTER TABLE "SavedArticle"
+        ADD COLUMN IF NOT EXISTS "clientRequestId" TEXT;
+      `);
+      await prisma.$executeRawUnsafe(`
+        ALTER TABLE "UserSettings"
+        DROP COLUMN IF EXISTS "defaultSaveResult",
+        DROP COLUMN IF EXISTS "defaultAnalysisMode";
+      `);
+      await prisma.$executeRawUnsafe(`
         CREATE UNIQUE INDEX IF NOT EXISTS "Audit_sourceJobId_key" ON "Audit"("sourceJobId");
+      `);
+      await prisma.$executeRawUnsafe(`
+        CREATE UNIQUE INDEX IF NOT EXISTS "SavedArticle_userId_clientRequestId_key" ON "SavedArticle"("userId", "clientRequestId");
       `);
       await prisma.$executeRawUnsafe(`
         CREATE UNIQUE INDEX IF NOT EXISTS "ServiceOperation_userId_idempotencyKey_key" ON "ServiceOperation"("userId", "idempotencyKey");

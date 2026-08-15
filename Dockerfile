@@ -17,14 +17,15 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV APP_BIND_ADDRESS=0.0.0.0
 
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/next.config.ts ./
 
-RUN mkdir -p /app/data
+RUN npm ci --omit=dev --legacy-peer-deps && mkdir -p /app/data && chown -R node:node /app
 
 EXPOSE 3000
-CMD ["sh", "-c", "./node_modules/.bin/prisma db push --skip-generate && ./node_modules/.bin/next start --port ${PORT:-3000} --hostname ${APP_BIND_ADDRESS:-0.0.0.0}"]
+USER node
+CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && node server.js"]

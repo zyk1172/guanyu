@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "观隅浏览器助手",
+  "name": "观隅浏览器助手 (Dev)",
   "version": "0.1.0",
   "description": "将当前新闻页面或选中文本发送到观隅 Web App 进行新闻叙事审视。",
   "permissions": ["activeTab", "scripting", "contextMenus", "storage"],
-  "host_permissions": ["https://www.guanyu.dynv6.net/*"],
+  "host_permissions": ["http://localhost:3000/*", "https://www.guanyu.dynv6.net/*"],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {

@@ -497,9 +497,17 @@ export default function AccountPage() {
     setPrivacyMessage(null);
     setIsExportingData(true);
     try {
-      const response = await fetch('/api/account/data', { cache: 'no-store' });
+      const password = window.prompt(t('account.deleteAccountHint'));
+      if (!password) return;
+      const response = await fetch('/api/account/data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+        cache: 'no-store',
+      });
       if (!response.ok) {
-        setPrivacyMessage(t('account.privacyFailed'));
+        const data = await response.json().catch(() => ({}));
+        setPrivacyMessage(data.error || t('account.privacyFailed'));
         return;
       }
       const blob = await response.blob();
@@ -624,10 +632,13 @@ export default function AccountPage() {
   const handleAdminUserAction = async (action: string, payload: Record<string, any>) => {
     setAdminUserMessage(null);
     try {
+      const sensitive = ['grant', 'grantProAccess', 'setUserBanned', 'deleteUser', 'sendUserEmail'].includes(action);
+      const stepUpPassword = sensitive ? window.prompt('请输入当前密码以执行敏感操作。') : '';
+      if (sensitive && !stepUpPassword) return false;
       const res = await fetch('/api/billing/admin', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, ...payload }),
+        body: JSON.stringify({ action, ...payload, ...(sensitive ? { stepUpPassword } : {}) }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -679,10 +690,12 @@ export default function AccountPage() {
     }
     setBackupBusy('create');
     try {
+      const stepUpPassword = window.prompt('请输入当前密码以创建运营备份。');
+      if (!stepUpPassword) return;
       const response = await fetch('/api/admin/backup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ passphrase: backupPassphrase }),
+        body: JSON.stringify({ passphrase: backupPassphrase, stepUpPassword }),
       });
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
@@ -722,10 +735,13 @@ export default function AccountPage() {
     if (!window.confirm(t('backup.restoreConfirm'))) return;
     setBackupBusy('restore');
     try {
+      const stepUpPassword = window.prompt('请输入当前密码以恢复运营备份。');
+      if (!stepUpPassword) return;
       const form = new FormData();
       form.append('archive', restoreArchive);
       form.append('passphrase', restorePassphrase);
       form.append('confirmation', restoreConfirmation);
+      form.append('stepUpPassword', stepUpPassword);
       const response = await fetch('/api/admin/backup', { method: 'PUT', body: form });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || t('backup.restoreFailed'));
@@ -978,6 +994,9 @@ export default function AccountPage() {
               <h4 className="text-sm font-black text-[var(--color-text)]">{t('account.privacyTitle', '账号数据')}</h4>
               <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('account.deleteAccountHint')}</p>
               <div className="mt-3 flex flex-wrap gap-2">
+                <Link href="/saved-articles" className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-2 text-xs font-black text-[var(--color-text)] transition hover:bg-[var(--color-card-hover)]">
+                  {t('saved.title')}
+                </Link>
                 <button type="button" disabled={isExportingData} onClick={handleExportData} className="rounded-lg bg-[var(--color-primary)] px-3 py-2 text-xs font-black text-white transition hover:bg-[var(--color-primary-hover)] disabled:cursor-not-allowed disabled:opacity-60">
                   {isExportingData ? t('account.exportingData') : t('account.exportData')}
                 </button>

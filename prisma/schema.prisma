@@ -87,9 +87,7 @@ model UserSettings {
   defaultAudienceTheme         String   @default("youth") // teen, youth, mature, senior
   defaultReportLanguage        String   @default("zh-CN") // zh-CN, en-US
   defaultReasoningDepth        String   @default("medium") // none, low, medium, high, extreme
-  defaultAnalysisMode          String   @default("quick") // quick, deep
   defaultIsPublic              Boolean  @default(false)
-  defaultSaveResult            Boolean  @default(true)
   defaultEnableCharts          Boolean  @default(true)
   modelSource                  String   @default("platform") // platform, custom
   defaultPlatformModelConfigId String?
@@ -133,6 +131,7 @@ model Audit {
   heatScore                     Int                       @default(0)
   isPublic                      Boolean                   @default(false)
   indexable                     Boolean                   @default(false)
+  isSourcePublic                Boolean                   @default(false)
   sourceJobId                   String?                   @unique
   createdAt                     DateTime                  @default(now())
   updatedAt                     DateTime                  @updatedAt
@@ -183,10 +182,12 @@ model SavedArticle {
   url          String
   content      String
   selectedText String?
+  clientRequestId String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   @@index([userId, createdAt])
+  @@unique([userId, clientRequestId])
 }
 
 model EmailDelivery {
