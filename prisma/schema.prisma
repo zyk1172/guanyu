@@ -86,7 +86,7 @@ model UserSettings {
   defaultReportLanguage        String   @default("zh-CN") // zh-CN, en-US
   defaultReasoningDepth        String   @default("medium") // none, low, medium, high, extreme
   defaultAnalysisMode          String   @default("quick") // quick, deep
-  defaultIsPublic              Boolean  @default(true)
+  defaultIsPublic              Boolean  @default(false)
   defaultSaveResult            Boolean  @default(true)
   defaultEnableCharts          Boolean  @default(true)
   modelSource                  String   @default("platform") // platform, custom
@@ -129,7 +129,8 @@ model Audit {
   speculationRiskScore          Int                       @default(0)
   viewCount                     Int                       @default(0)
   heatScore                     Int                       @default(0)
-  isPublic                      Boolean                   @default(true)
+  isPublic                      Boolean                   @default(false)
+  indexable                     Boolean                   @default(false)
   createdAt                     DateTime                  @default(now())
   updatedAt                     DateTime                  @updatedAt
   completionMarkdown            String?
@@ -156,6 +157,7 @@ model AuditJob {
   creditCostCents   Int?
   auditId           String?
   error             String?
+  inputRetentionExpiresAt DateTime?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -477,6 +479,15 @@ model RateLimitEvent {
   createdAt DateTime @default(now())
 
   @@index([userId, action, createdAt])
+}
+
+model AccountDeletionLog {
+  id         String   @id @default(cuid())
+  userIdHash String
+  emailHash  String
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
 }
 
 model ExtensionLinkCode {

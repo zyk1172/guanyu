@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { cacheDelByPrefix, CACHE_KEYS } from '@/lib/cache';
 import { getClientIp, reserveAuditViewCount } from '@/lib/rate-limit';
 import { withHistoricalAuditModelName } from '@/lib/audit-model-display';
+import { auditDtoForAccess, ownerAuditDto, adminAuditDto } from '@/lib/audit-dto';
 
 async function invalidateAuditCaches() {
   await cacheDelByPrefix(CACHE_KEYS.hotAuditsPrefix);
@@ -60,9 +61,11 @@ export async function GET(
       }
     });
 
+    const canManage = currentAudit.userId === userId || isSuperAdmin;
+    const dto = auditDtoForAccess(currentAudit, canManage, isSuperAdmin);
     return NextResponse.json({
-      ...withHistoricalAuditModelName(audit),
-      canManage: currentAudit.userId === userId || isSuperAdmin,
+      ...withHistoricalAuditModelName(dto),
+      canManage,
       viewCount: audit.viewCount + (shouldCountView ? 1 : 0),
       heatScore: audit.heatScore + (shouldCountView ? 1 : 0),
     });
@@ -98,17 +101,23 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { isPublic } = body;
+    const { isPublic, indexable } = body;
 
     const updatedAudit = await prisma.audit.update({
       where: { id },
       data: {
         isPublic: isPublic !== undefined ? isPublic : audit.isPublic,
+        indexable: indexable !== undefined ? indexable : audit.indexable,
       },
     });
 
     await invalidateAuditCaches();
-    return NextResponse.json(updatedAudit);
+    const isSuperAdminForDto = await getSuperAdminStatus(userId);
+    return NextResponse.json(
+      withHistoricalAuditModelName(
+        isSuperAdminForDto ? adminAuditDto(updatedAudit) : ownerAuditDto(updatedAudit),
+      ),
+    );
   } catch (error: any) {
     console.error('PATCH audit error:', error);
     return NextResponse.json({ error: '更新审视公开状态失败' }, { status: 500 });

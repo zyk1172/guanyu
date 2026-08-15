@@ -42,6 +42,18 @@ export function ensureRuntimeSchema() {
         ADD COLUMN IF NOT EXISTS "completionGeneratedAt" TIMESTAMP(3);
       `);
       await prisma.$executeRawUnsafe(`
+        ALTER TABLE "Audit"
+        ADD COLUMN IF NOT EXISTS "indexable" BOOLEAN NOT NULL DEFAULT false;
+      `);
+      await prisma.$executeRawUnsafe(`
+        ALTER TABLE "AuditJob"
+        ADD COLUMN IF NOT EXISTS "inputRetentionExpiresAt" TIMESTAMP(3);
+      `);
+      await prisma.$executeRawUnsafe(`
+        ALTER TABLE "UserSettings"
+        ALTER COLUMN "defaultIsPublic" SET DEFAULT false;
+      `);
+      await prisma.$executeRawUnsafe(`
         ALTER TABLE "AppSetting"
         ADD COLUMN IF NOT EXISTS "alipayPointsQrImageUrl" TEXT NOT NULL DEFAULT '/alipay-points.jpg',
         ADD COLUMN IF NOT EXISTS "alipayByokQrImageUrl" TEXT NOT NULL DEFAULT '/alipay-byok.jpg',
@@ -247,6 +259,18 @@ export function ensureRuntimeSchema() {
             FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
           END IF;
         END $$;
+      `);
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "AccountDeletionLog" (
+          "id" TEXT NOT NULL,
+          "userIdHash" TEXT NOT NULL,
+          "emailHash" TEXT NOT NULL,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "AccountDeletionLog_pkey" PRIMARY KEY ("id")
+        );
+      `);
+      await prisma.$executeRawUnsafe(`
+        CREATE INDEX IF NOT EXISTS "AccountDeletionLog_createdAt_idx" ON "AccountDeletionLog"("createdAt");
       `);
       } finally {
         await prisma.$executeRawUnsafe('SELECT pg_advisory_unlock(83672703);').catch(() => {});

@@ -2,9 +2,10 @@ import crypto from 'crypto';
 import { prisma } from '@/lib/prisma';
 import { assertCaptchaChallengeLimit, hashForStorage } from '@/lib/rate-limit';
 import { createCaptchaText } from '@/lib/captcha-core.mjs';
+import { privacyHmacHash } from '@/lib/privacy-hash';
 
 function hashCode(value: string) {
-  return crypto.createHash('sha256').update(value.trim().toLowerCase()).digest('hex');
+  return privacyHmacHash(value.trim().toLowerCase());
 }
 
 export function createNumericCode(length = 6) {

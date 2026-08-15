@@ -28,7 +28,12 @@ export async function POST(request: NextRequest) {
 
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
-      return NextResponse.json({ error: '该邮箱已经注册，请直接登录。' }, { status: 409 });
+      return NextResponse.json({
+        ok: true,
+        message: process.env.NODE_ENV === 'production'
+          ? '如果该邮箱可用于注册，验证码将在几分钟内发送。'
+          : '该邮箱已注册；为保持接口一致，开发环境也不再返回注册状态差异。',
+      });
     }
 
     const code = await createEmailVerificationCode(email, ip);

@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
 
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
-      return errorResponse('该邮箱暂时无法用于注册，请尝试登录或使用其他邮箱。', wantsJson, 400);
+      return errorResponse('注册信息无法完成，请重新尝试或直接登录。', wantsJson, 400);
     }
     const emailCodeOk = await verifyEmailCode(email, emailCode, 'register_email');
     if (!emailCodeOk) {
@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
             llmBaseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
             defaultReasoningDepth: 'medium',
             defaultAnalysisMode: 'deep',
-            defaultIsPublic: true,
+            defaultIsPublic: false,
             defaultSaveResult: true,
             defaultEnableCharts: true,
           },

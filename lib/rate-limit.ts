@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { prisma } from '@/lib/prisma';
 import { slidingWindowCount, slidingWindowRecord, CACHE_KEYS } from '@/lib/cache';
+import { privacyHmacHash } from '@/lib/privacy-hash';
 
 const ANALYZE_WINDOW_MS = 5 * 60 * 1000;
 const ANALYZE_WINDOW_LIMIT = 3;
@@ -47,7 +48,7 @@ export function requireClientIp(request: Request) {
 }
 
 export function hashForStorage(value: string) {
-  return crypto.createHash('sha256').update(value).digest('hex');
+  return privacyHmacHash(value);
 }
 
 export async function assertAnalyzeRateLimit(userId: string) {

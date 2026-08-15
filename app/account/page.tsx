@@ -133,8 +133,7 @@ export default function AccountPage() {
   const [hasSerperApiKey, setHasSerperApiKey] = useState(false);
   const [reasoningDepth, setReasoningDepth] = useState('medium');
   const reportLanguage = normalizeReportLanguage(language);
-  const [isPublic, setIsPublic] = useState(true);
-  const [saveResult, setSaveResult] = useState(true);
+  const [isPublic, setIsPublic] = useState(false);
   const [enableCharts, setEnableCharts] = useState(true);
 
   const [myAudits, setMyAudits] = useState<any[]>([]);
@@ -155,6 +154,9 @@ export default function AccountPage() {
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
+  const [isExportingData, setIsExportingData] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [privacyMessage, setPrivacyMessage] = useState<string | null>(null);
   const [feedbackType, setFeedbackType] = useState('bug');
   const [feedbackMessage, setFeedbackMessage] = useState('');
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
@@ -253,7 +255,6 @@ export default function AccountPage() {
             setHasSerperApiKey(Boolean(data.hasSerperApiKey));
             setReasoningDepth(normalizeThinkingDepthValue(data.defaultReasoningDepth));
             setIsPublic(data.defaultIsPublic);
-            setSaveResult(data.defaultSaveResult);
             setEnableCharts(data.defaultEnableCharts);
             setAccountCreatedAt(data.account?.createdAt || null);
             setIsSuperAdmin(Boolean(data.isSuperAdmin));
@@ -313,7 +314,6 @@ export default function AccountPage() {
           defaultReasoningDepth: reasoningDepth,
           defaultReportLanguage: reportLanguage,
           defaultIsPublic: isPublic,
-          defaultSaveResult: saveResult,
           defaultEnableCharts: enableCharts,
           modelSource,
           defaultPlatformModelConfigId,
@@ -487,6 +487,56 @@ export default function AccountPage() {
       setPasswordMessage(t('account.passwordChangeFailed'));
     } finally {
       setIsChangingPassword(false);
+    }
+  };
+
+  const handleExportData = async () => {
+    setPrivacyMessage(null);
+    setIsExportingData(true);
+    try {
+      const response = await fetch('/api/account/data', { cache: 'no-store' });
+      if (!response.ok) {
+        setPrivacyMessage(t('account.privacyFailed'));
+        return;
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'guanyu-data.json';
+      link.click();
+      URL.revokeObjectURL(url);
+      setPrivacyMessage(t('account.dataExported'));
+    } catch {
+      setPrivacyMessage(t('account.privacyFailed'));
+    } finally {
+      setIsExportingData(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!window.confirm(t('account.deleteAccountConfirm'))) return;
+    const confirmation = window.prompt(t('account.deleteAccountHint'));
+    if (!confirmation) return;
+    setPrivacyMessage(null);
+    setIsDeletingAccount(true);
+    try {
+      const response = await fetch('/api/account/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmation }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setPrivacyMessage(data.error || t('account.privacyFailed'));
+        return;
+      }
+      setPrivacyMessage(t('account.accountDeleted'));
+      window.location.href = '/login';
+    } catch {
+      setPrivacyMessage(t('account.privacyFailed'));
+    } finally {
+      setIsDeletingAccount(false);
     }
   };
 
@@ -921,6 +971,19 @@ export default function AccountPage() {
               </div>
               {passwordMessage && <p className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-2 text-xs font-semibold text-[var(--color-text)]" role="status">{passwordMessage}</p>}
             </form>
+            <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
+              <h4 className="text-sm font-black text-[var(--color-text)]">{t('account.privacyTitle', '账号数据')}</h4>
+              <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('account.deleteAccountHint')}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" disabled={isExportingData} onClick={handleExportData} className="rounded-lg bg-[var(--color-primary)] px-3 py-2 text-xs font-black text-white transition hover:bg-[var(--color-primary-hover)] disabled:cursor-not-allowed disabled:opacity-60">
+                  {isExportingData ? t('account.exportingData') : t('account.exportData')}
+                </button>
+                <button type="button" disabled={isDeletingAccount} onClick={handleDeleteAccount} className="rounded-lg bg-[var(--color-danger)] px-3 py-2 text-xs font-black text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60">
+                  {isDeletingAccount ? t('account.deletingAccount') : t('account.deleteAccount')}
+                </button>
+              </div>
+              {privacyMessage && <p className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-2 text-xs font-semibold text-[var(--color-text)]" role="status">{privacyMessage}</p>}
+            </div>
               </>
             )}
             {activeTab === 'system' && isSuperAdmin && adminBilling && (
@@ -1697,19 +1760,6 @@ export default function AccountPage() {
                   type="checkbox"
                   checked={isPublic}
                   onChange={(e) => setIsPublic(e.target.checked)}
-                  className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-                />
-              </div>
-
-              <div className="flex items-center justify-between border-t border-gray-100 dark:border-gray-900 pt-3">
-                <div>
-                  <span className="text-gray-900 dark:text-white font-semibold">{t('account.saveDefault')}</span>
-                  <p className="text-xxs text-gray-400">{t('account.saveDefaultHint')}</p>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={saveResult}
-                  onChange={(e) => setSaveResult(e.target.checked)}
                   className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
                 />
               </div>

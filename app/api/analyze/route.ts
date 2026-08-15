@@ -512,7 +512,7 @@ async function handleAnalyze(userId: string, body: any, executionContext: Analyz
     const userReasoningDepth = normalizeThinkingDepthCore(userSettings?.defaultReasoningDepth);
     const actualAnalysisMode = 'deep' as AnalysisMode;
     const actualReportLanguage = normalizeReportLanguage(reportLanguage || userSettings?.defaultReportLanguage);
-    const actualIsPublic = userSettings?.defaultIsPublic !== undefined ? userSettings.defaultIsPublic : true;
+    const actualIsPublic = userSettings?.defaultIsPublic !== undefined ? userSettings.defaultIsPublic : false;
     let selectedPlatformSnapshot: PlatformModelSnapshot | null = null;
     let modelConfig: { apiKey: string; modelName: string; baseURL: string };
     let actualReasoningDepth = userReasoningDepth;

@@ -127,6 +127,10 @@ export async function runAnalyzeJob(jobId: string) {
         status: 'completed',
         auditId: data.auditId || '',
         error: null,
+        inputJson: JSON.stringify({
+          auditId: data.auditId || '',
+          completedAt: new Date().toISOString(),
+        }),
       },
     });
 
@@ -168,7 +172,11 @@ export async function runAnalyzeJob(jobId: string) {
     } catch {}
     await prisma.auditJob.update({
       where: { id: jobId },
-      data: { status: 'failed', error: error?.message || '审视任务执行失败。' },
+      data: {
+        status: 'failed',
+        error: error?.message || '审视任务执行失败。',
+        inputRetentionExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      },
     });
   }
 }
