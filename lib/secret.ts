@@ -3,9 +3,15 @@ import crypto from 'crypto';
 const ALGORITHM = 'aes-256-gcm';
 
 function getSecretKey(): Buffer {
-  const rawSecret = process.env.APP_ENCRYPTION_KEY || process.env.NEXTAUTH_SECRET;
+  const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
+  const rawSecret = process.env.APP_ENCRYPTION_KEY
+    || (isProduction ? '' : process.env.NEXTAUTH_SECRET);
   if (!rawSecret) {
-    throw new Error('APP_ENCRYPTION_KEY or NEXTAUTH_SECRET is required to encrypt model API keys.');
+    throw new Error(
+      isProduction
+        ? 'APP_ENCRYPTION_KEY is required in production. Do not reuse NEXTAUTH_SECRET for encrypted user secrets.'
+        : 'APP_ENCRYPTION_KEY or NEXTAUTH_SECRET is required locally to encrypt model API keys.',
+    );
   }
 
   return crypto.createHash('sha256').update(rawSecret).digest();

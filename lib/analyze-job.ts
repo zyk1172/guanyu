@@ -1,7 +1,7 @@
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { prisma } from '@/lib/prisma';
 import { releaseAnalyzeJobAdmission, reserveAnalyzeJobAdmission } from '@/lib/rate-limit';
-import { POST as analyzeNews } from '@/app/api/analyze/route';
+import { analyzeForUser } from '@/app/api/analyze/route';
 import { notifyReportCompleted } from '@/lib/email';
 import { normalizeReportLanguage, type ReportLanguage } from '@/lib/types';
 import { buildUsagePlan, getUsageSource } from '@/lib/billing';
@@ -98,15 +98,6 @@ export async function createAnalyzeJob(userId: string, input: Partial<AnalyzeJob
 }
 
 export async function runAnalyzeJob(jobId: string) {
-  const internalSecret = process.env.INTERNAL_API_SECRET || process.env.NEXTAUTH_SECRET;
-  if (!internalSecret) {
-    await prisma.auditJob.update({
-      where: { id: jobId },
-      data: { status: 'failed', error: '服务端内部审视通道未配置，请联系管理员。' },
-    });
-    return;
-  }
-
   const claim = await prisma.auditJob.updateMany({
     where: { id: jobId, status: 'pending' },
     data: { status: 'running', error: null },
@@ -118,34 +109,17 @@ export async function runAnalyzeJob(jobId: string) {
 
   try {
     const storedInput = JSON.parse(job.inputJson);
-    const { admissionEventId, ...input } = storedInput;
-    const analyzeRequest = new Request('https://guanyu.internal/api/analyze', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-guanyu-internal-auth': internalSecret,
-        'x-guanyu-internal-user-id': job.userId,
-        'x-guanyu-force-save': 'true',
+    const { admissionEventId, modelSource, ...input } = storedInput;
+    const data = await analyzeForUser({
+      userId: job.userId,
+      input,
+      executionContext: {
+        jobId: job.id,
+        platformModelSnapshotJson: job.modelSnapshotJson,
+        creditCostCents: job.creditCostCents || undefined,
+        requestedSource: modelSource === 'custom' ? 'custom' : 'platform',
       },
-      body: JSON.stringify({
-        ...input,
-        _jobId: job.id,
-        _platformModelSnapshot: job.modelSnapshotJson,
-        _creditCostCents: job.creditCostCents,
-      }),
     });
-
-    const response = await analyzeNews(analyzeRequest);
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      await releaseAnalyzeJobAdmission(job.userId, admissionEventId);
-      await prisma.auditJob.update({
-        where: { id: jobId },
-        data: { status: 'failed', error: data.error || `审视生成失败 (${response.status})` },
-      });
-      return;
-    }
 
     await prisma.auditJob.update({
       where: { id: jobId },

@@ -14,7 +14,7 @@ function shouldUseSecureCookie() {
 
 export async function setSessionCookie(
   response: NextResponse,
-  user: { id: string; email: string | null }
+  user: { id: string; email: string | null; sessionVersion: number }
 ) {
   const secret = process.env.NEXTAUTH_SECRET;
   if (!secret) {
@@ -27,6 +27,7 @@ export async function setSessionCookie(
     token: {
       id: user.id,
       email: user.email,
+      sessionVersion: user.sessionVersion,
     },
   });
 

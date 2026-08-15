@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { assertServiceCreditsAvailable, consumeServiceCredits, formatCredits } from '@/lib/billing';
+import { formatCredits } from '@/lib/billing';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
+import { reserveQaAttempt } from '@/lib/rate-limit';
+import { beginServiceOperation, completeServiceOperation, failServiceOperation } from '@/lib/service-operation';
 import { normalizeReportLanguage } from '@/lib/types';
 import { getReportLanguageRule } from '@/lib/report-language-core.mjs';
 import { resolveOperationModel } from '@/lib/operation-model';
@@ -157,11 +159,48 @@ ${recentHistory.map((h) => `${h.role === 'user' ? '用户' : 'AI'}: ${h.content}
       return NextResponse.json({ error: error instanceof Error ? error.message : '所选模型暂时不可用，本次未扣除点数。' }, { status: 400 });
     }
     try {
-      await assertServiceCreditsAvailable({ userId: user.id, cents: operationModel.costCents, customFree: true, requestedSource: operationModel.source });
+      await reserveQaAttempt(user.id);
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : '追问操作过于频繁，请稍后再试。' }, { status: 429 });
+    }
+
+    const idempotencyKey = `followup:${auditId}:${requestId}`;
+    let serviceOperation;
+    try {
+      const claimed = await beginServiceOperation({
+        userId: user.id,
+        idempotencyKey,
+        operation: 'followup',
+        reservedCredits: operationModel.costCents,
+        transactionType: 'AI_FOLLOWUP',
+        description: `使用${operationModel.snapshot?.displayName || operationModel.modelId}完成报告追问，消耗 ${formatCredits(operationModel.costCents)} 点`,
+        auditId,
+        modelSnapshot: operationModel.snapshot ? {
+          configId: operationModel.snapshot.configId,
+          displayName: operationModel.snapshot.displayName,
+          modelName: operationModel.snapshot.modelId,
+          multiplierBps: operationModel.snapshot.multiplierBps,
+          configVersion: operationModel.snapshot.configVersion,
+        } : undefined,
+      });
+      serviceOperation = claimed.operation;
+      if (claimed.state === 'completed') {
+        const stored = JSON.parse(claimed.operation.resultJson || '{}');
+        return NextResponse.json({
+          reply: stored.reply || '',
+          usage: stored.usage || {
+            source: operationModel.source,
+            cost: formatCredits(operationModel.costCents),
+            model: operationModel.snapshot?.displayName || operationModel.modelId,
+          },
+        });
+      }
+      if (claimed.state === 'running') {
+        return NextResponse.json({ status: 'processing', message: '该追问正在生成中，请稍后刷新查看。' }, { status: 202 });
+      }
     } catch (error) {
       return NextResponse.json({ error: error instanceof Error ? error.message : '当前点数不足。' }, { status: 402 });
     }
-
 
     // 5. 请求大模型
     const startedAt = Date.now();
@@ -182,6 +221,7 @@ ${recentHistory.map((h) => `${h.role === 'user' ? '用户' : 'AI'}: ${h.content}
 
     if (!response.ok) {
       await recordModelUsage({ userId: user.id, auditId, operation: 'followup', status: 'failed', source: operationModel.source, snapshot: operationModel.snapshot, usage: response.usage, durationMs: Date.now() - startedAt, errorCode: response.errorCode }).catch(() => {});
+      await failServiceOperation(serviceOperation.id, response.errorCode || 'model_upstream_failure').catch(() => {});
       const retryHint = operationModel.source === 'custom'
         ? '自定义 API 交互失败，本次未扣除点数。你可以检查配置后重试，或切换到平台模型并确认点数后重新提问。'
         : '所选平台模型交互失败，本次未扣除点数。请稍后重试或重新选择其他模型。';
@@ -191,27 +231,25 @@ ${recentHistory.map((h) => `${h.role === 'user' ? '用户' : 'AI'}: ${h.content}
     const reply = response.message.trim();
     if (!reply) {
       await recordModelUsage({ userId: user.id, auditId, operation: 'followup', status: 'failed', source: operationModel.source, snapshot: operationModel.snapshot, usage: response.usage, durationMs: Date.now() - startedAt, errorCode: 'empty_response' }).catch(() => {});
+      await failServiceOperation(serviceOperation.id, 'empty_response').catch(() => {});
       return NextResponse.json({ error: '所选模型未返回有效解答，本次未扣除点数。' }, { status: 502 });
     }
-    const usage = await consumeServiceCredits({
-      userId: user.id,
-      cents: operationModel.costCents,
-      transactionType: 'AI_FOLLOWUP',
-      description: `使用${operationModel.snapshot?.displayName || operationModel.modelId}完成报告追问，消耗 ${formatCredits(operationModel.costCents)} 点`,
-      auditId,
-      idempotencyKey: `followup:${auditId}:${requestId}`,
-      customFree: true,
-      requestedSource: operationModel.source,
-      modelSnapshot: operationModel.snapshot ? {
-        configId: operationModel.snapshot.configId,
-        displayName: operationModel.snapshot.displayName,
-        modelName: operationModel.snapshot.modelId,
-        multiplierBps: operationModel.snapshot.multiplierBps,
-        configVersion: operationModel.snapshot.configVersion,
-      } : undefined,
-    });
+    const usagePayload = {
+      source: operationModel.source,
+      cost: formatCredits(operationModel.costCents),
+      model: operationModel.snapshot?.displayName || operationModel.modelId,
+    };
+    try {
+      await completeServiceOperation(serviceOperation.id, {
+        resultId: auditId,
+        resultJson: JSON.stringify({ reply, usage: usagePayload }),
+      });
+    } catch {
+      await failServiceOperation(serviceOperation.id, 'persist_result_failed').catch(() => {});
+      return NextResponse.json({ error: '追问结果保存失败，本次点数已释放，请重试。' }, { status: 500 });
+    }
     await recordModelUsage({ userId: user.id, auditId, operation: 'followup', status: 'success', source: operationModel.source, snapshot: operationModel.snapshot, creditCostCents: operationModel.costCents, usage: response.usage, durationMs: Date.now() - startedAt }).catch(() => {});
-    return NextResponse.json({ reply, usage: { ...usage, cost: formatCredits(operationModel.costCents), model: operationModel.snapshot?.displayName || operationModel.modelId } });
+    return NextResponse.json({ reply, usage: usagePayload });
 
   } catch (error: any) {
     console.error('Route qa error:', error);

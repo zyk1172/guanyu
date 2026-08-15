@@ -36,7 +36,10 @@ export async function POST(request: NextRequest) {
     }
     const updated = await prisma.user.update({
       where: { id: account.id },
-      data: { password: hashPassword(password) },
+      data: {
+        password: hashPassword(password),
+        sessionVersion: { increment: 1 },
+      },
     });
     notifyPasswordChanged({ userId: updated.id, email: updated.email }).catch((error) => {
       console.error('password reset notification failed', error);

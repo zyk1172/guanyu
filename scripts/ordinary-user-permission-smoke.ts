@@ -1,13 +1,14 @@
 import { loadEnvConfig } from '@next/env';
+import { encode } from 'next-auth/jwt';
 
 async function main() {
   loadEnvConfig(process.cwd());
 
   const email = String(process.env.TEST_USER_EMAIL || '').trim().toLowerCase();
-  const internalSecret = process.env.INTERNAL_API_SECRET || process.env.NEXTAUTH_SECRET;
+  const nextAuthSecret = process.env.NEXTAUTH_SECRET;
 
   if (!email) throw new Error('Set TEST_USER_EMAIL to the ordinary account being checked.');
-  if (!internalSecret) throw new Error('INTERNAL_API_SECRET or NEXTAUTH_SECRET is required.');
+  if (!nextAuthSecret) throw new Error('NEXTAUTH_SECRET is required.');
 
   const [{ prisma }, { getSuperAdminStatus }, billingAdmin, auditsAdmin, operationsBackup, billingStatus, myAudits] = await Promise.all([
     import('../lib/prisma'),
@@ -21,26 +22,36 @@ async function main() {
 
   const account = await prisma.user.findUnique({
     where: { email },
-    select: { id: true, role: true, isBanned: true },
+    select: { id: true, email: true, role: true, isBanned: true, sessionVersion: true },
   });
 
   if (!account) throw new Error('The requested ordinary test account does not exist.');
   if (account.isBanned) throw new Error('The requested ordinary test account is banned.');
   if (await getSuperAdminStatus(account.id)) throw new Error('SECURITY FAILURE: the test account resolves as a super administrator.');
 
-  const authenticatedRequest = (path: string) => new Request(`http://localhost${path}`, {
-    headers: {
-      'x-guanyu-internal-user-id': account.id,
-      'x-guanyu-internal-auth': internalSecret,
-    },
-  });
+  const authenticatedRequest = async (path: string) => {
+    const token = await encode({
+      secret: nextAuthSecret,
+      maxAge: 30 * 24 * 60 * 60,
+      token: {
+        id: account.id,
+        email: account.email,
+        sessionVersion: account.sessionVersion,
+      },
+    });
+    return new Request(`http://localhost${path}`, {
+      headers: {
+        cookie: `next-auth.session-token=${token}`,
+      },
+    });
+  };
 
   const checks = [
-    { name: 'billing admin', expected: 403, run: () => billingAdmin.GET(authenticatedRequest('/api/billing/admin')) },
-    { name: 'all audits admin', expected: 403, run: () => auditsAdmin.GET(authenticatedRequest('/api/audits/admin')) },
-    { name: 'operations backup', expected: 403, run: () => operationsBackup.GET(authenticatedRequest('/api/admin/backup') as never) },
-    { name: 'own billing status', expected: 200, run: () => billingStatus.GET(authenticatedRequest('/api/billing/status')) },
-    { name: 'own audits', expected: 200, run: () => myAudits.GET(authenticatedRequest('/api/audits/my')) },
+    { name: 'billing admin', expected: 403, run: async () => billingAdmin.GET(await authenticatedRequest('/api/billing/admin')) },
+    { name: 'all audits admin', expected: 403, run: async () => auditsAdmin.GET(await authenticatedRequest('/api/audits/admin')) },
+    { name: 'operations backup', expected: 403, run: async () => operationsBackup.GET(await authenticatedRequest('/api/admin/backup') as never) },
+    { name: 'own billing status', expected: 200, run: async () => billingStatus.GET(await authenticatedRequest('/api/billing/status')) },
+    { name: 'own audits', expected: 200, run: async () => myAudits.GET(await authenticatedRequest('/api/audits/my')) },
   ];
 
   const results: Array<{ name: string; status: number; expected: number; passed: boolean }> = [];

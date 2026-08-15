@@ -24,6 +24,10 @@ export function ensureRuntimeSchema() {
       `);
       await prisma.$executeRawUnsafe(`
         ALTER TABLE "User"
+        ADD COLUMN IF NOT EXISTS "sessionVersion" INTEGER NOT NULL DEFAULT 1;
+      `);
+      await prisma.$executeRawUnsafe(`
+        ALTER TABLE "User"
         ADD COLUMN IF NOT EXISTS "isBanned" BOOLEAN NOT NULL DEFAULT false;
       `);
       await prisma.$executeRawUnsafe(`
@@ -201,6 +205,45 @@ export function ensureRuntimeSchema() {
           ) THEN
             ALTER TABLE "ExtensionSession"
             ADD CONSTRAINT "ExtensionSession_userId_fkey"
+            FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+          END IF;
+        END $$;
+      `);
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "ServiceOperation" (
+          "id" TEXT NOT NULL,
+          "userId" TEXT NOT NULL,
+          "idempotencyKey" TEXT NOT NULL,
+          "operation" TEXT NOT NULL,
+          "status" TEXT NOT NULL DEFAULT 'RUNNING',
+          "reservedCredits" INTEGER NOT NULL DEFAULT 0,
+          "resultId" TEXT,
+          "resultHash" TEXT,
+          "resultJson" TEXT,
+          "errorCode" TEXT,
+          "expiresAt" TIMESTAMP(3),
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "ServiceOperation_pkey" PRIMARY KEY ("id")
+        );
+      `);
+      await prisma.$executeRawUnsafe(`
+        CREATE UNIQUE INDEX IF NOT EXISTS "ServiceOperation_userId_idempotencyKey_key" ON "ServiceOperation"("userId", "idempotencyKey");
+      `);
+      await prisma.$executeRawUnsafe(`
+        CREATE INDEX IF NOT EXISTS "ServiceOperation_userId_status_createdAt_idx" ON "ServiceOperation"("userId", "status", "createdAt");
+      `);
+      await prisma.$executeRawUnsafe(`
+        CREATE INDEX IF NOT EXISTS "ServiceOperation_operation_status_expiresAt_idx" ON "ServiceOperation"("operation", "status", "expiresAt");
+      `);
+      await prisma.$executeRawUnsafe(`
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'ServiceOperation_userId_fkey'
+          ) THEN
+            ALTER TABLE "ServiceOperation"
+            ADD CONSTRAINT "ServiceOperation_userId_fkey"
             FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
           END IF;
         END $$;

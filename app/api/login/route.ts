@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { hashPassword, verifyPassword } from '@/lib/auth';
 import { setSessionCookie } from '@/lib/session-cookie';
-import { clearLoginAttempts, reserveLoginAttempt } from '@/lib/rate-limit';
-import { assertSameOrigin, assertSecureAccountTransport } from '@/lib/request-security';
 import { getClientIp } from '@/lib/rate-limit';
-
-const INVALID_CREDENTIALS_ERROR = '邮箱或密码不正确，或账号暂不可用。';
+import { authenticatePassword } from '@/lib/auth-service';
+import { assertSameOrigin, assertSecureAccountTransport } from '@/lib/request-security';
 
 async function readCredentials(request: NextRequest) {
   const contentType = request.headers.get('content-type') || '';
@@ -51,26 +47,13 @@ export async function POST(request: NextRequest) {
       return errorResponse('请输入邮箱和密码', wantsJson);
     }
 
+    let user;
     try {
-      await reserveLoginAttempt(email, getClientIp(request));
+      user = await authenticatePassword(email, password, getClientIp(request));
     } catch (error: any) {
-      return errorResponse(error?.message || '登录尝试过于频繁，请稍后再试。', wantsJson, 429);
+      const message = error?.message || '登录失败，请稍后重试。';
+      return errorResponse(message, wantsJson, message.includes('频繁') ? 429 : 401);
     }
-
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user || user.isBanned) {
-      return errorResponse(INVALID_CREDENTIALS_ERROR, wantsJson, 401);
-    }
-
-    const passwordResult = verifyPassword(password, user.password);
-    if (!passwordResult.valid) {
-      return errorResponse(INVALID_CREDENTIALS_ERROR, wantsJson, 401);
-    }
-
-    if (passwordResult.needsUpgrade) {
-      await prisma.user.update({ where: { id: user.id }, data: { password: hashPassword(password) } });
-    }
-    await clearLoginAttempts(email);
 
     const response = wantsJson
       ? NextResponse.json({ ok: true, url: '/' })

@@ -34,7 +34,13 @@ export async function PATCH(request: NextRequest) {
     if (!account || !verifyPassword(currentPassword, account.password).valid) {
       return NextResponse.json({ error: '当前密码不正确。' }, { status: 400 });
     }
-    await prisma.user.update({ where: { id: user.id }, data: { password: hashPassword(newPassword) } });
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password: hashPassword(newPassword),
+        sessionVersion: { increment: 1 },
+      },
+    });
     notifyPasswordChanged({ userId: account.id, email: account.email }).catch((error) => {
       console.error('password change notification failed', error);
     });

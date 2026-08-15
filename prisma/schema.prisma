@@ -15,6 +15,7 @@ model User {
   role                      String                    @default("user") // user, super_admin
   isBanned                  Boolean                   @default(false)
   planType                  String                    @default("free") // free, points, byok
+  sessionVersion            Int                       @default(1)
   creditBalance             Int                       @default(0)
   creditBalanceCents        Int                       @default(0)
   // Canonical balance for new billing code. Legacy integer fields remain for
@@ -45,6 +46,28 @@ model User {
   discussionReports         DiscussionReport[]        @relation("DiscussionReporter")
   exportArtifacts           ExportArtifact[]
   modelUsageEvents          ModelUsageEvent[]
+  serviceOperations         ServiceOperation[]
+}
+
+model ServiceOperation {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  idempotencyKey  String
+  operation       String // followup, completion
+  status          String    @default("RUNNING") // RUNNING, COMPLETED, FAILED
+  reservedCredits Int       @default(0) // hundredths of a point
+  resultId        String?
+  resultHash      String?
+  resultJson      String?
+  errorCode       String?
+  expiresAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, status, createdAt])
+  @@index([operation, status, expiresAt])
 }
 
 model UserSettings {

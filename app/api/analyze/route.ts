@@ -475,7 +475,14 @@ function parseAssistantJSON(assistantMessage: string) {
   return JSON.parse(cleanText);
 }
 
-export async function POST(request: Request) {
+type AnalyzeExecutionContext = {
+  jobId?: string;
+  platformModelSnapshotJson?: string | null;
+  creditCostCents?: number;
+  requestedSource?: 'platform' | 'custom';
+};
+
+async function handleAnalyze(userId: string, body: any, executionContext: AnalyzeExecutionContext = {}) {
   let usageReservation: UsagePlan | null = null;
   const releaseReservation = async () => {
     if (!usageReservation) return;
@@ -485,26 +492,16 @@ export async function POST(request: Request) {
   };
   try {
     await ensureRuntimeSchema();
-    const currentUser = await getCurrentUser(request);
-    if (!currentUser) {
-      return NextResponse.json({ error: '请登录后再创建新闻审视。' }, { status: 401 });
-    }
     const [userSettings, appSetting] = await Promise.all([
       prisma.userSettings.findUnique({
-        where: { userId: currentUser.id },
+        where: { userId },
       }),
       getOrCreateAppSetting(),
     ]);
 
-    const body = await request.json();
     const { title, source, content, focus, reportLanguage, sourceUrl } = body;
-    const expectedInternalSecret = process.env.INTERNAL_API_SECRET || process.env.NEXTAUTH_SECRET;
-    const isInternalRequest = Boolean(
-      expectedInternalSecret
-      && request.headers.get('x-guanyu-internal-auth') === expectedInternalSecret
-      && request.headers.get('x-guanyu-internal-user-id') === currentUser.id,
-    );
-    const internalJobId = isInternalRequest ? String(body._jobId || '').trim().slice(0, 120) : '';
+    const internalJobId = String(executionContext.jobId || '').trim().slice(0, 120);
+    const isInternalRequest = Boolean(internalJobId);
 
     if (!content || content.trim().length < 50) {
       return NextResponse.json({ error: '新闻正文太短，最少需要 50 个字符。' }, { status: 400 });
@@ -520,12 +517,12 @@ export async function POST(request: Request) {
     let modelConfig: { apiKey: string; modelName: string; baseURL: string };
     let actualReasoningDepth = userReasoningDepth;
     const requestedSource = isInternalRequest
-      ? (body.modelSource === 'custom' ? 'custom' : 'platform')
+      ? (executionContext.requestedSource === 'custom' ? 'custom' : 'platform')
       : (userSettings?.modelSource === 'custom' ? 'custom' : 'platform');
 
     if (requestedSource === 'platform') {
       selectedPlatformSnapshot = isInternalRequest
-        ? decodePlatformModelSnapshot(body._platformModelSnapshot)
+        ? decodePlatformModelSnapshot(executionContext.platformModelSnapshotJson)
         : platformModelSnapshot(await resolvePlatformModel({
             selectedId: userSettings?.defaultPlatformModelConfigId,
             userDefaultId: userSettings?.defaultPlatformModelConfigId,
@@ -539,7 +536,7 @@ export async function POST(request: Request) {
       modelConfig = { apiKey, modelName: selectedPlatformSnapshot.modelId, baseURL: selectedPlatformSnapshot.baseUrl };
       actualReasoningDepth = normalizeThinkingDepthCore(selectedPlatformSnapshot.reasoningDepth);
       const expectedCostCents = operationCostCents('analysis', selectedPlatformSnapshot.multiplierBps);
-      if (isInternalRequest && Number(body._creditCostCents) !== expectedCostCents) {
+      if (isInternalRequest && Number(executionContext.creditCostCents) !== expectedCostCents) {
         return NextResponse.json({ error: '任务点数快照校验失败，本次未扣除点数。' }, { status: 409 });
       }
       const planOptions = {
@@ -553,17 +550,17 @@ export async function POST(request: Request) {
         },
       };
       usageReservation = isInternalRequest
-        ? await buildUsagePlan(currentUser.id, actualAnalysisMode, 'platform', planOptions)
-        : await reserveAnalysisUsage(currentUser.id, actualAnalysisMode, 'platform', planOptions);
+        ? await buildUsagePlan(userId, actualAnalysisMode, 'platform', planOptions)
+        : await reserveAnalysisUsage(userId, actualAnalysisMode, 'platform', planOptions);
     } else {
-      const customPlan = await buildUsagePlan(currentUser.id, actualAnalysisMode, 'custom');
+      const customPlan = await buildUsagePlan(userId, actualAnalysisMode, 'custom');
       modelConfig = chooseModelConfig({ usageSource: customPlan.source, userSettings, appSetting });
       if (!modelConfig.apiKey || !modelConfig.modelName || !modelConfig.baseURL) {
         return NextResponse.json({ error: '自定义 API 配置不完整，请在账号管理中保存模型名称、接口地址和 API Key。' }, { status: 400 });
       }
       usageReservation = isInternalRequest
         ? customPlan
-        : await reserveAnalysisUsage(currentUser.id, actualAnalysisMode, 'custom');
+        : await reserveAnalysisUsage(userId, actualAnalysisMode, 'custom');
     }
     const usagePlan = usageReservation;
     usagePlan.idempotencyKey = internalJobId ? `analysis-job:${internalJobId}` : `analysis-request:${crypto.randomUUID()}`;
@@ -629,7 +626,7 @@ export async function POST(request: Request) {
     };
     const recordFailedUsage = async (errorCode: string) => {
       await recordModelUsage({
-        userId: currentUser.id,
+        userId,
         jobId: internalJobId || null,
         operation: 'analysis',
         status: 'failed',
@@ -703,7 +700,10 @@ export async function POST(request: Request) {
     try {
       parsedJSON = parseAssistantJSON(llmResult.message);
     } catch (parseError) {
-      console.error('JSON Parse error:', parseError, 'Raw response:', llmResult.message);
+      console.error('Model JSON parse failed', {
+        errorCode: 'invalid_json',
+        responseLength: llmResult.message?.length || 0,
+      });
       if (!usedFallbackPrompt) {
         const fallbackPrompt = buildCompactFallbackPrompt(promptInput);
         const fallbackResult = await invoke(fallbackPrompt.system, fallbackPrompt.user, 75_000, false);
@@ -712,7 +712,10 @@ export async function POST(request: Request) {
             parsedJSON = parseAssistantJSON(fallbackResult.message);
             usedFallbackPrompt = true;
           } catch (fallbackParseError) {
-            console.error('Compact fallback JSON parse error:', fallbackParseError);
+            console.error('Compact fallback JSON parse failed', {
+              errorCode: 'fallback_invalid_json',
+              responseLength: fallbackResult.message?.length || 0,
+            });
           }
         }
       }
@@ -806,7 +809,7 @@ export async function POST(request: Request) {
     const committed = await commitUsageWithResult(usagePlan, async (tx, pointTransaction) => {
       const dbRecord = await tx.audit.create({
         data: {
-          userId: currentUser.id,
+          userId,
           title: title || '未命名新闻标题',
           source: source || '未知来源',
           publishedAt: normalizedPublishedAt,
@@ -846,7 +849,7 @@ export async function POST(request: Request) {
     });
     const dbRecord = committed.result;
     await recordModelUsage({
-      userId: currentUser.id,
+      userId,
       auditId: dbRecord.id,
       jobId: internalJobId || null,
       operation: 'analysis',
@@ -873,4 +876,32 @@ export async function POST(request: Request) {
     console.error('Route analyze error:', error);
     return NextResponse.json({ error: error?.message || '服务器内部处理出错，请重试' }, { status: 500 });
   }
+}
+
+export async function analyzeForUser(params: {
+  userId: string;
+  input: any;
+  executionContext?: AnalyzeExecutionContext;
+}) {
+  const response = await handleAnalyze(
+    params.userId,
+    params.input,
+    params.executionContext || {},
+  );
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data.error || `审视生成失败 (${response.status})`);
+    (error as any).status = response.status;
+    throw error;
+  }
+  return data as { auditId: string; result: AnalysisResult };
+}
+
+export async function POST(request: Request) {
+  const currentUser = await getCurrentUser(request);
+  if (!currentUser) {
+    return NextResponse.json({ error: '请登录后再创建新闻审视。' }, { status: 401 });
+  }
+  const body = await request.json().catch(() => ({}));
+  return handleAnalyze(currentUser.id, body, {});
 }

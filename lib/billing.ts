@@ -45,7 +45,7 @@ async function writeLedger(tx: Prisma.TransactionClient, data: { userId: string;
   }
   return tx.pointTransaction.create({ data: { userId: data.userId, delta: Math.trunc(data.cents / 100), balanceAfter: Math.floor(data.after / 100), deltaCents: data.cents, balanceAfterCents: data.after, amount: decimal(data.cents), balanceBefore: decimal(data.before), balanceAfterAmount: decimal(data.after), type: data.cents >= 0 ? 'grant' : 'consume', transactionType: data.transactionType, reason: data.description, auditId: data.auditId, orderId: data.orderId, relatedTaskId: data.relatedTaskId, relatedReportVersion: data.relatedReportVersion, relatedDiscussionMessageId: data.relatedDiscussionMessageId, idempotencyKey: data.idempotencyKey, modelConfigIdSnapshot: data.modelSnapshot?.configId, modelDisplayNameSnapshot: data.modelSnapshot?.displayName, modelNameSnapshot: data.modelSnapshot?.modelName, modelMultiplierBpsSnapshot: data.modelSnapshot?.multiplierBps, modelConfigVersionSnapshot: data.modelSnapshot?.configVersion } });
 }
-async function changeBalance(tx: Prisma.TransactionClient, userId: string, cents: number, options: Omit<Parameters<typeof writeLedger>[1], 'userId' | 'cents' | 'before' | 'after'>) {
+export async function changeBalance(tx: Prisma.TransactionClient, userId: string, cents: number, options: Omit<Parameters<typeof writeLedger>[1], 'userId' | 'cents' | 'before' | 'after'>) {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`guanyu-credit:${userId}`}));`;
   const user = await tx.user.findUnique({ where: { id: userId }, select: { creditBalance: true, creditBalanceCents: true, creditBalanceAmount: true } });
   if (!user) throw new Error('账号不存在。');
