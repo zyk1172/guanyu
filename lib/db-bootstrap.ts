@@ -252,6 +252,17 @@ export function ensureRuntimeSchema() {
         );
       `);
       await prisma.$executeRawUnsafe(`
+        ALTER TABLE "ServiceOperation"
+        ADD COLUMN IF NOT EXISTS "currentAttempt" INTEGER NOT NULL DEFAULT 1;
+      `);
+      await prisma.$executeRawUnsafe(`
+        ALTER TABLE "Audit"
+        ADD COLUMN IF NOT EXISTS "sourceJobId" TEXT;
+      `);
+      await prisma.$executeRawUnsafe(`
+        CREATE UNIQUE INDEX IF NOT EXISTS "Audit_sourceJobId_key" ON "Audit"("sourceJobId");
+      `);
+      await prisma.$executeRawUnsafe(`
         CREATE UNIQUE INDEX IF NOT EXISTS "ServiceOperation_userId_idempotencyKey_key" ON "ServiceOperation"("userId", "idempotencyKey");
       `);
       await prisma.$executeRawUnsafe(`

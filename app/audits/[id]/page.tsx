@@ -53,8 +53,7 @@ export default function AuditDetailsPage() {
 
       setAuditRecord(data);
       setCanManage(Boolean(data.canManage));
-      
-      // 判断当前用户是否是这条审视的创建者
+      setIsAuthor(Boolean(data.isOwner || data.canManage));
     } catch (err) {
       console.error(err);
       setError(tRef.current('audit.networkError'));
@@ -66,11 +65,6 @@ export default function AuditDetailsPage() {
   useEffect(() => {
     void fetchAuditDetails();
   }, [fetchAuditDetails]);
-
-  useEffect(() => {
-    const currentUserId = (session?.user as any)?.id;
-    setIsAuthor(Boolean(currentUserId && auditRecord?.userId === currentUserId));
-  }, [auditRecord?.userId, session?.user]);
 
   const togglePublic = async () => {
     if (!auditRecord) return;

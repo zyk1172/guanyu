@@ -221,7 +221,7 @@ ${recentHistory.map((h) => `${h.role === 'user' ? '用户' : 'AI'}: ${h.content}
 
     if (!response.ok) {
       await recordModelUsage({ userId: user.id, auditId, operation: 'followup', status: 'failed', source: operationModel.source, snapshot: operationModel.snapshot, usage: response.usage, durationMs: Date.now() - startedAt, errorCode: response.errorCode }).catch(() => {});
-      await failServiceOperation(serviceOperation.id, response.errorCode || 'model_upstream_failure').catch(() => {});
+      await failServiceOperation(serviceOperation.id, serviceOperation.currentAttempt, response.errorCode || 'model_upstream_failure').catch(() => {});
       const retryHint = operationModel.source === 'custom'
         ? '自定义 API 交互失败，本次未扣除点数。你可以检查配置后重试，或切换到平台模型并确认点数后重新提问。'
         : '所选平台模型交互失败，本次未扣除点数。请稍后重试或重新选择其他模型。';
@@ -231,7 +231,7 @@ ${recentHistory.map((h) => `${h.role === 'user' ? '用户' : 'AI'}: ${h.content}
     const reply = response.message.trim();
     if (!reply) {
       await recordModelUsage({ userId: user.id, auditId, operation: 'followup', status: 'failed', source: operationModel.source, snapshot: operationModel.snapshot, usage: response.usage, durationMs: Date.now() - startedAt, errorCode: 'empty_response' }).catch(() => {});
-      await failServiceOperation(serviceOperation.id, 'empty_response').catch(() => {});
+      await failServiceOperation(serviceOperation.id, serviceOperation.currentAttempt, 'empty_response').catch(() => {});
       return NextResponse.json({ error: '所选模型未返回有效解答，本次未扣除点数。' }, { status: 502 });
     }
     const usagePayload = {
@@ -240,12 +240,12 @@ ${recentHistory.map((h) => `${h.role === 'user' ? '用户' : 'AI'}: ${h.content}
       model: operationModel.snapshot?.displayName || operationModel.modelId,
     };
     try {
-      await completeServiceOperation(serviceOperation.id, {
+      await completeServiceOperation(serviceOperation.id, serviceOperation.currentAttempt, {
         resultId: auditId,
         resultJson: JSON.stringify({ reply, usage: usagePayload }),
       });
     } catch {
-      await failServiceOperation(serviceOperation.id, 'persist_result_failed').catch(() => {});
+      await failServiceOperation(serviceOperation.id, serviceOperation.currentAttempt, 'persist_result_failed').catch(() => {});
       return NextResponse.json({ error: '追问结果保存失败，本次点数已释放，请重试。' }, { status: 500 });
     }
     await recordModelUsage({ userId: user.id, auditId, operation: 'followup', status: 'success', source: operationModel.source, snapshot: operationModel.snapshot, creditCostCents: operationModel.costCents, usage: response.usage, durationMs: Date.now() - startedAt }).catch(() => {});

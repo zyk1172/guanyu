@@ -9,11 +9,20 @@ function operationResultHash(json: string) {
   return createHash('sha256').update(json).digest('hex');
 }
 
+export function serviceOperationChargeKey(operationId: string, attempt: number) {
+  return `service-operation:${operationId}:attempt:${attempt}`;
+}
+
+export function serviceOperationRefundKey(operationId: string, attempt: number) {
+  return `service-operation-refund:${operationId}:attempt:${attempt}`;
+}
+
 async function refundServiceOperationCharge(
   tx: Prisma.TransactionClient,
   operation: ServiceOperation,
+  attempt = operation.currentAttempt,
 ) {
-  const idempotencyKey = `service-operation-refund:${operation.id}`;
+  const idempotencyKey = serviceOperationRefundKey(operation.id, attempt);
   const prior = await tx.pointTransaction.findFirst({
     where: { userId: operation.userId, idempotencyKey },
   });
@@ -64,12 +73,14 @@ export async function beginServiceOperation(params: BeginServiceOperationParams)
     }
 
     if (existing?.status === 'RUNNING' && existing.reservedCredits > 0) {
-      await refundServiceOperationCharge(tx, existing);
+      await refundServiceOperationCharge(tx, existing, existing.currentAttempt);
     }
 
+    const currentAttempt = existing ? existing.currentAttempt + 1 : 1;
     const data = {
       status: 'RUNNING' as const,
       operation: params.operation,
+      currentAttempt,
       reservedCredits: params.reservedCredits,
       resultId: null,
       resultHash: null,
@@ -92,7 +103,7 @@ export async function beginServiceOperation(params: BeginServiceOperationParams)
           transactionType: params.transactionType,
           description: params.description,
           auditId: params.auditId,
-          idempotencyKey: `service-operation:${operation.id}`,
+          idempotencyKey: serviceOperationChargeKey(operation.id, currentAttempt),
           modelSnapshot: params.modelSnapshot,
         })
       : { before: 0, after: 0, repeated: false, transaction: null };
@@ -103,13 +114,18 @@ export async function beginServiceOperation(params: BeginServiceOperationParams)
 
 export async function completeServiceOperation(
   operationId: string,
+  expectedAttempt: number,
   result: { resultId?: string | null; resultJson: string },
   mutate?: (tx: Prisma.TransactionClient) => Promise<unknown>,
 ) {
   const json = typeof result.resultJson === 'string' ? result.resultJson : JSON.stringify(result.resultJson);
   return prisma.$transaction(async (tx) => {
-    const updated = await tx.serviceOperation.update({
-      where: { id: operationId },
+    const updated = await tx.serviceOperation.updateMany({
+      where: {
+        id: operationId,
+        status: 'RUNNING',
+        currentAttempt: expectedAttempt,
+      },
       data: {
         status: 'COMPLETED',
         resultId: result.resultId || null,
@@ -118,26 +134,31 @@ export async function completeServiceOperation(
         errorCode: null,
       },
     });
+    if (updated.count !== 1) {
+      throw new Error('操作已变更或已超时，请刷新后重试。');
+    }
+    const operation = await tx.serviceOperation.findUniqueOrThrow({ where: { id: operationId } });
     if (mutate) await mutate(tx);
-    return updated;
+    return operation;
   });
 }
 
 export async function failServiceOperation(
   operationId: string,
+  expectedAttempt: number,
   errorCode = 'operation_failed',
 ) {
   return prisma.$transaction(async (tx) => {
     const operation = await tx.serviceOperation.findUnique({
       where: { id: operationId },
     });
-    if (!operation || operation.status !== 'RUNNING') return operation;
+    if (!operation || operation.status !== 'RUNNING' || operation.currentAttempt !== expectedAttempt) return operation;
     await tx.serviceOperation.update({
       where: { id: operationId },
       data: { status: 'FAILED', errorCode },
     });
     if (operation.reservedCredits > 0) {
-      await refundServiceOperationCharge(tx, operation);
+      await refundServiceOperationCharge(tx, operation, expectedAttempt);
     }
     return operation;
   });

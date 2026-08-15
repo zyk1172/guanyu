@@ -163,7 +163,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     });
     if (!response.ok) {
       await recordModelUsage({ userId: user.id, auditId: audit.id, operation: 'completion', status: 'failed', source: operationModel.source, snapshot: operationModel.snapshot, usage: response.usage, durationMs: Date.now() - startedAt, errorCode: response.errorCode }).catch(() => {});
-      await failServiceOperation(serviceOperation.id, response.errorCode || 'model_upstream_failure').catch(() => {});
+      await failServiceOperation(serviceOperation.id, serviceOperation.currentAttempt, response.errorCode || 'model_upstream_failure').catch(() => {});
       const retryHint = operationModel.source === 'custom'
         ? '自定义 API 调用失败，本次未扣除点数。你可以检查配置后重试，或切换到平台模型并确认点数后重新运行。'
         : '所选平台模型调用失败，本次未扣除点数。请稍后重试或重新选择其他模型。';
@@ -172,7 +172,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const markdown = response.message.trim().replace(/^```(?:markdown|md)?\s*/i, '').replace(/\s*```$/, '');
     if (!validateCompletionMarkdown(markdown)) {
       await recordModelUsage({ userId: user.id, auditId: audit.id, operation: 'completion', status: 'failed', source: operationModel.source, snapshot: operationModel.snapshot, usage: response.usage, durationMs: Date.now() - startedAt, errorCode: 'invalid_output' }).catch(() => {});
-      await failServiceOperation(serviceOperation.id, 'invalid_output').catch(() => {});
+      await failServiceOperation(serviceOperation.id, serviceOperation.currentAttempt, 'invalid_output').catch(() => {});
       return NextResponse.json({ error: 'AI 补全返回格式不完整，请重新生成。' }, { status: 502 });
     }
 
@@ -183,7 +183,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       model: operationModel.snapshot?.displayName || operationModel.modelId,
     };
     try {
-      await completeServiceOperation(serviceOperation.id, {
+      await completeServiceOperation(serviceOperation.id, serviceOperation.currentAttempt, {
         resultId: audit.id,
         resultJson: JSON.stringify({ markdown, generatedAt, usage: usagePayload }),
       }, (tx) => tx.audit.update({
@@ -192,7 +192,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       select: { completionMarkdown: true, completionGeneratedAt: true },
       }));
     } catch {
-      await failServiceOperation(serviceOperation.id, 'persist_result_failed').catch(() => {});
+      await failServiceOperation(serviceOperation.id, serviceOperation.currentAttempt, 'persist_result_failed').catch(() => {});
       return NextResponse.json({ error: 'AI 补全结果保存失败，本次点数已释放，请重试。' }, { status: 500 });
     }
     await recordModelUsage({ userId: user.id, auditId: audit.id, operation: 'completion', status: 'success', source: operationModel.source, snapshot: operationModel.snapshot, creditCostCents: operationModel.costCents, usage: response.usage, durationMs: Date.now() - startedAt }).catch(() => {});

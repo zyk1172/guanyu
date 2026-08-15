@@ -31,15 +31,32 @@ async function acquireUserActionLock(
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
 }
 
-export function getClientIp(request: Request) {
-  const trustProxyHeaders = process.env.VERCEL === '1' || process.env.TRUST_PROXY_HEADERS === 'true';
-  if (!trustProxyHeaders) return 'direct-client';
-  const forwarded = request.headers.get('x-forwarded-for');
-  if (forwarded) return forwarded.split(',')[0]?.trim() || 'unknown';
-  return request.headers.get('x-real-ip') || 'unknown';
+function readHeader(headers: any, name: string) {
+  if (!headers) return undefined;
+  if (typeof headers.get === 'function') {
+    return headers.get(name);
+  }
+  const lowerName = name.toLowerCase();
+  const matchKey = Object.keys(headers).find((key) => key.toLowerCase() === lowerName);
+  if (matchKey !== undefined) {
+    const value = headers[matchKey];
+    return Array.isArray(value) ? value[0] : value;
+  }
+  return undefined;
 }
 
-export function requireClientIp(request: Request) {
+export function getClientIp(request: any) {
+  const trustProxyHeaders = process.env.VERCEL === '1' || process.env.TRUST_PROXY_HEADERS === 'true';
+  if (!trustProxyHeaders) return 'direct-client';
+  const headers = request?.headers && typeof request.headers === 'object'
+    ? request.headers
+    : request;
+  const forwarded = readHeader(headers, 'x-forwarded-for');
+  if (forwarded) return forwarded.split(',')[0]?.trim() || 'unknown';
+  return readHeader(headers, 'x-real-ip') || 'unknown';
+}
+
+export function requireClientIp(request: any) {
   const ip = getClientIp(request);
   if (ip === 'direct-client' && process.env.NODE_ENV === 'production') {
     throw new Error('服务器未配置可信反向代理，无法安全限流公开请求。');

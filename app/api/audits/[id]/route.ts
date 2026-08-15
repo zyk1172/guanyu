@@ -66,6 +66,7 @@ export async function GET(
     return NextResponse.json({
       ...withHistoricalAuditModelName(dto),
       canManage,
+      isOwner: currentAudit.userId === userId,
       viewCount: audit.viewCount + (shouldCountView ? 1 : 0),
       heatScore: audit.heatScore + (shouldCountView ? 1 : 0),
     });

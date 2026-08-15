@@ -121,8 +121,8 @@ function readEnvelope(archive: Buffer, passphrase: string): OperationsBackupSnap
 }
 
 export async function createOperationsBackup() {
-  const [appSettings, users, userSettings, audits, pointTransactions, purchaseOrders, rssFeeds, rssItems, discussionMessages, discussionReports, exportArtifacts, emailDeliveries, platformModelConfigs, modelUsageEvents] = await Promise.all([
-    prisma.appSetting.findMany(), prisma.user.findMany(), prisma.userSettings.findMany(), prisma.audit.findMany(), prisma.pointTransaction.findMany(), prisma.purchaseOrder.findMany(), prisma.rssFeed.findMany(), prisma.rssItem.findMany(), prisma.reportDiscussionMessage.findMany(), prisma.discussionReport.findMany(), prisma.exportArtifact.findMany(), prisma.emailDelivery.findMany(), prisma.platformModelConfig.findMany(), prisma.modelUsageEvent.findMany(),
+  const [appSettings, users, userSettings, audits, pointTransactions, purchaseOrders, rssFeeds, rssItems, discussionMessages, discussionReports, exportArtifacts, emailDeliveries, platformModelConfigs, modelUsageEvents, savedArticles] = await Promise.all([
+    prisma.appSetting.findMany(), prisma.user.findMany(), prisma.userSettings.findMany(), prisma.audit.findMany(), prisma.pointTransaction.findMany(), prisma.purchaseOrder.findMany(), prisma.rssFeed.findMany(), prisma.rssItem.findMany(), prisma.reportDiscussionMessage.findMany(), prisma.discussionReport.findMany(), prisma.exportArtifact.findMany(), prisma.emailDelivery.findMany(), prisma.platformModelConfig.findMany(), prisma.modelUsageEvent.findMany(), prisma.savedArticle.findMany(),
   ]);
   const appSettingsRows = appSettings.map((row) => removeSecretFields(row as unknown as BackupRecord, ['adminLlmApiKeyEncrypted', 'adminTavilyApiKeyEncrypted', 'adminSerperApiKeyEncrypted']));
   const userSettingsRows = userSettings.map((row) => removeSecretFields(row as unknown as BackupRecord, ['llmApiKeyEncrypted', 'tavilyApiKeyEncrypted', 'serperApiKeyEncrypted']));
@@ -142,6 +142,7 @@ export async function createOperationsBackup() {
     emailDeliveries: emailDeliveries as unknown as BackupRecord[],
     platformModelConfigs: platformModelRows,
     modelUsageEvents: modelUsageEvents as unknown as BackupRecord[],
+    savedArticles: savedArticles as unknown as BackupRecord[],
   };
   const snapshot: OperationsBackupSnapshot = {
     format: FORMAT,
@@ -205,9 +206,13 @@ export async function restoreOperationsBackup(snapshot: OperationsBackupSnapshot
   const messages = requireRows(snapshot, 'discussionMessages');
   const rootMessages = messages.filter((message) => !message.parentMessageId);
   const replyMessages = messages.filter((message) => message.parentMessageId);
+  const savedArticleRows = safeRows(snapshot.tables.savedArticles);
 
   await prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe('SELECT pg_advisory_xact_lock(83672704);');
+    const currentVersions = new Map(
+      (await tx.user.findMany({ select: { email: true, sessionVersion: true } })).map((user) => [user.email.toLowerCase(), user.sessionVersion]),
+    );
     await tx.discussionReport.deleteMany();
     await tx.reportDiscussionMessage.deleteMany();
     await tx.exportArtifact.deleteMany();
@@ -216,7 +221,10 @@ export async function restoreOperationsBackup(snapshot: OperationsBackupSnapshot
     await tx.rssItem.deleteMany();
     await tx.rssFeed.deleteMany();
     await tx.auditJob.deleteMany();
+    await tx.serviceOperation.deleteMany();
     await tx.audit.deleteMany();
+    await tx.savedArticle.deleteMany();
+    await tx.accountDeletionLog.deleteMany();
     await tx.pointTransaction.deleteMany();
     await tx.purchaseOrder.deleteMany();
     await tx.rateLimitEvent.deleteMany();
@@ -229,7 +237,13 @@ export async function restoreOperationsBackup(snapshot: OperationsBackupSnapshot
     if (Array.isArray(snapshot.tables.platformModelConfigs)) await tx.platformModelConfig.deleteMany();
 
     if (hydrated.appSettings.length) await tx.appSetting.createMany({ data: hydrated.appSettings as any });
-    if (requireRows(snapshot, 'users').length) await tx.user.createMany({ data: requireRows(snapshot, 'users') as any });
+    const restoredUsers = requireRows(snapshot, 'users').map((row) => {
+      const email = String(row.email || '').trim().toLowerCase();
+      const current = currentVersions.get(email) || 0;
+      const backup = Number(row.sessionVersion || 1);
+      return { ...row, sessionVersion: Math.max(current, backup) + 1 };
+    });
+    if (restoredUsers.length) await tx.user.createMany({ data: restoredUsers as any });
     if (hydrated.userSettings.length) await tx.userSettings.createMany({ data: hydrated.userSettings as any });
     if (hydrated.platformModelConfigs.length) await tx.platformModelConfig.createMany({ data: hydrated.platformModelConfigs as any });
     if (requireRows(snapshot, 'audits').length) await tx.audit.createMany({ data: requireRows(snapshot, 'audits') as any });
@@ -243,6 +257,7 @@ export async function restoreOperationsBackup(snapshot: OperationsBackupSnapshot
     if (replyMessages.length) await tx.reportDiscussionMessage.createMany({ data: replyMessages as any });
     if (requireRows(snapshot, 'discussionReports').length) await tx.discussionReport.createMany({ data: requireRows(snapshot, 'discussionReports') as any });
     if (safeRows(snapshot.tables.modelUsageEvents).length) await tx.modelUsageEvent.createMany({ data: safeRows(snapshot.tables.modelUsageEvents) as any });
+    if (savedArticleRows.length) await tx.savedArticle.createMany({ data: savedArticleRows as any });
   }, { maxWait: 10_000, timeout: 60_000, isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
   return { restoredAt: new Date().toISOString(), counts: snapshot.counts };

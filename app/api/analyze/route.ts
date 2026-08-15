@@ -810,6 +810,7 @@ async function handleAnalyze(userId: string, body: any, executionContext: Analyz
       const dbRecord = await tx.audit.create({
         data: {
           userId,
+          sourceJobId: internalJobId || null,
           title: title || '未命名新闻标题',
           source: source || '未知来源',
           publishedAt: normalizedPublishedAt,

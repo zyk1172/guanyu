@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
     ok: true,
     restoreConfirmation: RESTORE_CONFIRMATIONS,
     limits: { maxArchiveBytes: 4 * 1024 * 1024 },
-    scope: ['users', 'password_hashes', 'credits', 'orders', 'audits', 'rss', 'discussions', 'exports', 'email_deliveries', 'encrypted_api_configuration'],
+    scope: ['users', 'password_hashes', 'credits', 'orders', 'audits', 'rss', 'discussions', 'exports', 'email_deliveries', 'saved_articles', 'encrypted_api_configuration'],
     excluded: ['active_sessions', 'one_time_codes', 'extension_tokens', 'in_progress_jobs'],
   });
 }

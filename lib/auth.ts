@@ -27,9 +27,7 @@ export const authOptions: NextAuthOptions = {
         if (!credentials?.email || !credentials?.password) {
           throw new Error('请输入邮箱和密码');
         }
-        const ip = req?.headers && typeof req.headers.get === 'function'
-          ? getClientIp(req as unknown as Request)
-          : undefined;
+        const ip = getClientIp(req as any);
         return authenticatePassword(credentials.email, credentials.password, ip);
       },
     }),

@@ -51,48 +51,61 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: '无效的套餐。' }, { status: 400 });
   }
 
-  const existing = await prisma.purchaseOrder.findUnique({
-    where: { userId_clientRequestId: { userId: user.id, clientRequestId } },
-  });
-  if (existing) {
-    return NextResponse.json(existing);
-  }
+  let order;
+  try {
+    order = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`guanyu-order-create:${user.id}`}))`;
+    const existing = await tx.purchaseOrder.findUnique({
+      where: { userId_clientRequestId: { userId: user.id, clientRequestId } },
+    });
+    if (existing) return existing;
 
-  const openStatuses = ['PENDING', 'PAYMENT_SUBMITTED', 'PAID'];
-  const [openOrderCount, recentOrderCount] = await Promise.all([
-    prisma.purchaseOrder.count({
-      where: { userId: user.id, status: { in: openStatuses } },
-    }),
-    prisma.purchaseOrder.count({
-      where: {
+    const openStatuses = ['PENDING', 'PAYMENT_SUBMITTED', 'PAID'];
+    const [openOrderCount, recentOrderCount] = await Promise.all([
+      tx.purchaseOrder.count({
+        where: { userId: user.id, status: { in: openStatuses } },
+      }),
+      tx.purchaseOrder.count({
+        where: {
+          userId: user.id,
+          createdAt: { gte: new Date(Date.now() - 60_000) },
+        },
+      }),
+    ]);
+    if (openOrderCount >= 3) {
+      const error = new Error('已有待处理订单，请先等待管理员确认。');
+      (error as any).status = 429;
+      throw error;
+    }
+    if (recentOrderCount >= 2) {
+      const error = new Error('创建订单过于频繁，请稍后再试。');
+      (error as any).status = 429;
+      throw error;
+    }
+
+    return tx.purchaseOrder.create({
+      data: {
         userId: user.id,
-        createdAt: { gte: new Date(Date.now() - 60_000) },
+        productId: packageDefinition.productId,
+        packageType: packageDefinition.packageType,
+        packageName: packageDefinition.packageName,
+        amountCents: packageDefinition.amountCents,
+        currency: packageDefinition.currency,
+        points: packageDefinition.points,
+        proAccessDays: packageDefinition.proAccessDays,
+        paymentMethod,
+        paymentProvider: paymentMethod === 'paypal_qr' ? 'paypal' : 'alipay',
+        paymentNote,
+        clientRequestId,
       },
-    }),
-  ]);
-  if (openOrderCount >= 3) {
-    return NextResponse.json({ error: '已有待处理订单，请先等待管理员确认。' }, { status: 429 });
+    });
+    });
+  } catch (error: any) {
+    if (error?.status === 429) {
+      return NextResponse.json({ error: error.message }, { status: 429 });
+    }
+    return NextResponse.json({ error: '创建订单失败，请稍后重试。' }, { status: 500 });
   }
-  if (recentOrderCount >= 2) {
-    return NextResponse.json({ error: '创建订单过于频繁，请稍后再试。' }, { status: 429 });
-  }
-
-  const order = await prisma.purchaseOrder.create({
-    data: {
-      userId: user.id,
-      productId: packageDefinition.productId,
-      packageType: packageDefinition.packageType,
-      packageName: packageDefinition.packageName,
-      amountCents: packageDefinition.amountCents,
-      currency: packageDefinition.currency,
-      points: packageDefinition.points,
-      proAccessDays: packageDefinition.proAccessDays,
-      paymentMethod,
-      paymentProvider: paymentMethod === 'paypal_qr' ? 'paypal' : 'alipay',
-      paymentNote,
-      clientRequestId,
-    },
-  });
 
   // The order is durable before responding. Email delivery runs after the
   // response so a slow provider never makes the payment button feel frozen.

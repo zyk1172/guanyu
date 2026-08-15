@@ -2,6 +2,10 @@
   "buildCommand": "npm run vercel-build",
   "crons": [
     {
+      "path": "/api/cron/jobs",
+      "schedule": "*/1 * * * *"
+    },
+    {
       "path": "/api/cron/privacy",
       "schedule": "20 3 * * *"
     }

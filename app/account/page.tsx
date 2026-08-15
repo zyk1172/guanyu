@@ -413,6 +413,7 @@ export default function AccountPage() {
       setOrderProgressStage('syncing');
       setBillingMessage(t('order.syncingDetail'));
       setPaymentNote('');
+      orderRequestIdRef.current = null;
       if (selectedPaymentPackage?.paymentUrl) {
         window.open(selectedPaymentPackage.paymentUrl, '_blank', 'noopener,noreferrer');
       }

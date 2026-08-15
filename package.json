@@ -10,6 +10,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:report": "node --test scripts/report-logic.test.mjs",
+    "test:round2": "tsx --test scripts/round2-security.test.ts",
     "reset:business-data": "node scripts/reset-business-data.mjs",
     "test:pdf": "tsx scripts/pdf-smoke.ts",
     "test:word": "tsx scripts/docx-smoke.ts",

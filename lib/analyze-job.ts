@@ -103,6 +103,54 @@ export async function createAnalyzeJob(userId: string, input: Partial<AnalyzeJob
   }
 }
 
+async function completeJobWithAudit(jobId: string, auditId: string) {
+  await prisma.auditJob.update({
+    where: { id: jobId },
+    data: {
+      status: 'completed',
+      auditId,
+      error: null,
+      leaseExpiresAt: null,
+      lastHeartbeatAt: null,
+      nextAttemptAt: null,
+      workerId: null,
+      inputJson: JSON.stringify({
+        auditId,
+        completedAt: new Date().toISOString(),
+      }),
+    },
+  });
+
+  const audit = await prisma.audit.findUnique({
+    where: { id: auditId },
+    select: {
+      id: true,
+      userId: true,
+      title: true,
+      source: true,
+      reportLanguage: true,
+      modelName: true,
+      modelDisplayNameSnapshot: true,
+      reasoningDepth: true,
+      createdAt: true,
+      auditResultJson: true,
+      user: { select: { id: true, email: true } },
+    },
+  });
+  if (!audit) return;
+  let report: unknown = {};
+  try {
+    report = JSON.parse(audit.auditResultJson);
+  } catch {
+    report = {};
+  }
+  await notifyReportCompleted({
+    userEmail: audit.user.email,
+    audit: withHistoricalAuditModelName(audit),
+    report,
+  });
+}
+
 export async function runAnalyzeJob(jobId: string) {
   const now = new Date();
   const claim = await prisma.auditJob.updateMany({
@@ -126,6 +174,16 @@ export async function runAnalyzeJob(jobId: string) {
 
   const job = await prisma.auditJob.findUnique({ where: { id: jobId } });
   if (!job) return;
+
+  const existingAudit = await prisma.audit.findUnique({
+    where: { sourceJobId: job.id },
+    select: { id: true },
+  });
+  if (existingAudit) {
+    await completeJobWithAudit(jobId, existingAudit.id);
+    return;
+  }
+
   if (job.attemptCount > JOB_MAX_ATTEMPTS) {
     await prisma.auditJob.update({
       where: { id: jobId },
@@ -155,55 +213,7 @@ export async function runAnalyzeJob(jobId: string) {
       },
     });
 
-    await prisma.auditJob.update({
-      where: { id: jobId },
-      data: {
-        status: 'completed',
-        auditId: data.auditId || '',
-        error: null,
-        attemptCount: job.attemptCount,
-        leaseExpiresAt: null,
-        lastHeartbeatAt: null,
-        nextAttemptAt: null,
-        workerId: null,
-        inputJson: JSON.stringify({
-          auditId: data.auditId || '',
-          completedAt: new Date().toISOString(),
-        }),
-      },
-    });
-
-    if (data.auditId) {
-      const audit = await prisma.audit.findUnique({
-        where: { id: data.auditId },
-        select: {
-          id: true,
-          userId: true,
-          title: true,
-          source: true,
-          reportLanguage: true,
-          modelName: true,
-          modelDisplayNameSnapshot: true,
-          reasoningDepth: true,
-          createdAt: true,
-          auditResultJson: true,
-          user: { select: { id: true, email: true } },
-        },
-      });
-      if (audit) {
-        let report: unknown = {};
-        try {
-          report = JSON.parse(audit.auditResultJson);
-        } catch {
-          report = {};
-        }
-        await notifyReportCompleted({
-          userEmail: audit.user.email,
-          audit: withHistoricalAuditModelName(audit),
-          report,
-        });
-      }
-    }
+    if (data.auditId) await completeJobWithAudit(jobId, data.auditId);
   } catch (error: any) {
     const retryable = job.attemptCount < JOB_MAX_ATTEMPTS;
     if (!retryable) {
@@ -225,4 +235,21 @@ export async function runAnalyzeJob(jobId: string) {
       },
     });
   }
+}
+
+export async function dispatchAnalyzeJobs(limit = 5) {
+  const now = new Date();
+  const jobs = await prisma.auditJob.findMany({
+    where: {
+      status: 'pending',
+      nextAttemptAt: { lte: now },
+    },
+    orderBy: { nextAttemptAt: 'asc' },
+    take: limit,
+    select: { id: true },
+  });
+  for (const job of jobs) {
+    await runAnalyzeJob(job.id);
+  }
+  return { dispatched: jobs.length, ids: jobs.map((job) => job.id) };
 }

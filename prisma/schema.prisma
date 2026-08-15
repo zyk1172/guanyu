@@ -57,6 +57,7 @@ model ServiceOperation {
   idempotencyKey  String
   operation       String // followup, completion
   status          String    @default("RUNNING") // RUNNING, COMPLETED, FAILED
+  currentAttempt  Int       @default(1)
   reservedCredits Int       @default(0) // hundredths of a point
   resultId        String?
   resultHash      String?
@@ -132,6 +133,7 @@ model Audit {
   heatScore                     Int                       @default(0)
   isPublic                      Boolean                   @default(false)
   indexable                     Boolean                   @default(false)
+  sourceJobId                   String?                   @unique
   createdAt                     DateTime                  @default(now())
   updatedAt                     DateTime                  @updatedAt
   completionMarkdown            String?
