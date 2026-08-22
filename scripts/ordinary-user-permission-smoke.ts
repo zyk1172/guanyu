@@ -1,5 +1,6 @@
 import { loadEnvConfig } from '@next/env';
 import { encode } from 'next-auth/jwt';
+import { NextRequest } from 'next/server';
 
 async function main() {
   loadEnvConfig(process.cwd());
@@ -39,7 +40,7 @@ async function main() {
         sessionVersion: account.sessionVersion,
       },
     });
-    return new Request(`http://localhost${path}`, {
+    return new NextRequest(`http://localhost${path}`, {
       headers: {
         cookie: `next-auth.session-token=${token}`,
       },
