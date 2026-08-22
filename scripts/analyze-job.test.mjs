@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { shouldScheduleAnalyzeJobRecovery } from '../lib/analyze-job-core.mjs';
+import {
+  canClaimAnalyzeJob,
+  shouldScheduleAnalyzeJobRecovery,
+} from '../lib/analyze-job-core.mjs';
 import {
   ANALYSIS_JOB_POLLING_ATTEMPTS,
   getAnalysisJobPollingDelay,
@@ -18,6 +21,16 @@ test('schedules only due pending or expired running job recovery', () => {
   assert.equal(shouldScheduleAnalyzeJobRecovery({ status: 'running', leaseExpiresAt: null, now }), false);
   assert.equal(shouldScheduleAnalyzeJobRecovery({ status: 'completed', now }), false);
   assert.equal(shouldScheduleAnalyzeJobRecovery({ status: 'failed', now }), false);
+});
+
+test('claim eligibility respects retry backoff and lease expiry', () => {
+  assert.equal(canClaimAnalyzeJob({ status: 'pending', nextAttemptAt: null, now }), true);
+  assert.equal(canClaimAnalyzeJob({ status: 'pending', nextAttemptAt: new Date('2026-08-21T23:59:59.000Z'), now }), true);
+  assert.equal(canClaimAnalyzeJob({ status: 'pending', nextAttemptAt: now, now }), true);
+  assert.equal(canClaimAnalyzeJob({ status: 'pending', nextAttemptAt: new Date('2026-08-22T00:00:01.000Z'), now }), false);
+  assert.equal(canClaimAnalyzeJob({ status: 'running', leaseExpiresAt: new Date('2026-08-22T00:00:01.000Z'), now }), false);
+  assert.equal(canClaimAnalyzeJob({ status: 'running', leaseExpiresAt: now, now }), true);
+  assert.equal(canClaimAnalyzeJob({ status: 'running', leaseExpiresAt: new Date('2026-08-21T23:59:59.000Z'), now }), true);
 });
 
 test('uses restrained polling delays and an approximately twelve-minute deadline', () => {

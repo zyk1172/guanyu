@@ -157,7 +157,13 @@ export async function runAnalyzeJob(jobId: string) {
     where: {
       id: jobId,
       OR: [
-        { status: 'pending' },
+        {
+          status: 'pending',
+          OR: [
+            { nextAttemptAt: null },
+            { nextAttemptAt: { lte: now } },
+          ],
+        },
         { status: 'running', leaseExpiresAt: { lte: now } },
       ],
     },
