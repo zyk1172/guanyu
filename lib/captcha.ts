@@ -158,6 +158,28 @@ export async function verifyEmailCode(
   return prisma.$transaction((tx) => verifyEmailCodeTx(tx, email, code, purpose));
 }
 
+// Registration uses this non-consuming check before running the expensive password
+// hash. The transaction below still rechecks and consumes the code atomically.
+export async function hasValidEmailCode(
+  email: string,
+  code: string,
+  purpose: EmailCodePurpose = 'register_email'
+) {
+  const records = await prisma.verificationCode.findMany({
+    where: {
+      email,
+      purpose,
+      consumedAt: null,
+      expiresAt: { gt: new Date() },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 3,
+    select: { codeHash: true },
+  });
+  const expectedHash = hashCode(code);
+  return records.some((record) => record.codeHash === expectedHash);
+}
+
 export async function verifyEmailCodeTx(
   tx: Prisma.TransactionClient,
   email: string,

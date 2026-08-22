@@ -4,6 +4,7 @@ import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { cacheGet, cacheSet, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
 import { getProduct, type PaymentMethod, type ProductId } from '@/lib/product-catalog';
 import { calculateProAccessExpiry } from '@/lib/pro-access-core.mjs';
+import { ANALYZE_ADMISSION_ACTION, reserveAnalyzeJobAdmission } from '@/lib/rate-limit';
 
 // All arithmetic uses integer hundredths. The database stores the same value in
 // DECIMAL(12,2); no JS floating-point amount is used for billing decisions.
@@ -106,9 +107,9 @@ export async function buildUsagePlan(userId: string, mode: 'quick' | 'deep' = 'd
 }
 
 export async function reserveAnalysisUsage(userId: string, mode: 'quick' | 'deep', requestedSource?: string, options?: { platformCostCents?: number; modelSnapshot?: BillingModelSnapshot }) {
-  const plan = await buildUsagePlan(userId, mode, requestedSource, options); const rate = await prisma.rateLimitEvent.count({ where: { userId, action: 'analyze', createdAt: { gte: new Date(Date.now() - 5 * 60_000) } } });
-  if (rate >= 3) throw new Error('操作过于频繁，请 5 分钟后再生成新的观隅分析。');
-  const event = await prisma.rateLimitEvent.create({ data: { userId, action: 'analyze' } }); return { ...plan, rateLimitEventId: event.id };
+  const plan = await buildUsagePlan(userId, mode, requestedSource, options);
+  const admission = await reserveAnalyzeJobAdmission(userId);
+  return { ...plan, rateLimitEventId: admission.id };
 }
 // Analysis is charged only once a report is successfully written.
 export async function commitUsage(plan: UsagePlan, auditId: string) { if (plan.costCents <= 0) return; await prisma.$transaction((tx) => changeBalance(tx, plan.userId, -plan.costCents, { transactionType: 'NEWS_ANALYSIS', description: `使用${plan.modelSnapshot?.displayName || '平台模型'}完成观隅分析，消耗 ${formatCredits(plan.costCents)} 点`, auditId, idempotencyKey: `analysis:${auditId}`, modelSnapshot: plan.modelSnapshot })); }
@@ -129,7 +130,13 @@ export async function commitUsageWithResult<T>(plan: UsagePlan, operation: (tx: 
     return { result, transaction: charged.transaction, balance: centsToDisplayPoints(charged.after) };
   });
 }
-export async function refundAnalysisUsage(plan: UsagePlan) { if (plan.rateLimitEventId) await prisma.rateLimitEvent.deleteMany({ where: { id: plan.rateLimitEventId, userId: plan.userId } }); }
+export async function refundAnalysisUsage(plan: UsagePlan) {
+  if (plan.rateLimitEventId) {
+    await prisma.rateLimitEvent.deleteMany({
+      where: { id: plan.rateLimitEventId, userId: plan.userId, action: ANALYZE_ADMISSION_ACTION },
+    });
+  }
+}
 
 export async function consumeServiceCredits(params: { userId: string; cents: number; transactionType: string; description: string; auditId?: string; reportVersion?: number; taskId?: string; idempotencyKey: string; customFree?: boolean; requestedSource?: string; modelSnapshot?: BillingModelSnapshot; transactionOptions?: { maxWait?: number; timeout?: number } }) {
   const committed = await consumeServiceCreditsWithResult(params, async () => null);
