@@ -4,6 +4,7 @@ import { getSuperAdminStatus } from '@/lib/admin';
 import { createDiscussionMessageWithCharge, effectiveCreditCents } from '@/lib/billing';
 import { prisma } from '@/lib/prisma';
 import { discussionMessageDto } from '@/lib/discussion-dto';
+import { sameOriginResponse } from '@/lib/request-security';
 
 const MAX_LENGTH = Number(process.env.DISCUSSION_MAX_LENGTH || 2000);
 const MAX_LINKS = Number(process.env.DISCUSSION_MAX_LINKS || 3);
@@ -34,6 +35,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   return NextResponse.json({ locked: Boolean(result.audit.discussionLockedAt), messages, canModerate: isAdmin, currentUserId: user?.id || null, nextCursor: ordered.length === 20 ? ordered[0].createdAt.toISOString() : null });
 }
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const originError = sameOriginResponse(request);
+  if (originError) return originError;
   const user = await getCurrentUser(request); if (!user) return NextResponse.json({ error: '请登录后发布交流内容。' }, { status: 401 });
   const isAdmin = await getSuperAdminStatus(user.id);
   const account = await prisma.user.findUnique({ where: { id: user.id }, select: { isBanned: true } });
@@ -50,6 +53,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   } catch (error: any) { return NextResponse.json({ error: error?.message || '发布失败，未扣除点数。' }, { status: 400 }); }
 }
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const originError = sameOriginResponse(request);
+  if (originError) return originError;
   const user = await getCurrentUser(request); if (!user) return NextResponse.json({ error: '请登录后操作。' }, { status: 401 });
   const body = await request.json(); const { id } = await params; const action = String(body.action || 'edit'); const isAdmin = await getSuperAdminStatus(user.id);
   const found = await getAudit(id, user.id, isAdmin); if ('error' in found) return NextResponse.json({ error: found.error }, { status: found.status });
@@ -82,5 +87,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   return NextResponse.json({ message: discussionMessageDto(await prisma.reportDiscussionMessage.update({ where: { id: message.id }, data: { content: cleanContent(body.content), isEdited: true, editedAt: new Date() } }), isAdmin) });
 }
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const originError = sameOriginResponse(request);
+  if (originError) return originError;
   const user = await getCurrentUser(request); if (!user) return NextResponse.json({ error: '请登录后删除。' }, { status: 401 }); const messageId = new URL(request.url).searchParams.get('messageId') || ''; const message = await prisma.reportDiscussionMessage.findUnique({ where: { id: messageId } }); const admin = await getSuperAdminStatus(user.id); if (!message || message.reportId !== (await params).id) return NextResponse.json({ error: '交流内容不存在。' }, { status: 404 }); if (message.userId !== user.id && !admin) return NextResponse.json({ error: '你没有权限删除该交流内容。' }, { status: 403 }); await prisma.reportDiscussionMessage.update({ where: { id: message.id }, data: { status: 'DELETED', deletedAt: new Date(), content: '该内容已删除。' } }); return NextResponse.json({ ok: true });
 }

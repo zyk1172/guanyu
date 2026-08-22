@@ -5,14 +5,13 @@ import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import AnalysisForm from '../components/AnalysisForm';
-import AnalysisResultView from '../components/AnalysisResult';
 import LoadingState from '../components/LoadingState';
 import ErrorMessage from '../components/ErrorMessage';
 import Header from '../components/Header';
 import { GsapReveal } from '../components/GsapMotion';
 import { useUiLanguage } from '../components/LanguageProvider';
 import RssNewsPanel, { RssHeadline } from '../components/RssNewsPanel';
-import { AnalysisResult, AnalysisMode, ReportLanguage, getReportLanguageLabel, getThinkingDepthLabel } from '../lib/types';
+import { AnalysisMode, ReportLanguage, getReportLanguageLabel, getThinkingDepthLabel } from '../lib/types';
 import { getBrandIdentity } from '../lib/brand-core.mjs';
 import {
   ACTIVE_ANALYSIS_JOB_STORAGE_KEY,
@@ -51,7 +50,6 @@ export default function Home() {
   const brand = getBrandIdentity(language);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<AnalysisResult | null>(null);
   const [lastSubmittedData, setLastSubmittedData] = useState<AuditSubmitData | null>(null);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [hotAudits, setHotAudits] = useState<HotAudit[]>([]);
@@ -185,7 +183,6 @@ export default function Home() {
   const handleAnalyze = async (data: AuditSubmitData) => {
     setIsLoading(true);
     setError(null);
-    setResult(null);
     setLastSubmittedData(data);
     clearActiveJob();
 
@@ -297,26 +294,6 @@ export default function Home() {
             </div>
           )}
           {error && <ErrorMessage message={error} onRetry={handleRetry} />}
-          {result && !isLoading && !error && (
-            <div data-gsap-reveal className="border-t border-gray-100 dark:border-gray-900 pt-5">
-              <div className="text-center mb-5">
-                <span className="inline-block px-3 py-1 bg-gray-100 dark:bg-gray-900 text-gray-500 dark:text-gray-400 rounded-full text-xs font-semibold tracking-wider uppercase mb-2">
-                  REVIEW REPORT
-                </span>
-                <h3 className="text-xl font-bold text-gray-900 dark:text-white">{t('home.reportTitle')}</h3>
-              </div>
-              <AnalysisResultView
-                result={result}
-                originalContent={lastSubmittedData?.content}
-                auditMeta={{
-                  title: lastSubmittedData?.title,
-                  source: lastSubmittedData?.source,
-                  analysisMode: lastSubmittedData?.mode,
-                }}
-              />
-            </div>
-          )}
-
           <section className="animated-panel rounded-xl border border-gray-100 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950">
             <div className="flex items-center justify-between border-b border-gray-100 pb-2 dark:border-gray-900">
               <h2 className="text-sm font-black text-gray-950 dark:text-white">{t('home.hotTitle')}</h2>

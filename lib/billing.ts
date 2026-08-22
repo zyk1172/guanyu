@@ -60,14 +60,16 @@ export async function changeBalance(tx: Prisma.TransactionClient, userId: string
   return { before, after: effectiveCreditCents(updated), repeated: false, transaction };
 }
 
+export async function grantSignupBonusTx(tx: Prisma.TransactionClient, userId: string) {
+  const user = await tx.user.findUnique({ where: { id: userId }, select: { signupBonusGrantedAt: true } });
+  if (!user || user.signupBonusGrantedAt) return false;
+  await changeBalance(tx, userId, pointsToCents(SIGNUP_BONUS_CREDITS), { transactionType: 'SIGNUP_BONUS', description: '邮箱验证完成，新用户赠送点数', idempotencyKey: `signup-bonus:${userId}` });
+  await tx.user.update({ where: { id: userId }, data: { signupBonusGrantedAt: new Date() } });
+  return true;
+}
+
 export async function grantSignupBonus(userId: string) {
-  return prisma.$transaction(async (tx) => {
-    const user = await tx.user.findUnique({ where: { id: userId }, select: { signupBonusGrantedAt: true } });
-    if (!user || user.signupBonusGrantedAt) return false;
-    await changeBalance(tx, userId, pointsToCents(SIGNUP_BONUS_CREDITS), { transactionType: 'SIGNUP_BONUS', description: '邮箱验证完成，新用户赠送点数', idempotencyKey: `signup-bonus:${userId}` });
-    await tx.user.update({ where: { id: userId }, data: { signupBonusGrantedAt: new Date() } });
-    return true;
-  });
+  return prisma.$transaction((tx) => grantSignupBonusTx(tx, userId));
 }
 
 export async function activatePendingPro(userId: string) {

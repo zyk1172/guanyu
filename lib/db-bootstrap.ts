@@ -264,6 +264,10 @@ export function ensureRuntimeSchema() {
         ADD COLUMN IF NOT EXISTS "isSourcePublic" BOOLEAN NOT NULL DEFAULT false;
       `);
       await prisma.$executeRawUnsafe(`
+        ALTER TABLE "Audit"
+        ADD COLUMN IF NOT EXISTS "isCompletionPublic" BOOLEAN NOT NULL DEFAULT false;
+      `);
+      await prisma.$executeRawUnsafe(`
         ALTER TABLE "SavedArticle"
         ADD COLUMN IF NOT EXISTS "clientRequestId" TEXT;
       `);

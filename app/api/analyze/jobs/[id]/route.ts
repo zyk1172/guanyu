@@ -1,13 +1,18 @@
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { runAnalyzeJob } from '@/lib/analyze-job';
 import { prisma } from '@/lib/prisma';
+import { sameOriginResponse } from '@/lib/request-security';
+
+export const maxDuration = 300;
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const originError = sameOriginResponse(request);
+  if (originError) return originError;
   await ensureRuntimeSchema();
   const user = await getCurrentUser(request);
   if (!user) {
@@ -34,20 +39,15 @@ export async function GET(
   }
 
   if (job.status === 'pending' && (!job.nextAttemptAt || job.nextAttemptAt.getTime() <= Date.now())) {
-    await runAnalyzeJob(job.id);
+    after(() => runAnalyzeJob(job.id));
   }
 
-  const refreshed = await prisma.auditJob.findUnique({
-    where: { id: job.id },
-    select: { id: true, status: true, auditId: true, error: true, createdAt: true, updatedAt: true },
-  });
-
   return NextResponse.json({
-    id: refreshed?.id,
-    status: refreshed?.status,
-    auditId: refreshed?.auditId,
-    error: refreshed?.error,
-    createdAt: refreshed?.createdAt,
-    updatedAt: refreshed?.updatedAt,
+    id: job.id,
+    status: job.status,
+    auditId: job.auditId,
+    error: job.error,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
   });
 }

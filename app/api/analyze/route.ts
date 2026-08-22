@@ -32,18 +32,14 @@ import type {
   ReadingUtilityFactors,
 } from '@/lib/types';
 import { toClientError } from '@/lib/app-error';
+import { ReportSchema, reportSchemaErrorPaths } from '@/lib/report-schema';
+import { sameOriginResponse } from '@/lib/request-security';
 
 export const maxDuration = 300;
 
 const MAX_NEWS_CONTENT_LENGTH = 30000;
 const EMPTY_ONLINE_TITLES = new Set(['相关背景来源', '待核验线索', '来源标题', '未提供', '暂无']);
 const EMPTY_ONLINE_TEXT = new Set(['可作为背景核对方向。', '当前无可靠条目。', '未找到可用于外部核验的可靠来源。']);
-
-function clampScore(score: unknown, defaultVal = 50): number {
-  const val = Number.parseInt(String(score), 10);
-  if (Number.isNaN(val)) return defaultVal;
-  return Math.min(Math.max(val, 0), 100);
-}
 
 function asArray<T = any>(value: unknown): T[] {
   return Array.isArray(value) ? value as T[] : [];
@@ -110,25 +106,25 @@ function safeHostname(url: string) {
 }
 
 function getScores(parsed: any): ReportScores {
-  const src = parsed?.scores || parsed?.score_summary || {};
+  const src = parsed.scores;
   return {
-    credibility: clampScore(src.credibility ?? src.credibility_score, 70),
-    informationCompleteness: clampScore(src.informationCompleteness ?? src.information_completeness_score, 60),
-    narrativeBias: clampScore(src.narrativeBias ?? src.narrative_bias_score, 45),
-    evidenceStrength: clampScore(src.evidenceStrength ?? src.evidence_strength_score, 60),
-    speculationRisk: clampScore(src.speculationRisk ?? src.speculation_risk_score, 45),
+    credibility: src.credibility,
+    informationCompleteness: src.informationCompleteness,
+    narrativeBias: src.narrativeBias,
+    evidenceStrength: src.evidenceStrength,
+    speculationRisk: src.speculationRisk,
   };
 }
 
 function getReadingUtility(parsed: any): ReadingUtilityFactors {
-  const src = parsed?.readingUtility || parsed?.reading_utility || {};
+  const src = parsed.readingUtility;
   return {
-    publicImportance: clampScore(src.publicImportance ?? src.public_importance, 50),
-    informationGain: clampScore(src.informationGain ?? src.information_gain, 50),
-    uniqueness: clampScore(src.uniqueness, 50),
-    explanatoryDepth: clampScore(src.explanatoryDepth ?? src.explanatory_depth, 50),
-    actionability: clampScore(src.actionability, 50),
-    informationDensity: clampScore(src.informationDensity ?? src.information_density, 50),
+    publicImportance: src.publicImportance,
+    informationGain: src.informationGain,
+    uniqueness: src.uniqueness,
+    explanatoryDepth: src.explanatoryDepth,
+    actionability: src.actionability,
+    informationDensity: src.informationDensity,
   };
 }
 
@@ -759,6 +755,18 @@ async function handleAnalyze(userId: string, body: any, executionContext: Analyz
       }
     }
 
+    const validatedReport = ReportSchema.safeParse(parsedJSON);
+    if (!validatedReport.success) {
+      console.error('Model report schema validation failed', {
+        errorCode: 'model_output_schema_invalid',
+        paths: reportSchemaErrorPaths(validatedReport.error),
+      });
+      await recordFailedUsage('model_output_schema_invalid');
+      await releaseReservation();
+      return NextResponse.json({ error: '模型返回的数据结构不完整或无效，未生成报告，请重试。' }, { status: 502 });
+    }
+    parsedJSON = validatedReport.data;
+
     const createdAt = new Date().toISOString();
     const normalizedResult = normalizeReport({
       parsed: parsedJSON,
@@ -901,6 +909,8 @@ export async function analyzeForUser(params: {
 }
 
 export async function POST(request: Request) {
+  const originError = sameOriginResponse(request);
+  if (originError) return originError;
   const currentUser = await getCurrentUser(request);
   if (!currentUser) {
     return NextResponse.json({ error: '请登录后再创建新闻审视。' }, { status: 401 });

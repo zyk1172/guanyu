@@ -137,6 +137,7 @@ model Audit {
   updatedAt                     DateTime                  @updatedAt
   completionMarkdown            String?
   completionGeneratedAt         DateTime?
+  isCompletionPublic            Boolean                   @default(false)
   reportVersion                 Int                       @default(1)
   discussionLockedAt            DateTime?
   discussionLockedById          String?

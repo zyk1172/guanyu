@@ -1,228 +1,97 @@
-'use client';
-
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams } from 'next/navigation';
+import type { Metadata } from 'next';
+import { after } from 'next/server';
+import { headers } from 'next/headers';
+import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import Header from '@/components/Header';
-import AnalysisResultView from '@/components/AnalysisResult';
 import ErrorMessage from '@/components/ErrorMessage';
-import { getReportLanguageLabel, getThinkingDepthLabel } from '@/lib/types';
-import { useUiLanguage } from '@/components/LanguageProvider';
-import ReanalyzeControl from '@/components/ReanalyzeControl';
+import AuditDetailsClient from '@/components/AuditDetailsClient';
+import { getSuperAdminStatus } from '@/lib/admin';
+import { getCurrentUser } from '@/lib/auth';
+import { prisma } from '@/lib/prisma';
+import { cacheDelByPrefix, CACHE_KEYS } from '@/lib/cache';
+import { getClientIp, reserveAuditViewCount } from '@/lib/rate-limit';
+import { withHistoricalAuditModelName } from '@/lib/audit-model-display';
+import { auditDtoForAccess } from '@/lib/audit-dto';
 
-export default function AuditDetailsPage() {
-  const params = useParams();
-  const auditId = typeof params?.id === 'string' ? params.id : null;
-  const { language, t } = useUiLanguage();
-  const tRef = useRef(t);
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
 
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [auditRecord, setAuditRecord] = useState<any | null>(null);
-  const [isAuthor, setIsAuthor] = useState(false);
-  const [canManage, setCanManage] = useState(false);
+async function invalidateAuditCaches() {
+  await cacheDelByPrefix(CACHE_KEYS.hotAuditsPrefix);
+}
 
-  useEffect(() => {
-    tRef.current = t;
-  }, [t]);
+async function loadAudit(id: string) {
+  const currentAudit = await prisma.audit.findUnique({ where: { id } });
+  if (!currentAudit) return null;
 
-  const fetchAuditDetails = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      if (!auditId) {
-        setError(tRef.current('audit.invalidId'));
-        return;
-      }
+  const incomingHeaders = await headers();
+  const request = new Request(new URL(`/api/audits/${encodeURIComponent(id)}`, siteUrl), { headers: incomingHeaders });
+  const user = await getCurrentUser(request);
+  const userId = user?.id;
+  const isSuperAdmin = userId ? await getSuperAdminStatus(userId) : false;
 
-      const res = await fetch(`/api/audits/${auditId}`);
-      const data = await res.json();
-
-      if (!res.ok) {
-        if (res.status === 403) {
-          setError(tRef.current('audit.noPermission'));
-        } else if (res.status === 404) {
-          setError(tRef.current('audit.notFound'));
-        } else {
-          setError(data.error || tRef.current('audit.fetchFailed'));
-        }
-        return;
-      }
-
-      setAuditRecord(data);
-      setCanManage(Boolean(data.canManage));
-      setIsAuthor(Boolean(data.isOwner || data.canManage));
-    } catch (err) {
-      console.error(err);
-      setError(tRef.current('audit.networkError'));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [auditId]);
-
-  useEffect(() => {
-    void fetchAuditDetails();
-  }, [fetchAuditDetails]);
-
-  const togglePublic = async () => {
-    if (!auditRecord) return;
-    try {
-      const res = await fetch(`/api/audits/${auditRecord.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isPublic: !auditRecord.isPublic }),
-      });
-      if (res.ok) {
-        setAuditRecord({ ...auditRecord, isPublic: !auditRecord.isPublic });
-      }
-    } catch (err) {
-      console.error('更新公开状态失败:', err);
-    }
-  };
-
-  const getDepthLabel = (depth: string) => getThinkingDepthLabel(depth, language);
-
-  const getModeLabel = (mode: string) => {
-    switch (mode) {
-      case 'quick': return language === 'en-US' ? 'Legacy quick analysis' : '历史快速分析';
-      case 'deep': return language === 'en-US' ? 'Guanyu analysis' : '观隅分析';
-      default: return mode;
-    }
-  };
-
-  if (isLoading) {
-    return (
-      <main className="min-h-screen bg-gray-50 dark:bg-black font-sans">
-        <Header />
-        <div className="max-w-4xl mx-auto px-3 sm:px-4 py-16 text-center space-y-3">
-          <div className="animate-spin h-6 w-6 text-indigo-600 mx-auto border-2 border-indigo-600 border-t-transparent rounded-full" />
-          <p className="text-xs font-semibold text-gray-400">{t('audit.loading')}</p>
-        </div>
-      </main>
-    );
+  if (!currentAudit.isPublic && currentAudit.userId !== userId && !isSuperAdmin) {
+    return { forbidden: true as const };
   }
 
-  if (error) {
+  let shouldCountView = false;
+  try {
+    shouldCountView = await reserveAuditViewCount(userId ? `user:${userId}` : `ip:${getClientIp(request)}`, id);
+  } catch (error) {
+    console.error('Reserve audit view count failed:', id, error);
+  }
+  if (shouldCountView) after(async () => {
+    try {
+      await prisma.audit.update({ where: { id }, data: { viewCount: { increment: 1 }, heatScore: { increment: 1 } } });
+      await invalidateAuditCaches();
+    } catch (error) {
+      console.error('Increment audit view count failed:', id, error);
+    }
+  });
+
+  const canManage = currentAudit.userId === userId || isSuperAdmin;
+  const dto = withHistoricalAuditModelName(auditDtoForAccess(currentAudit, canManage, isSuperAdmin));
+  return {
+    audit: {
+      ...dto,
+      viewCount: currentAudit.viewCount + (shouldCountView ? 1 : 0),
+      heatScore: currentAudit.heatScore + (shouldCountView ? 1 : 0),
+    },
+    canManage,
+    isAuthor: currentAudit.userId === userId || isSuperAdmin,
+  };
+}
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const audit = await prisma.audit.findFirst({
+    where: { id, isPublic: true },
+    select: { title: true, newsSummary: true },
+  });
+  if (!audit) return { title: '审视报告' };
+  return {
+    title: audit.title,
+    description: audit.newsSummary.slice(0, 160),
+    alternates: { canonical: `/audits/${encodeURIComponent(id)}` },
+  };
+}
+
+export default async function AuditDetailsPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const loaded = await loadAudit(id);
+  if (!loaded) notFound();
+  if ('forbidden' in loaded) {
     return (
       <main className="min-h-screen bg-gray-50 dark:bg-black font-sans">
         <Header />
         <div className="max-w-xl mx-auto px-3 sm:px-4 py-10">
-          <ErrorMessage message={error} />
+          <ErrorMessage message="你没有权限查看这条审视记录。" />
           <div className="text-center pt-4">
-            <Link href="/" className="text-xs font-bold text-indigo-600 hover:underline">
-              ← {t('audit.backHome')}
-            </Link>
+            <Link href="/" className="text-xs font-bold text-indigo-600 hover:underline">← 返回首页</Link>
           </div>
         </div>
       </main>
     );
   }
-
-  // 反序列化大模型生成的结构化结果 JSON
-  let auditResultParsed = null;
-  try {
-    auditResultParsed = JSON.parse(auditRecord.auditResultJson);
-  } catch (e) {
-    console.error('反序列化审视结果 JSON 失败:', e);
-  }
-
-  return (
-    <main className="min-h-screen bg-gray-50 dark:bg-black font-sans text-gray-900 dark:text-gray-100 selection:bg-indigo-500/20 pb-16">
-      <Header />
-
-      <div className="max-w-6xl mx-auto px-3 sm:px-4 py-4 sm:py-5 space-y-4 sm:space-y-5">
-        {/* A. 详情页极简元信息顶栏 */}
-        <div className="bg-white dark:bg-gray-950 p-3 sm:p-4 rounded-xl border border-gray-150 dark:border-gray-900 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-          <div className="min-w-0 space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xxs font-bold bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded tracking-wide uppercase">
-                {t('audit.thinking', undefined, { depth: getDepthLabel(auditRecord.reasoningDepth) })}
-              </span>
-              <span className="text-xxs font-bold bg-gray-150 dark:bg-gray-900 text-gray-600 dark:text-gray-400 px-2 py-0.5 rounded tracking-wide uppercase">
-                {getModeLabel(auditRecord.analysisMode)}
-              </span>
-              <span className="text-xxs font-bold bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300 px-2 py-0.5 rounded tracking-wide">
-                {getReportLanguageLabel(auditRecord.reportLanguage, language)}
-              </span>
-              <span className="text-xxs text-gray-400 dark:text-gray-500 font-semibold">
-                {t('audit.source')}: {auditRecord.source} · {new Date(auditRecord.createdAt).toLocaleString(language)}
-              </span>
-            </div>
-            <h2 className="break-words text-sm md:text-base font-bold text-gray-950 dark:text-white leading-snug">
-              {auditRecord.title}
-            </h2>
-          </div>
-
-          <div className="flex w-full flex-wrap items-center gap-2 text-xs font-bold md:w-auto md:justify-end">
-            {isAuthor && (
-              <button
-                onClick={togglePublic}
-                className={`px-3 py-1.5 rounded-lg border text-xxs font-black transition ${
-                  auditRecord.isPublic
-                    ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 text-emerald-700'
-                    : 'bg-gray-50 dark:bg-gray-900 border-gray-200 text-gray-500'
-                }`}
-              >
-                {auditRecord.isPublic ? `🟢 ${t('audit.public')}` : `🔒 ${t('audit.private')}`}
-              </button>
-            )}
-            <span className="text-xxs text-gray-400 font-semibold bg-gray-50 dark:bg-gray-900 border border-gray-150 dark:border-gray-800 px-2 py-1.5 rounded-lg">
-              🔥 {t('audit.views', undefined, { count: auditRecord.viewCount })}
-            </span>
-          </div>
-        </div>
-
-        {isAuthor && <ReanalyzeControl auditId={auditRecord.id} />}
-
-        {/* B. 核心审视度量指标卡片 & 完整博弈详情面板 */}
-        {auditResultParsed ? (
-          <div className="space-y-4 sm:space-y-5">
-            {/* 注入 auditId 属性以激活动态 Q&A 提问中枢 */}
-            <AnalysisResultView
-              result={auditResultParsed}
-              auditId={auditRecord.id}
-              originalContent={auditRecord.originalContent}
-              auditMeta={{
-                title: auditRecord.title,
-                source: auditRecord.source,
-                publishedAt: auditRecord.publishedAt,
-                publishedAtSource: auditRecord.publishedAtSource,
-                publishedAtConfidence: auditRecord.publishedAtConfidence,
-                modelName: auditRecord.modelName,
-                reasoningDepth: getDepthLabel(auditRecord.reasoningDepth),
-                analysisMode: getModeLabel(auditRecord.analysisMode),
-                reportLanguage: auditRecord.reportLanguage,
-                createdAt: new Date(auditRecord.createdAt).toLocaleString(),
-                viewCount: auditRecord.viewCount,
-                isPublic: auditRecord.isPublic,
-              }}
-              canUpdateVerification={canManage}
-            />
-          </div>
-        ) : (
-          <div className="bg-white dark:bg-gray-950 p-6 rounded-xl border border-gray-150 dark:border-gray-900 shadow-sm text-center text-xs text-gray-400 font-semibold">
-            ⚠️ 警告：该条记录的审视 JSON 文件损坏，无法提取博弈多方度量详情。
-          </div>
-        )}
-
-        {/* C. 底部快速交互返回栏 */}
-        <div className="flex flex-col justify-between gap-2 pt-2 sm:flex-row sm:items-center">
-          <Link
-            href="/"
-            className="px-4 py-2 border border-gray-200 dark:border-gray-850 hover:bg-gray-100 dark:hover:bg-gray-900 text-gray-600 dark:text-gray-400 rounded-lg text-xs font-bold transition flex items-center gap-1"
-          >
-            ← {t('audit.backHome')}
-          </Link>
-          {isAuthor && (
-            <Link
-              href="/my-audits"
-              className="px-4 py-2 bg-indigo-550 hover:bg-indigo-600 text-white rounded-lg text-xs font-bold shadow-sm transition"
-            >
-              {t('audit.manageRecords')}
-            </Link>
-          )}
-        </div>
-      </div>
-    </main>
-  );
+  return <AuditDetailsClient auditRecord={loaded.audit} canManage={loaded.canManage} isAuthor={loaded.isAuthor} />;
 }

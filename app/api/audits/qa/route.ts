@@ -11,6 +11,7 @@ import { resolveOperationModel } from '@/lib/operation-model';
 import { invokeModel } from '@/lib/model-runtime';
 import { recordModelUsage } from '@/lib/model-usage';
 import { historicalAuditModelName } from '@/lib/audit-model-display';
+import { sameOriginResponse } from '@/lib/request-security';
 
 export const maxDuration = 120;
 
@@ -40,6 +41,8 @@ function isPromptExtractionAttempt(value: string) {
 
 export async function POST(request: Request) {
   try {
+    const originError = sameOriginResponse(request);
+    if (originError) return originError;
     // 1. 登录校验
     const user = await getCurrentUser(request);
     if (!user) {

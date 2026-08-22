@@ -57,10 +57,15 @@ export const authOptions: NextAuthOptions = {
 };
 
 export async function getCurrentUser(request: Request): Promise<CurrentUser | null> {
-  const token = await getToken({
-    req: request as NextRequest,
-    secret: process.env.NEXTAUTH_SECRET,
-  });
+  let token;
+  try {
+    token = await getToken({
+      req: request as NextRequest,
+      secret: process.env.NEXTAUTH_SECRET,
+    });
+  } catch {
+    return null;
+  }
 
   if (!token?.id) {
     return null;

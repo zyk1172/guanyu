@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyEmailCode } from '@/lib/captcha';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { notifyPasswordChanged } from '@/lib/email';
-import { hashPassword } from '@/lib/password-core.mjs';
+import { assertValidPasswordInput, hashPassword } from '@/lib/password-core.mjs';
 import { prisma } from '@/lib/prisma';
 import { assertSameOrigin, assertSecureAccountTransport } from '@/lib/request-security';
 import { setSessionCookie } from '@/lib/session-cookie';
@@ -20,8 +20,10 @@ export async function POST(request: NextRequest) {
     if (!email || !code || !password || !confirmPassword) {
       return NextResponse.json({ error: '请完整填写邮箱、验证码和新密码。' }, { status: 400 });
     }
-    if (password.length < 8) {
-      return NextResponse.json({ error: '密码至少需要 8 个字符。' }, { status: 400 });
+    try {
+      assertValidPasswordInput(password);
+    } catch (error: any) {
+      return NextResponse.json({ error: error?.message || '密码长度不符合要求。' }, { status: 400 });
     }
     if (password !== confirmPassword) {
       return NextResponse.json({ error: '两次输入的密码不一致。' }, { status: 400 });
@@ -38,7 +40,7 @@ export async function POST(request: NextRequest) {
       const nextUser = await tx.user.update({
         where: { id: account.id },
         data: {
-          password: hashPassword(password),
+          password: await hashPassword(password),
           sessionVersion: { increment: 1 },
         },
       });

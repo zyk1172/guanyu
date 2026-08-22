@@ -181,15 +181,17 @@ test('runtime schema bootstrap is opt-in so ordinary serverless requests never r
   assert.equal(shouldBootstrapRuntimeSchema('true'), true);
 });
 
-test('legacy account passwords can log in once and are marked for scrypt upgrade', () => {
+test('legacy account passwords can log in once and are marked for scrypt upgrade', async () => {
   const password = 'existing-account-password';
   const legacyHash = createHash('sha256').update(password).digest('hex');
-  assert.deepEqual(verifyPassword(password, legacyHash), { valid: true, needsUpgrade: true });
-  assert.deepEqual(verifyPassword('wrong-password', legacyHash), { valid: false, needsUpgrade: false });
+  assert.deepEqual(await verifyPassword(password, legacyHash), { valid: true, needsUpgrade: true });
+  assert.deepEqual(await verifyPassword('wrong-password', legacyHash), { valid: false, needsUpgrade: false });
 
-  const upgradedHash = hashPassword(password);
+  const upgradedHash = await hashPassword(password);
   assert.match(upgradedHash, /^scrypt\$/);
-  assert.deepEqual(verifyPassword(password, upgradedHash), { valid: true, needsUpgrade: false });
+  assert.deepEqual(await verifyPassword(password, upgradedHash), { valid: true, needsUpgrade: false });
+  assert.deepEqual(await verifyPassword('x'.repeat(1025), upgradedHash), { valid: false, needsUpgrade: false });
+  await assert.rejects(() => hashPassword('x'.repeat(1025)), /1024/);
 });
 
 test('verification roadmap uses a per-report session key for restored search actions', () => {

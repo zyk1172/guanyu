@@ -5,8 +5,11 @@ import { notifyAdminsPendingOrder, notifyUserPendingOrder } from '@/lib/email';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { isSupportedPaymentMethod } from '@/lib/payment-core.mjs';
 import { prisma } from '@/lib/prisma';
+import { sameOriginResponse } from '@/lib/request-security';
 
 export async function POST(request: NextRequest) {
+  const originError = sameOriginResponse(request);
+  if (originError) return originError;
   await ensureRuntimeSchema();
   const user = await getCurrentUser(request);
   if (!user) {

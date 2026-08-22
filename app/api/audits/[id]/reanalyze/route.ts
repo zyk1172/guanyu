@@ -3,10 +3,13 @@ import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { createAnalyzeJob, runAnalyzeJob } from '@/lib/analyze-job';
 import { normalizeReportLanguage } from '@/lib/types';
+import { sameOriginResponse } from '@/lib/request-security';
 
 export const maxDuration = 300;
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const originError = sameOriginResponse(request);
+  if (originError) return originError;
   const user = await getCurrentUser(request);
   if (!user) return NextResponse.json({ error: '请登录后重新分析。' }, { status: 401 });
 

@@ -11,6 +11,7 @@ import { reserveCompletionAttempt } from '@/lib/rate-limit';
 import { resolveOperationModel } from '@/lib/operation-model';
 import { invokeModel } from '@/lib/model-runtime';
 import { recordModelUsage } from '@/lib/model-usage';
+import { sameOriginResponse } from '@/lib/request-security';
 
 export const maxDuration = 300;
 
@@ -54,6 +55,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const originError = sameOriginResponse(request);
+    if (originError) return originError;
     await ensureRuntimeSchema();
     const { id } = await params;
     const result = await getAuthorizedAudit(request, id);

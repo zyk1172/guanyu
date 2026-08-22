@@ -13,6 +13,7 @@ import {
   type PlatformModelSearchMode,
 } from '@/lib/platform-model-core.mjs';
 import { testModelConnection } from '@/lib/model-runtime';
+import { sameOriginResponse } from '@/lib/request-security';
 
 const REASONING_DEPTHS = new Set(['none', 'low', 'medium', 'high', 'extreme']);
 const MAX_INT = 2_147_483_647;
@@ -154,6 +155,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const originError = sameOriginResponse(request);
+  if (originError) return originError;
   const admin = await requireSuperAdmin(request);
   if (!admin) return NextResponse.json({ error: '你没有权限管理平台模型。' }, { status: 403 });
   try {
@@ -177,6 +180,8 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  const originError = sameOriginResponse(request);
+  if (originError) return originError;
   const admin = await requireSuperAdmin(request);
   if (!admin) return NextResponse.json({ error: '你没有权限管理平台模型。' }, { status: 403 });
   try {
@@ -246,6 +251,8 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const originError = sameOriginResponse(request);
+  if (originError) return originError;
   const admin = await requireSuperAdmin(request);
   if (!admin) return NextResponse.json({ error: '你没有权限管理平台模型。' }, { status: 403 });
   try {

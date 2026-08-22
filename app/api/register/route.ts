@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import { hashPassword } from '@/lib/auth';
+import { assertValidPasswordInput, hashPassword } from '@/lib/password-core.mjs';
 import { setSessionCookie } from '@/lib/session-cookie';
-import { verifyEmailCode } from '@/lib/captcha';
+import { verifyEmailCodeTx } from '@/lib/captcha';
 import { sendWelcomeEmail } from '@/lib/email';
-import { grantSignupBonus } from '@/lib/billing';
+import { grantSignupBonusTx } from '@/lib/billing';
 import { assertSameOrigin, assertSecureAccountTransport } from '@/lib/request-security';
 
 async function readRegistration(request: NextRequest) {
@@ -41,8 +42,11 @@ function errorResponse(message: string, wantsJson: boolean, status = 400) {
 }
 
 export async function POST(request: NextRequest) {
+  let wantsJson = request.headers.get('content-type')?.includes('application/json') ?? false;
   try {
-    const { email, password, confirmPassword, emailCode, wantsJson } = await readRegistration(request);
+    const registration = await readRegistration(request);
+    const { email, password, confirmPassword, emailCode } = registration;
+    wantsJson = registration.wantsJson;
     try {
       assertSameOrigin(request);
       assertSecureAccountTransport(request);
@@ -53,8 +57,10 @@ export async function POST(request: NextRequest) {
     if (!email || !password) {
       return errorResponse('请输入邮箱和密码', wantsJson);
     }
-    if (password.length < 8) {
-      return errorResponse('密码至少需要 8 个字符', wantsJson);
+    try {
+      assertValidPasswordInput(password);
+    } catch (error: any) {
+      return errorResponse(error?.message || '密码长度不符合要求。', wantsJson);
     }
     if (password !== confirmPassword) {
       return errorResponse('两次输入的密码不一致', wantsJson);
@@ -67,39 +73,48 @@ export async function POST(request: NextRequest) {
     if (existing) {
       return errorResponse('注册信息无法完成，请重新尝试或直接登录。', wantsJson, 400);
     }
-    const emailCodeOk = await verifyEmailCode(email, emailCode, 'register_email');
-    if (!emailCodeOk) {
-      return errorResponse('邮箱验证码错误或已过期，请重新获取。', wantsJson);
-    }
+    const passwordHash = await hashPassword(password);
+    const user = await prisma.$transaction(async (tx) => {
+      const emailCodeOk = await verifyEmailCodeTx(tx, email, emailCode, 'register_email');
+      if (!emailCodeOk) return null;
 
-    const user = await prisma.user.create({
-      data: {
-        email,
-        password: hashPassword(password),
-        role: 'user',
-        settings: {
-          create: {
-            defaultModelName: process.env.OPENAI_MODEL_DEFAULT || 'gpt-4o',
-            llmBaseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
-            defaultReasoningDepth: 'medium',
-            defaultIsPublic: false,
-            defaultEnableCharts: true,
+      const created = await tx.user.create({
+        data: {
+          email,
+          password: passwordHash,
+          role: 'user',
+          settings: {
+            create: {
+              defaultModelName: process.env.OPENAI_MODEL_DEFAULT || 'gpt-4o',
+              llmBaseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
+              defaultReasoningDepth: 'medium',
+              defaultIsPublic: false,
+              defaultEnableCharts: true,
+            },
           },
         },
-      },
+      });
+      await grantSignupBonusTx(tx, created.id);
+      return created;
     });
+
+    if (!user) {
+      return errorResponse('邮箱验证码错误或已过期，请重新获取。', wantsJson, 400);
+    }
 
     const response = wantsJson
       ? NextResponse.json({ ok: true, url: '/account' })
       : NextResponse.redirect(new URL('/account', process.env.NEXTAUTH_URL || 'http://localhost:3000'), 303);
     await setSessionCookie(response, user);
-    // The code was consumed above, so this one-time award is safe to grant.
-    await grantSignupBonus(user.id);
     sendWelcomeEmail(user.email).catch((error) => {
       console.error('Send welcome email failed:', error);
     });
     return response;
-  } catch {
-    return NextResponse.json({ error: '注册失败，请稍后重试。' }, { status: 500 });
+  } catch (error: any) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return errorResponse('注册信息无法完成，请重新尝试或直接登录。', wantsJson, 400);
+    }
+    console.error('Registration failed:', error instanceof Error ? error.message : 'unknown error');
+    return errorResponse('注册失败，请稍后重试。', wantsJson, 500);
   }
 }

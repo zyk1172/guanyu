@@ -26,11 +26,13 @@ export function publicAuditDto(audit: any) {
     isSourcePublic: audit.isSourcePublic,
     viewCount: audit.viewCount,
     heatScore: audit.heatScore,
-    completionMarkdown: audit.completionMarkdown,
-    completionGeneratedAt: audit.completionGeneratedAt,
     reportVersion: audit.reportVersion,
     createdAt: audit.createdAt,
     updatedAt: audit.updatedAt,
+    ...(audit.isCompletionPublic ? {
+      completionMarkdown: audit.completionMarkdown,
+      completionGeneratedAt: audit.completionGeneratedAt,
+    } : {}),
   };
 }
 
@@ -39,6 +41,9 @@ export function ownerAuditDto(audit: any) {
     ...publicAuditDto(audit),
     originalContent: audit.originalContent,
     focus: audit.focus,
+    completionMarkdown: audit.completionMarkdown,
+    completionGeneratedAt: audit.completionGeneratedAt,
+    isCompletionPublic: audit.isCompletionPublic,
   };
 }
 

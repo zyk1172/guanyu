@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { assertCaptchaChallengeLimit, hashForStorage } from '@/lib/rate-limit';
 import { createCaptchaText } from '@/lib/captcha-core.mjs';
@@ -154,7 +155,16 @@ export async function verifyEmailCode(
   code: string,
   purpose: EmailCodePurpose = 'register_email'
 ) {
-  const records = await prisma.verificationCode.findMany({
+  return prisma.$transaction((tx) => verifyEmailCodeTx(tx, email, code, purpose));
+}
+
+export async function verifyEmailCodeTx(
+  tx: Prisma.TransactionClient,
+  email: string,
+  code: string,
+  purpose: EmailCodePurpose = 'register_email'
+) {
+  const records = await tx.verificationCode.findMany({
     where: {
       email,
       purpose,
@@ -167,17 +177,17 @@ export async function verifyEmailCode(
 
   const matched = records.find((item) => item.codeHash === hashCode(code));
   if (matched) {
-    const consumed = await prisma.verificationCode.updateMany({
+    const consumed = await tx.verificationCode.updateMany({
       where: { id: matched.id, consumedAt: null, expiresAt: { gt: new Date() }, codeHash: hashCode(code) },
       data: { consumedAt: new Date() },
     });
     return consumed.count === 1;
   }
-  await prisma.verificationCode.updateMany({
+  await tx.verificationCode.updateMany({
     where: { email, purpose, consumedAt: null, expiresAt: { gt: new Date() }, attemptCount: { lt: 5 } },
     data: { attemptCount: { increment: 1 } },
   });
-  await prisma.verificationCode.updateMany({
+  await tx.verificationCode.updateMany({
     where: { email, purpose, consumedAt: null, attemptCount: { gte: 5 } },
     data: { consumedAt: new Date() },
   });

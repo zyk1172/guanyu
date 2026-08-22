@@ -1,3 +1,5 @@
+import { NextResponse } from 'next/server';
+
 export function assertSameOrigin(request: Request) {
   const origin = request.headers.get('origin');
   const fetchSite = request.headers.get('sec-fetch-site');
@@ -15,6 +17,18 @@ export function assertSameOrigin(request: Request) {
   if (origin && expectedOrigins.has(origin)) return;
   if (!origin && fetchSite && fetchSite !== 'cross-site') return;
   throw new Error('跨站请求已被拒绝，请从观隅页面重新操作。');
+}
+
+export function sameOriginResponse(request: Request) {
+  try {
+    assertSameOrigin(request);
+    return null;
+  } catch {
+    return NextResponse.json(
+      { error: '跨站请求已被拒绝，请从观隅页面重新操作。', code: 'CSRF_ORIGIN_MISMATCH' },
+      { status: 403 },
+    );
+  }
 }
 
 function trustsForwardedHeaders() {

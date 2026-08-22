@@ -4,11 +4,14 @@ import { getCurrentUser } from '@/lib/auth';
 import { cacheDel, cacheDelByPrefix, CACHE_KEYS } from '@/lib/cache';
 import { applyManualVerification } from '@/lib/manual-verification-core.mjs';
 import { prisma } from '@/lib/prisma';
+import { sameOriginResponse } from '@/lib/request-security';
 
 const validOutcome = new Set(['verified', 'unverified']);
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const originError = sameOriginResponse(request);
+    if (originError) return originError;
     const { id } = await params;
     const user = await getCurrentUser(request);
     if (!user) return NextResponse.json({ error: '请登录后更新核验结果。' }, { status: 401 });

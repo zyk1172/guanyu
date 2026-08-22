@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { createAnalyzeJob, runAnalyzeJob } from '@/lib/analyze-job';
 import { normalizeReportLanguage } from '@/lib/types';
+import { sameOriginResponse } from '@/lib/request-security';
 
 export const maxDuration = 300;
 
@@ -18,6 +19,8 @@ function reportLanguageFromRequest(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const originError = sameOriginResponse(request);
+  if (originError) return originError;
   await ensureRuntimeSchema();
   const user = await getCurrentUser(request);
   if (!user) {

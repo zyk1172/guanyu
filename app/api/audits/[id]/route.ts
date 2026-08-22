@@ -6,6 +6,8 @@ import { cacheDelByPrefix, CACHE_KEYS } from '@/lib/cache';
 import { getClientIp, reserveAuditViewCount } from '@/lib/rate-limit';
 import { withHistoricalAuditModelName } from '@/lib/audit-model-display';
 import { auditDtoForAccess, ownerAuditDto, adminAuditDto } from '@/lib/audit-dto';
+import { assertSameOrigin } from '@/lib/request-security';
+import { UpdateAuditSchema } from '@/lib/validation/audit';
 
 async function invalidateAuditCaches() {
   await cacheDelByPrefix(CACHE_KEYS.hotAuditsPrefix);
@@ -81,6 +83,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    assertSameOrigin(request);
     const { id } = await params;
     const user = await getCurrentUser(request);
     if (!user) {
@@ -101,8 +104,11 @@ export async function PATCH(
       return NextResponse.json({ error: '你没有权限修改他人的审视记录。' }, { status: 403 });
     }
 
-    const body = await request.json();
-    const { isPublic, indexable, isSourcePublic } = body;
+    const parsed = UpdateAuditSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return NextResponse.json({ error: '请求参数无效。', code: 'INVALID_INPUT' }, { status: 400 });
+    }
+    const { isPublic, indexable, isSourcePublic } = parsed.data;
 
     const nextIsPublic = isPublic !== undefined ? isPublic : audit.isPublic;
     const nextIndexable = indexable !== undefined ? indexable : audit.indexable;
@@ -133,6 +139,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    assertSameOrigin(request);
     const { id } = await params;
     const user = await getCurrentUser(request);
     if (!user) {

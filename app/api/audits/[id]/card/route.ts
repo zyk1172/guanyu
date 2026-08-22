@@ -9,11 +9,14 @@ import { buildGuanyuCardFallback, buildGuanyuCardPrompt, parseGuanyuCardContent 
 import { getAnalysisTimeoutMs } from '@/lib/reasoning-depth-core.mjs';
 import { safeOutboundRequest } from '@/lib/safe-outbound';
 import { reserveCompletionAttempt } from '@/lib/rate-limit';
+import { sameOriginResponse } from '@/lib/request-security';
 
 export const maxDuration = 120;
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const originError = sameOriginResponse(request);
+    if (originError) return originError;
     await ensureRuntimeSchema();
     const user = await getCurrentUser(request);
     if (!user) return NextResponse.json({ error: '请登录后生成观隅卡。' }, { status: 401 });

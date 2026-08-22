@@ -17,60 +17,31 @@ interface AnalysisFormProps {
   isLoading: boolean;
 }
 
-function explainParseFailure(message: string) {
-  const error = String(message || '').trim();
-  if (/URL 格式|缺少 URL/.test(error)) {
-    return {
-      reasonKey: 'parse.invalidUrlReason',
-      explanationKey: 'parse.invalidUrlExplanation',
-    };
+type ParseFailure = { code: string; message: string };
+
+function explainParseFailure(code: string) {
+  switch (code) {
+    case 'INVALID_INPUT':
+    case 'INVALID_URL':
+      return { reasonKey: 'parse.invalidUrlReason', explanationKey: 'parse.invalidUrlExplanation' };
+    case 'URL_PRIVATE_ADDRESS':
+      return { reasonKey: 'parse.securityReason', explanationKey: 'parse.securityExplanation' };
+    case 'RATE_LIMITED':
+    case 'UPSTREAM_FORBIDDEN':
+      return { reasonKey: 'parse.accessReason', explanationKey: 'parse.accessExplanation' };
+    case 'UPSTREAM_NOT_FOUND':
+      return { reasonKey: 'parse.notFoundReason', explanationKey: 'parse.notFoundExplanation' };
+    case 'UPSTREAM_TIMEOUT':
+      return { reasonKey: 'parse.timeoutReason', explanationKey: 'parse.timeoutExplanation' };
+    case 'NETWORK_ERROR':
+      return { reasonKey: 'parse.networkReason', explanationKey: 'parse.networkExplanation' };
+    case 'UPSTREAM_ERROR':
+      return { reasonKey: 'parse.serverReason', explanationKey: 'parse.serverExplanation' };
+    case 'ARTICLE_EXTRACTION_FAILED':
+      return { reasonKey: 'parse.noContentReason', explanationKey: 'parse.noContentExplanation' };
+    default:
+      return { reasonKey: 'parse.genericReason', explanationKey: 'parse.genericExplanation' };
   }
-  if (/内网|localhost|协议/.test(error)) {
-    return {
-      reasonKey: 'parse.securityReason',
-      explanationKey: 'parse.securityExplanation',
-    };
-  }
-  if (/状态码 401|状态码 403|状态码 429|登录墙|访问被拒/.test(error)) {
-    return {
-      reasonKey: 'parse.accessReason',
-      explanationKey: 'parse.accessExplanation',
-    };
-  }
-  if (/状态码 404|状态码 410/.test(error)) {
-    return {
-      reasonKey: 'parse.notFoundReason',
-      explanationKey: 'parse.notFoundExplanation',
-    };
-  }
-  if (/超时|Timeout|Abort/.test(error)) {
-    return {
-      reasonKey: 'parse.timeoutReason',
-      explanationKey: 'parse.timeoutExplanation',
-    };
-  }
-  if (/网络错误|网络连接|Failed to fetch/.test(error)) {
-    return {
-      reasonKey: 'parse.networkReason',
-      explanationKey: 'parse.networkExplanation',
-    };
-  }
-  if (/状态码 5\d\d|服务器/.test(error)) {
-    return {
-      reasonKey: 'parse.serverReason',
-      explanationKey: 'parse.serverExplanation',
-    };
-  }
-  if (/内容过少|无法提取正文|动态渲染|不是网页|体积过大/.test(error)) {
-    return {
-      reasonKey: 'parse.noContentReason',
-      explanationKey: 'parse.noContentExplanation',
-    };
-  }
-  return {
-    reasonKey: 'parse.genericReason',
-    explanationKey: 'parse.genericExplanation',
-  };
 }
 
 export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps) {
@@ -85,10 +56,13 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
   const [urlInput, setUrlInput] = useState('');
   const [parsedSourceUrl, setParsedSourceUrl] = useState('');
   const [isParsing, setIsParsing] = useState(false);
-  const [parseFailure, setParseFailure] = useState<string | null>(null);
+  const [parseFailure, setParseFailure] = useState<ParseFailure | null>(null);
   const [creditBalance, setCreditBalance] = useState<number | null>(null);
   const activeModel = useActiveModel('analysis');
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
+  const modalRef = useRef<HTMLDivElement | null>(null);
+  const closeParseFailureButtonRef = useRef<HTMLButtonElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (status !== 'authenticated') {
@@ -104,12 +78,48 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
       .catch(() => setCreditBalance(null));
   }, [status]);
 
+  useEffect(() => {
+    if (!parseFailure) return;
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const focusables = () => Array.from(
+      modalRef.current?.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') || [],
+    ).filter((element) => !element.hasAttribute('disabled'));
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setParseFailure(null);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const items = focusables();
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    requestAnimationFrame(() => closeParseFailureButtonRef.current?.focus());
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = previousOverflow;
+      previousFocusRef.current?.focus({ preventScroll: true });
+    };
+  }, [parseFailure]);
+
   const handleParseUrl = async () => {
     const trimmed = urlInput.trim();
     if (!trimmed) return;
 
     try { new URL(trimmed); } catch {
-      setParseFailure('URL 格式无效');
+      setParseFailure({ code: 'INVALID_URL', message: 'URL 格式无效' });
       return;
     }
 
@@ -126,7 +136,7 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
       const data = await res.json();
 
       if (!res.ok) {
-        setParseFailure(data.error || '解析失败');
+        setParseFailure({ code: String(data.code || 'PARSE_FAILED'), message: data.error || '解析失败' });
         return;
       }
 
@@ -135,7 +145,7 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
       if (data.content) setContent(data.content);
       setParsedSourceUrl(String(data.url || trimmed));
     } catch {
-      setParseFailure('网络错误，请重试');
+      setParseFailure({ code: 'NETWORK_ERROR', message: '网络错误，请重试' });
     } finally {
       setIsParsing(false);
     }
@@ -155,7 +165,7 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
   };
 
   const isFormValid = content.trim().length >= 50;
-  const parseFailureInfo = parseFailure ? explainParseFailure(parseFailure) : null;
+  const parseFailureInfo = parseFailure ? explainParseFailure(parseFailure.code) : null;
 
   const focusManualContent = () => {
     setParseFailure(null);
@@ -180,11 +190,12 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
       <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
         {/* URL 自动解析区 */}
         <div className="space-y-2">
-          <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+          <label htmlFor="article-url" className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
             {t('form.urlParser')}
           </label>
           <div className="flex flex-col gap-2 sm:flex-row">
             <input
+              id="article-url"
               type="url"
               value={urlInput}
               onChange={(e) => { setUrlInput(e.target.value); setParsedSourceUrl(''); setParseFailure(null); }}
@@ -324,7 +335,7 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
             if (event.target === event.currentTarget) setParseFailure(null);
           }}
         >
-          <div className="w-full max-w-md rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-card)] sm:p-5">
+          <div ref={modalRef} className="w-full max-w-md rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-card)] sm:p-5">
             <div className="flex items-start gap-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary-soft)] text-[var(--color-warning)]" aria-hidden="true">
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -334,7 +345,7 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
               <div className="min-w-0 flex-1">
                 <div className="flex items-start justify-between gap-3">
                   <h3 id="parse-failure-title" className="text-sm font-black text-[var(--color-text)]">{t('parse.modalTitle')}</h3>
-                  <button type="button" onClick={() => setParseFailure(null)} className="rounded p-1 text-[var(--color-text-muted)] transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)]" aria-label={t('common.close')}>
+                  <button ref={closeParseFailureButtonRef} type="button" onClick={() => setParseFailure(null)} className="rounded p-1 text-[var(--color-text-muted)] transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)]" aria-label={t('common.close')}>
                     <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 6 12 12M18 6 6 18" /></svg>
                   </button>
                 </div>
@@ -346,7 +357,7 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
               </div>
             </div>
             <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <button type="button" onClick={() => { setParseFailure(null); handleParseUrl(); }} className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-xs font-bold text-[var(--color-text)] transition hover:bg-[var(--color-surface-muted)]">
+              <button type="button" onClick={handleParseUrl} className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-xs font-bold text-[var(--color-text)] transition hover:bg-[var(--color-surface-muted)]">
                 {t('common.retry')}
               </button>
               <button type="button" onClick={focusManualContent} className="rounded-lg bg-[var(--color-primary)] px-3 py-2 text-xs font-bold text-white transition hover:bg-[var(--color-primary-hover)] active:scale-[0.98]">

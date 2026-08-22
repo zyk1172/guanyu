@@ -26,7 +26,7 @@ export async function authenticatePassword(email: string, password: string, ip?:
     throw new Error(INVALID_CREDENTIALS_ERROR);
   }
 
-  const passwordResult = verifyPassword(password, user.password);
+  const passwordResult = await verifyPassword(password, user.password);
   if (!passwordResult.valid) {
     throw new Error(INVALID_CREDENTIALS_ERROR);
   }
@@ -34,7 +34,7 @@ export async function authenticatePassword(email: string, password: string, ip?:
   if (passwordResult.needsUpgrade) {
     await prisma.user.update({
       where: { id: user.id },
-      data: { password: hashPassword(password) },
+      data: { password: await hashPassword(password) },
     });
   }
   await clearLoginAttempts(normalizedEmail);

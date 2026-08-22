@@ -10,6 +10,7 @@ import { calculateProAccessExpiry } from '@/lib/pro-access-core.mjs';
 import { encryptSecret } from '@/lib/secret';
 import { deleteUserAccount } from '@/lib/privacy';
 import { verifyStepUp } from '@/lib/step-up';
+import { sameOriginResponse } from '@/lib/request-security';
 
 async function requireAdmin(request: Request) {
   const user = await getCurrentUser(request);
@@ -126,6 +127,8 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: NextRequest) {
+  const originError = sameOriginResponse(request);
+  if (originError) return originError;
   await ensureRuntimeSchema();
   const admin = await requireAdmin(request);
   if (!admin) {

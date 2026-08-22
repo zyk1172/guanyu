@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import "./globals.css";
 import Providers from "@/components/Providers";
 import { GsapRoot } from "@/components/GsapMotion";
@@ -87,15 +88,17 @@ const themeScript = `
 })();
 `;
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const nonce = (await headers()).get('x-nonce') || undefined;
   return (
     <html lang="zh-CN" data-theme="newspaper" data-ui-language="zh-CN" suppressHydrationWarning>
       <body className="antialiased">
         <script
+          nonce={nonce}
           type="application/ld+json"
           dangerouslySetInnerHTML={{
             __html: JSON.stringify({
@@ -117,7 +120,7 @@ export default function RootLayout({
             }).replace(/</g, "\\u003c"),
           }}
         />
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeScript }} />
         <Providers>
           <GsapRoot>{children}</GsapRoot>
         </Providers>

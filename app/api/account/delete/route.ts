@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     const candidate = confirmation || password;
     const confirmed = emailCode
       ? await verifyEmailCode(account.email, emailCode, 'login_email')
-      : (verifyPassword(candidate, account.password).valid || await verifyEmailCode(account.email, candidate, 'login_email'));
+      : ((await verifyPassword(candidate, account.password)).valid || await verifyEmailCode(account.email, candidate, 'login_email'));
     if (!confirmed) {
       return NextResponse.json({ error: '当前密码或邮箱验证码不正确。' }, { status: 400 });
     }

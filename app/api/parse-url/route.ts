@@ -4,6 +4,7 @@ import type { AnyNode } from 'domhandler';
 import { extractPublishedDate, normalizeDate } from '@/lib/publishedDate.mjs';
 import { assertPublicOutboundUrl, safeOutboundRequest } from '@/lib/safe-outbound';
 import { requireClientIp, reservePublicUrlParseAttempt } from '@/lib/rate-limit';
+import { sameOriginResponse } from '@/lib/request-security';
 
 export const maxDuration = 30;
 export const runtime = 'nodejs';
@@ -25,6 +26,38 @@ interface ParseResult {
 interface FetchedHtml {
   html: string;
   finalUrl: string;
+}
+
+type ParseErrorCode =
+  | 'INVALID_INPUT'
+  | 'INVALID_URL'
+  | 'URL_PRIVATE_ADDRESS'
+  | 'RATE_LIMITED'
+  | 'UPSTREAM_FORBIDDEN'
+  | 'UPSTREAM_NOT_FOUND'
+  | 'UPSTREAM_TIMEOUT'
+  | 'ARTICLE_EXTRACTION_FAILED'
+  | 'UPSTREAM_ERROR'
+  | 'NETWORK_ERROR'
+  | 'PARSE_FAILED';
+
+function parseErrorCode(error: unknown): ParseErrorCode {
+  const value = error as { name?: unknown; message?: unknown } | null;
+  const name = String(value?.name || '');
+  const message = String(value?.message || error || '');
+  if (name === 'AbortError' || /超时|timeout|timed out/i.test(message)) return 'UPSTREAM_TIMEOUT';
+  if (/频繁|rate limit|too many requests/i.test(message)) return 'RATE_LIMITED';
+  if (/内网|localhost|协议|URL 格式|受限制|外部服务地址|private|loopback/i.test(message)) return 'URL_PRIVATE_ADDRESS';
+  if (/状态码\s*(401|403)|登录墙|访问被拒|forbidden|unauthorized/i.test(message)) return 'UPSTREAM_FORBIDDEN';
+  if (/状态码\s*(404|410)|not found/i.test(message)) return 'UPSTREAM_NOT_FOUND';
+  if (/状态码\s*5\d\d|服务器错误|bad gateway|service unavailable/i.test(message)) return 'UPSTREAM_ERROR';
+  if (/网络错误|网络连接|failed to fetch|fetch failed|econn|enotfound/i.test(message)) return 'NETWORK_ERROR';
+  return 'PARSE_FAILED';
+}
+
+function parseErrorResponse(error: unknown, fallback: string, status: number) {
+  const message = String((error as { message?: unknown })?.message || fallback);
+  return NextResponse.json({ error: message, code: parseErrorCode(error) }, { status });
 }
 
 function cleanTitle(rawTitle: string): string {
@@ -534,47 +567,56 @@ function extractText($el: cheerio.Cheerio<AnyNode>, $: cheerio.CheerioAPI): stri
 }
 
 export async function POST(request: Request) {
+  const originError = sameOriginResponse(request);
+  if (originError) return originError;
   try {
     try {
       await reservePublicUrlParseAttempt(requireClientIp(request));
     } catch (error: any) {
-      return NextResponse.json({ error: error?.message || '网页解析请求过于频繁，请稍后再试。' }, { status: 429 });
+      return NextResponse.json({ error: error?.message || '网页解析请求过于频繁，请稍后再试。', code: 'RATE_LIMITED' }, { status: 429 });
     }
     const body = await request.json();
     const { url } = body;
 
     if (!url || typeof url !== 'string') {
-      return NextResponse.json({ error: '缺少 URL 参数。' }, { status: 400 });
+      return NextResponse.json({ error: '缺少 URL 参数。', code: 'INVALID_INPUT' }, { status: 400 });
     }
 
     const { html, finalUrl } = await fetchHtmlWithRedirects(url);
 
     if (html.length < 500) {
-      return NextResponse.json({ error: '页面内容过少，可能是登录墙或空页面。' }, { status: 400 });
+      return NextResponse.json({ error: '页面内容过少，可能是登录墙或空页面。', code: 'ARTICLE_EXTRACTION_FAILED' }, { status: 400 });
     }
 
     const result = parseHtml(html, finalUrl);
 
     if (!result.content || result.content.length < 50) {
-      return NextResponse.json({ error: '无法提取正文内容，可能是动态渲染页面或登录墙。' }, { status: 400 });
+      return NextResponse.json({ error: '无法提取正文内容，可能是动态渲染页面或登录墙。', code: 'ARTICLE_EXTRACTION_FAILED' }, { status: 400 });
     }
 
     return NextResponse.json(result);
 
   } catch (error: any) {
     if (error?.name === 'AbortError') {
-      return NextResponse.json({ error: '抓取超时，请检查链接或稍后重试。' }, { status: 504 });
+      return parseErrorResponse({ name: 'AbortError', message: '抓取超时，请检查链接或稍后重试。' }, '抓取超时，请检查链接或稍后重试。', 504);
     }
     const message = typeof error?.message === 'string' ? error.message : '';
     if (message) {
-      const status = message.includes('内网') || message.includes('localhost') || message.includes('协议') || message.includes('URL 格式') || message.includes('受限制') || message.includes('外部服务地址')
+      const code = parseErrorCode(error);
+      const status = code === 'URL_PRIVATE_ADDRESS' || code === 'INVALID_URL'
         ? 400
-        : message.includes('超时')
-          ? 504
-          : 500;
-      return NextResponse.json({ error: message }, { status });
+        : code === 'RATE_LIMITED'
+          ? 429
+          : code === 'UPSTREAM_TIMEOUT'
+            ? 504
+            : code === 'UPSTREAM_FORBIDDEN'
+              ? 403
+              : code === 'UPSTREAM_NOT_FOUND'
+                ? 404
+                : 502;
+      return parseErrorResponse(error, message, status);
     }
     console.error('Parse-url error:', error);
-    return NextResponse.json({ error: '网页解析失败，请重试。' }, { status: 500 });
+    return parseErrorResponse(error, '网页解析失败，请重试。', 500);
   }
 }

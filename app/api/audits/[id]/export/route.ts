@@ -7,6 +7,7 @@ import { prisma } from '@/lib/prisma';
 import { parseExportReport } from '@/lib/report-export-content';
 import { exportCopy, getExportBrand, normalizeExportLanguage } from '@/lib/export-language-core.mjs';
 import { withHistoricalAuditModelName } from '@/lib/audit-model-display';
+import { sameOriginResponse } from '@/lib/request-security';
 
 type ExportFormat = 'MARKDOWN' | 'PDF' | 'WORD';
 const PDF_TEMPLATE_VERSION = '7';
@@ -119,6 +120,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const originError = sameOriginResponse(request);
+  if (originError) return originError;
   const { id } = await params;
   const found = await getAuthorizedAudit(request, id);
   if ('error' in found) return found.error;

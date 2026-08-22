@@ -18,12 +18,27 @@ env:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: guanyu
+          POSTGRES_PASSWORD: guanyu
+          POSTGRES_DB: guanyu
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U guanyu"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       DATABASE_URL: "postgresql://guanyu:guanyu@localhost:5432/guanyu?schema=public&connection_limit=10&pool_timeout=20"
       NEXTAUTH_SECRET: "ci-only-nextauth-secret"
       NEXTAUTH_URL: "http://localhost:3000"
       APP_ENCRYPTION_KEY: "ci-only-app-encryption-key"
       HASH_PEPPER: "ci-only-hash-pepper"
+      TEST_USER_EMAIL: "ci-ordinary@example.com"
     steps:
       - name: Check out repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -36,6 +51,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
+
+      - name: Apply database migrations
+        run: npx prisma migrate deploy
+
+      - name: Seed CI accounts
+        run: npm run seed:ci
 
       - name: Run CI checks
         run: npm run ci

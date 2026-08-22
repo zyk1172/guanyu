@@ -4,6 +4,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { backupSummary, createOperationsBackup, decodeOperationsBackup, encodeOperationsBackup, restoreOperationsBackup } from '@/lib/operations-backup';
 import { cacheDel, cacheDelByPrefix, CACHE_KEYS } from '@/lib/cache';
 import { verifyStepUp } from '@/lib/step-up';
+import { sameOriginResponse } from '@/lib/request-security';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -40,6 +41,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const originError = sameOriginResponse(request);
+  if (originError) return originError;
   const user = await requireSuperAdmin(request);
   if (!user) return NextResponse.json({ error: '只有超级管理员可以创建运营备份。' }, { status: 403 });
   try {
@@ -57,6 +60,8 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
+  const originError = sameOriginResponse(request);
+  if (originError) return originError;
   const user = await requireSuperAdmin(request);
   if (!user) return NextResponse.json({ error: '只有超级管理员可以恢复运营备份。' }, { status: 403 });
   try {

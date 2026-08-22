@@ -4,9 +4,12 @@ import { prisma } from '@/lib/prisma';
 import { getClientIp } from '@/lib/rate-limit';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { sendRegisterCodeEmail } from '@/lib/email';
+import { sameOriginResponse } from '@/lib/request-security';
 
 export async function POST(request: NextRequest) {
   try {
+    const originError = sameOriginResponse(request);
+    if (originError) return originError;
     await ensureRuntimeSchema();
     const body = await request.json();
     const email = String(body.email || '').trim().toLowerCase();

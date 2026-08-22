@@ -7,7 +7,7 @@ export async function verifyStepUp(userId: string, input: { password?: string; e
   if (!account) throw new Error('账号不存在。');
   const password = String(input.password || '').trim();
   const emailCode = String(input.emailCode || '').trim();
-  if (password && verifyPassword(password, account.password).valid) return true;
+  if (password && (await verifyPassword(password, account.password)).valid) return true;
   if (emailCode && await verifyEmailCode(account.email, emailCode, 'login_email')) return true;
   return false;
 }

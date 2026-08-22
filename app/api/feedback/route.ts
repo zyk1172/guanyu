@@ -5,6 +5,7 @@ import { notifyAdminsFeedback } from '@/lib/email';
 import { prisma } from '@/lib/prisma';
 import { reserveFeedbackAttempt } from '@/lib/rate-limit';
 import { toClientError } from '@/lib/app-error';
+import { sameOriginResponse } from '@/lib/request-security';
 
 const FEEDBACK_TYPES = new Set(['bug', 'feature', 'report', 'billing', 'other']);
 
@@ -18,6 +19,8 @@ const FEEDBACK_TYPE_LABELS: Record<string, string> = {
 
 export async function POST(request: Request) {
   try {
+    const originError = sameOriginResponse(request);
+    if (originError) return originError;
     await ensureRuntimeSchema();
     const user = await getCurrentUser(request);
     if (!user) {
