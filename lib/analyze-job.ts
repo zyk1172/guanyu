@@ -11,7 +11,7 @@ import { encodePlatformModelSnapshot, platformModelSnapshot, resolvePlatformMode
 import { withHistoricalAuditModelName } from '@/lib/audit-model-display';
 
 const MAX_NEWS_CONTENT_LENGTH = 30_000;
-const JOB_LEASE_MS = 10 * 60 * 1000;
+const JOB_LEASE_MS = 6 * 60 * 1000;
 const JOB_RETRY_DELAY_MS = 30 * 1000;
 const JOB_MAX_ATTEMPTS = Math.max(1, Number(process.env.PLATFORM_ANALYSIS_MAX_RETRIES || 1) + 1);
 
@@ -157,8 +157,14 @@ export async function runAnalyzeJob(jobId: string) {
     where: {
       id: jobId,
       OR: [
-        { status: 'pending' },
-        { status: 'running', leaseExpiresAt: { lt: now } },
+        {
+          status: 'pending',
+          OR: [
+            { nextAttemptAt: null },
+            { nextAttemptAt: { lte: now } },
+          ],
+        },
+        { status: 'running', leaseExpiresAt: { lte: now } },
       ],
     },
     data: {

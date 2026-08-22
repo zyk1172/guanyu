@@ -15,7 +15,9 @@ import { AnalysisMode, ReportLanguage, getReportLanguageLabel, getThinkingDepthL
 import { getBrandIdentity } from '../lib/brand-core.mjs';
 import {
   ACTIVE_ANALYSIS_JOB_STORAGE_KEY,
+  ANALYSIS_JOB_POLLING_ATTEMPTS,
   getAnalysisJobResolution,
+  getAnalysisJobPollingDelay,
   normalizeActiveAnalysisJobId,
 } from '../lib/analysis-job-client-core.mjs';
 
@@ -83,8 +85,8 @@ export default function Home() {
     }
 
     try {
-      for (let attempt = 0; attempt < 180; attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, attempt < 10 ? 1500 : 3000));
+      for (let attempt = 0; attempt < ANALYSIS_JOB_POLLING_ATTEMPTS; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, getAnalysisJobPollingDelay(attempt)));
         const statusResponse = await fetch(`/api/analyze/jobs/${normalizedJobId}`, { cache: 'no-store' });
         const statusData = await statusResponse.json().catch(() => ({}));
         if (!statusResponse.ok) {

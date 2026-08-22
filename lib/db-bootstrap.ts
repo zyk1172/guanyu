@@ -184,6 +184,12 @@ export function ensureRuntimeSchema() {
         CREATE INDEX IF NOT EXISTS "AuditJob_status_idx" ON "AuditJob"("status");
       `);
       await prisma.$executeRawUnsafe(`
+        CREATE INDEX IF NOT EXISTS "AuditJob_status_nextAttemptAt_idx" ON "AuditJob"("status", "nextAttemptAt");
+      `);
+      await prisma.$executeRawUnsafe(`
+        CREATE INDEX IF NOT EXISTS "AuditJob_status_leaseExpiresAt_idx" ON "AuditJob"("status", "leaseExpiresAt");
+      `);
+      await prisma.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS "AuditJob_createdAt_idx" ON "AuditJob"("createdAt");
       `);
       await prisma.$executeRawUnsafe(`
