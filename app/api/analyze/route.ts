@@ -59,11 +59,12 @@ function normalizeRisk(value: unknown): SpeculationRisk {
   return value === '高' || value === '低' ? value : '中';
 }
 
-function normalizeVerificationStatus(value: unknown, hasExternalResults: boolean): VerificationStatusCode {
+export function normalizeVerificationStatus(value: unknown, hasExternalResults: boolean): VerificationStatusCode {
   const raw = String(value || '').trim();
   if (raw === 'externally_verified') return hasExternalResults ? 'externally_verified' : 'source_supported';
   if (raw === 'source_supported' || raw === 'partially_supported' || raw === 'pending_verification' || raw === 'unable_to_verify') return raw;
-  if (raw === '已核验' || raw === '原文支持') return hasExternalResults ? 'externally_verified' : 'source_supported';
+  if (raw === '已核验') return hasExternalResults ? 'externally_verified' : 'source_supported';
+  if (raw === '原文支持') return 'source_supported';
   if (raw === '部分核验' || raw === '部分支持') return 'partially_supported';
   if (raw === '暂无法确认') return 'unable_to_verify';
   return 'pending_verification';
@@ -151,15 +152,31 @@ function normalizeGap(item: any, fallbackTitle: string, hasExternalResults: bool
   };
 }
 
-function normalizeOnlineVerification(parsed: any, factCheckSources: Awaited<ReturnType<typeof searchWeb>>, reportLanguage: ReportLanguage) {
+export function normalizeSourceUrl(value: unknown) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+    url.hash = '';
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return '';
+  }
+}
+
+export function normalizeOnlineVerification(parsed: any, factCheckSources: Awaited<ReturnType<typeof searchWeb>>, reportLanguage: ReportLanguage) {
   const existing = parsed?.onlineVerification || parsed?.web_verification || {};
-  const hasExternalResults = factCheckSources.length > 0;
+  const observedSourceUrls = new Set(
+    factCheckSources.map((source) => normalizeSourceUrl(source?.url)).filter(Boolean),
+  );
+  const hasExternalResults = observedSourceUrls.size > 0;
   const noReliableSourcesMessage = !reportLanguage.startsWith('zh-')
     ? 'No reliable source was found for external verification.'
     : '未找到可用于外部核验的可靠来源。';
-  const sourceFromSearch = (source: any) => {
+  const sourceFromSearch = (source: any, allowExternalVerification = false) => {
     const title = String(source?.title || '').trim();
-    const url = String(source?.url || '').trim();
+    const url = normalizeSourceUrl(source?.url);
     const relevance = String(source?.relevance || source?.snippet || source?.note || '').trim();
     const note = String(source?.note || source?.snippet || '').trim();
     const sourceType = String(source?.sourceType || source?.source_type || source?.provider || '相关来源').trim();
@@ -174,7 +191,10 @@ function normalizeOnlineVerification(parsed: any, factCheckSources: Awaited<Retu
       url,
       sourceType,
       relevance,
-      verificationStatus: normalizeVerificationStatus(source?.verificationStatus || source?.verification_status || 'partially_supported', true),
+      verificationStatus: normalizeVerificationStatus(
+        source?.verificationStatus || source?.verification_status || 'partially_supported',
+        allowExternalVerification,
+      ),
       evidenceGrade: normalizeEvidenceGrade(source?.evidenceGrade || source?.evidence_grade || 'C'),
       note,
     };
@@ -192,12 +212,23 @@ function normalizeOnlineVerification(parsed: any, factCheckSources: Awaited<Retu
   }
 
   const verifiedSources = hasExternalResults
-    ? asArray(existing.verifiedSources || existing.verified_sources).map(sourceFromSearch).filter(Boolean)
+    ? asArray(existing.verifiedSources || existing.verified_sources)
+      .filter((source) => observedSourceUrls.has(normalizeSourceUrl(source?.url)))
+      .map((source) => sourceFromSearch(source, true))
+      .filter(Boolean)
     : [];
-  const backgroundSources = asArray(existing.backgroundSources || existing.background_sources).length > 0
-    ? asArray(existing.backgroundSources || existing.background_sources).map(sourceFromSearch).filter(Boolean)
-    : factCheckSources.slice(0, 5).map(sourceFromSearch).filter(Boolean);
-  const pendingLeads = asArray(existing.pendingLeads || existing.leads_to_verify).map(sourceFromSearch).filter(Boolean);
+  const modelBackgroundSources = asArray(existing.backgroundSources || existing.background_sources)
+    .filter((source) => observedSourceUrls.has(normalizeSourceUrl(source?.url)));
+  const backgroundSources = modelBackgroundSources.length > 0
+    ? modelBackgroundSources.map((source) => sourceFromSearch(source)).filter(Boolean)
+    : factCheckSources
+      .filter((source) => normalizeSourceUrl(source.url))
+      .slice(0, 5)
+      .map((source) => sourceFromSearch(source))
+      .filter(Boolean);
+  const pendingLeads = asArray(existing.pendingLeads || existing.leads_to_verify)
+    .map((source) => sourceFromSearch(source))
+    .filter(Boolean);
   const unableToConfirm = asArray<string>(existing.unableToConfirm || existing.unconfirmed_items)
     .map((item) => formatUnconfirmedItem(item))
     .filter((item) => item && !EMPTY_ONLINE_TEXT.has(item) && !EMPTY_ONLINE_TITLES.has(item));
@@ -222,7 +253,7 @@ function normalizeReport(params: {
   const { parsed, mode, meta, factCheckSources } = params;
   const reportLanguage = normalizeReportLanguage(meta.reportLanguage);
   const onlineVerification = normalizeOnlineVerification(parsed, factCheckSources, reportLanguage);
-  const hasExternalResults = onlineVerification.status === 'has_results';
+  const hasExternalResults = onlineVerification.verifiedSources.length > 0;
   const scores = getScores(parsed);
   const readingUtility = getReadingUtility(parsed);
   const timeAssessment = {
@@ -349,7 +380,9 @@ function normalizeReport(params: {
       strongestEvidence: String(parsed.evidenceVerificationSummary?.strongestEvidence || '当前材料不足，无法形成可靠判断。'),
       weakestEvidence: String(parsed.evidenceVerificationSummary?.weakestEvidence || '当前材料不足，无法形成可靠判断。'),
       sourceSupportedClaims: asArray<string>(parsed.evidenceVerificationSummary?.sourceSupportedClaims),
-      externallyVerifiedClaims: hasExternalResults ? asArray<string>(parsed.evidenceVerificationSummary?.externallyVerifiedClaims) : [],
+      // The model does not provide a claim-to-source mapping. Keep this list
+      // conservative instead of presenting unbound model text as verified.
+      externallyVerifiedClaims: [],
       pendingVerificationClaims: asArray<string>(parsed.evidenceVerificationSummary?.pendingVerificationClaims),
       unableToVerifyClaims: asArray<string>(parsed.evidenceVerificationSummary?.unableToVerifyClaims),
     },

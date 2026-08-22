@@ -6,7 +6,7 @@ import { cacheDelByPrefix, CACHE_KEYS } from '@/lib/cache';
 import { getClientIp, reserveAuditViewCount } from '@/lib/rate-limit';
 import { withHistoricalAuditModelName } from '@/lib/audit-model-display';
 import { auditDtoForAccess, ownerAuditDto, adminAuditDto } from '@/lib/audit-dto';
-import { assertSameOrigin } from '@/lib/request-security';
+import { sameOriginResponse } from '@/lib/request-security';
 import { UpdateAuditSchema } from '@/lib/validation/audit';
 
 async function invalidateAuditCaches() {
@@ -82,8 +82,10 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const originError = sameOriginResponse(request);
+  if (originError) return originError;
+
   try {
-    assertSameOrigin(request);
     const { id } = await params;
     const user = await getCurrentUser(request);
     if (!user) {
@@ -138,8 +140,10 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const originError = sameOriginResponse(request);
+  if (originError) return originError;
+
   try {
-    assertSameOrigin(request);
     const { id } = await params;
     const user = await getCurrentUser(request);
     if (!user) {

@@ -1,10 +1,10 @@
 import crypto from 'crypto';
 import { prisma } from '@/lib/prisma';
-import { slidingWindowCount, slidingWindowRecord, CACHE_KEYS } from '@/lib/cache';
 import { privacyHmacHash } from '@/lib/privacy-hash';
 
-const ANALYZE_WINDOW_MS = 5 * 60 * 1000;
-const ANALYZE_WINDOW_LIMIT = 3;
+export const ANALYZE_ADMISSION_ACTION = 'analyze_job' as const;
+export const ANALYZE_ADMISSION_WINDOW_MS = 5 * 60 * 1000;
+export const ANALYZE_ADMISSION_LIMIT = 3;
 const CAPTCHA_WINDOW_MS = 10 * 60 * 1000;
 const CAPTCHA_WINDOW_LIMIT = 12;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
@@ -68,41 +68,8 @@ export function hashForStorage(value: string) {
   return privacyHmacHash(value);
 }
 
-export async function assertAnalyzeRateLimit(userId: string) {
-  // 优先走 Redis 滑动窗口；Redis 未配置或故障时回退数据库统计
-  const redisCount = await slidingWindowCount(CACHE_KEYS.analyzeRateLimit(userId), ANALYZE_WINDOW_MS);
-  const recentCount = redisCount !== null
-    ? redisCount
-    : await prisma.rateLimitEvent.count({
-        where: {
-          userId,
-          action: 'analyze',
-          createdAt: { gte: new Date(Date.now() - ANALYZE_WINDOW_MS) },
-        },
-      });
-
-  if (recentCount >= ANALYZE_WINDOW_LIMIT) {
-    throw new Error('操作过于频繁，请 5 分钟后再生成新的审视报告。');
-  }
-}
-
-export async function recordAnalyzeEvent(userId: string) {
-  await slidingWindowRecord(CACHE_KEYS.analyzeRateLimit(userId), ANALYZE_WINDOW_MS);
-  // 数据库始终记录，作为 Redis 不可用时的回退依据
-  await prisma.rateLimitEvent.create({
-    data: {
-      userId,
-      action: 'analyze',
-    },
-  });
-  // 顺带清理该用户一天前的限流事件，防止表无限增长（命中 userId+action+createdAt 索引）
-  await prisma.rateLimitEvent.deleteMany({
-    where: {
-      userId,
-      action: 'analyze',
-      createdAt: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-    },
-  }).catch(() => {});
+export function shouldRejectAnalyzeAdmission(recentCount: number) {
+  return recentCount >= ANALYZE_ADMISSION_LIMIT;
 }
 
 export async function assertEmailCodeSendLimit(email: string, ip: string) {
@@ -253,22 +220,22 @@ export async function reservePublicUrlParseAttempt(ip: string) {
 }
 
 export async function reserveAnalyzeJobAdmission(userId: string) {
-  const windowStart = new Date(Date.now() - ANALYZE_WINDOW_MS);
+  const windowStart = new Date(Date.now() - ANALYZE_ADMISSION_WINDOW_MS);
   return prisma.$transaction(async (tx) => {
     await acquireUserActionLock(tx, `guanyu-analyze-job:${userId}`);
     const count = await tx.rateLimitEvent.count({
-      where: { userId, action: 'analyze_job', createdAt: { gte: windowStart } },
+      where: { userId, action: ANALYZE_ADMISSION_ACTION, createdAt: { gte: windowStart } },
     });
-    if (count >= ANALYZE_WINDOW_LIMIT) {
+    if (shouldRejectAnalyzeAdmission(count)) {
       throw new Error('操作过于频繁，请 5 分钟后再生成新的审视报告。');
     }
-    return tx.rateLimitEvent.create({ data: { userId, action: 'analyze_job' } });
+    return tx.rateLimitEvent.create({ data: { userId, action: ANALYZE_ADMISSION_ACTION } });
   });
 }
 
 export async function releaseAnalyzeJobAdmission(userId: string, eventId?: string) {
   if (!eventId) return;
-  await prisma.rateLimitEvent.deleteMany({ where: { id: eventId, userId, action: 'analyze_job' } });
+  await prisma.rateLimitEvent.deleteMany({ where: { id: eventId, userId, action: ANALYZE_ADMISSION_ACTION } });
 }
 
 export async function reserveAuditViewCount(actor: string, auditId: string) {

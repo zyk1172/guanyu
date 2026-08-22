@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { assertValidPasswordInput, hashPassword } from '@/lib/password-core.mjs';
 import { setSessionCookie } from '@/lib/session-cookie';
-import { verifyEmailCodeTx } from '@/lib/captcha';
+import { hasValidEmailCode, verifyEmailCodeTx } from '@/lib/captcha';
 import { sendWelcomeEmail } from '@/lib/email';
 import { grantSignupBonusTx } from '@/lib/billing';
 import { assertSameOrigin, assertSecureAccountTransport } from '@/lib/request-security';
@@ -73,6 +73,11 @@ export async function POST(request: NextRequest) {
     if (existing) {
       return errorResponse('注册信息无法完成，请重新尝试或直接登录。', wantsJson, 400);
     }
+
+    if (!await hasValidEmailCode(email, emailCode, 'register_email')) {
+      return errorResponse('邮箱验证码错误或已过期，请重新获取。', wantsJson, 400);
+    }
+
     const passwordHash = await hashPassword(password);
     const user = await prisma.$transaction(async (tx) => {
       const emailCodeOk = await verifyEmailCodeTx(tx, email, emailCode, 'register_email');
