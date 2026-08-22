@@ -6,7 +6,7 @@ const allowedDevOrigins = process.env.NEXT_ALLOWED_DEV_ORIGINS
   .filter(Boolean);
 
 const nextConfig: NextConfig = {
-  output: 'standalone',
+  output: process.env.VERCEL ? undefined : 'standalone',
   ...(allowedDevOrigins?.length ? { allowedDevOrigins } : {}),
   outputFileTracingIncludes: {
     '/api/audits/[id]/export': [
