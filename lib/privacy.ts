@@ -182,23 +182,29 @@ export async function cleanupExpiredAuditJobInputs() {
       status: 'failed',
       inputJson: '{}',
       error: '任务超时，原始输入已按保留期清理。',
+      leaseExpiresAt: null,
+      lastHeartbeatAt: null,
+      nextAttemptAt: null,
+      workerId: null,
     },
   });
   const maxAttempts = Math.max(1, Number(process.env.PLATFORM_ANALYSIS_MAX_RETRIES || 1) + 1);
   const expiredLeaseJobs = await prisma.auditJob.findMany({
-    where: { status: 'running', leaseExpiresAt: { lt: now } },
+    where: { status: 'running', leaseExpiresAt: { lte: now } },
     select: { id: true, attemptCount: true },
   });
+  let recoveredExpiredLeases = 0;
   for (const job of expiredLeaseJobs) {
     const terminal = job.attemptCount >= maxAttempts;
-    await prisma.auditJob.update({
-      where: { id: job.id },
+    const updated = await prisma.auditJob.updateMany({
+      where: { id: job.id, status: 'running', leaseExpiresAt: { lte: now } },
       data: terminal
         ? {
             status: 'failed',
             error: '审视任务执行超时，重试次数已用完。',
             leaseExpiresAt: null,
             lastHeartbeatAt: null,
+            nextAttemptAt: null,
             workerId: null,
             inputRetentionExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           }
@@ -210,8 +216,9 @@ export async function cleanupExpiredAuditJobInputs() {
             nextAttemptAt: now,
           },
     });
+    recoveredExpiredLeases += updated.count;
   }
-  return { failed, staleRunning, recoveredExpiredLeases: expiredLeaseJobs.length };
+  return { failed, staleRunning, recoveredExpiredLeases };
 }
 
 export async function runPrivacyCleanup() {

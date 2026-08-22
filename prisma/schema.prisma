@@ -171,6 +171,8 @@ model AuditJob {
 
   @@index([userId])
   @@index([status])
+  @@index([status, nextAttemptAt])
+  @@index([status, leaseExpiresAt])
   @@index([createdAt])
 }
 

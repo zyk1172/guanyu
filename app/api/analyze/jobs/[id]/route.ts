@@ -4,6 +4,7 @@ import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { runAnalyzeJob } from '@/lib/analyze-job';
 import { prisma } from '@/lib/prisma';
 import { sameOriginResponse } from '@/lib/request-security';
+import { shouldScheduleAnalyzeJobRecovery } from '@/lib/analyze-job-core.mjs';
 
 export const maxDuration = 300;
 
@@ -29,6 +30,7 @@ export async function GET(
       auditId: true,
       error: true,
       nextAttemptAt: true,
+      leaseExpiresAt: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -38,7 +40,11 @@ export async function GET(
     return NextResponse.json({ error: '审视任务不存在或无权查看。' }, { status: 404 });
   }
 
-  if (job.status === 'pending' && (!job.nextAttemptAt || job.nextAttemptAt.getTime() <= Date.now())) {
+  if (shouldScheduleAnalyzeJobRecovery({
+    status: job.status,
+    nextAttemptAt: job.nextAttemptAt,
+    leaseExpiresAt: job.leaseExpiresAt,
+  })) {
     after(() => runAnalyzeJob(job.id));
   }
 

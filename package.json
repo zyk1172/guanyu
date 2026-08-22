@@ -9,7 +9,7 @@
     "postinstall": "prisma generate",
     "start": "next start",
     "lint": "eslint",
-    "ci": "npm run lint && npm run test:report && npm run test:report-schema && npm run test:round2 && npm run test:backup && npm run test:platform-models && npm run test:model-runtime && npm run test:permissions && npm run build",
+    "ci": "npm run lint && npm run test:report && npm run test:report-schema && npm run test:round2 && npm run test:backup && npm run test:platform-models && npm run test:analyze-job && npm run test:model-runtime && npm run test:permissions && npm run build",
     "test:report": "node --test scripts/report-logic.test.mjs",
     "test:report-schema": "tsx --test scripts/report-schema.test.ts",
     "test:round2": "tsx --test scripts/round2-security.test.ts",
@@ -21,6 +21,7 @@
     "test:permissions": "tsx scripts/ordinary-user-permission-smoke.ts",
     "seed:ci": "tsx scripts/seed-ci.ts",
     "test:platform-models": "node --test scripts/platform-model-core.test.mjs",
+    "test:analyze-job": "node --test scripts/analyze-job.test.mjs",
     "test:model-runtime": "tsx --test scripts/model-runtime.test.ts",
     "bootstrap:admin": "tsx scripts/bootstrap-admin.ts"
   },
