@@ -13,7 +13,7 @@
     "test:report": "node --test scripts/report-logic.test.mjs",
     "test:report-schema": "tsx --test scripts/report-schema.test.ts",
     "test:round2": "tsx --test scripts/round2-security.test.ts",
-    "reset:business-data": "node scripts/reset-business-data.mjs",
+    "reset:business-data": "tsx scripts/reset-business-data.ts",
     "test:pdf": "tsx scripts/pdf-smoke.ts",
     "test:word": "tsx scripts/docx-smoke.ts",
     "test:exports-i18n": "tsx scripts/multilingual-export-smoke.ts",
