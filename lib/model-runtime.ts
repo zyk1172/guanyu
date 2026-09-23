@@ -203,32 +203,44 @@ function standardChatBody(params: InvokeModelParams) {
 
 function geminiThinking(modelId: string, reasoningDepth?: string) {
   if (/gemini-3/i.test(modelId)) {
-    const level = reasoningDepth === 'none'
-      ? 'minimal'
-      : reasoningDepth === 'low'
-        ? 'low'
-        : reasoningDepth === 'medium'
-          ? 'medium'
-          : 'high';
+    const level = reasoningDepth === 'none' || reasoningDepth === 'low'
+      ? 'low'
+      : reasoningDepth === 'medium'
+        ? 'medium'
+        : 'high';
     return { thinkingConfig: { thinkingLevel: level } };
   }
   if (/gemini-2\.5/i.test(modelId)) {
+    const cannotDisable = /pro/i.test(modelId);
     const budget = reasoningDepth === 'none'
-      ? 0
+      ? (cannotDisable ? 1024 : 0)
       : reasoningDepth === 'low'
         ? 1024
         : reasoningDepth === 'medium'
-          ? 4096
-          : reasoningDepth === 'high'
-            ? 8192
-            : 16384;
+          ? 8192
+          : 24576;
     return { thinkingConfig: { thinkingBudget: budget } };
   }
   return {};
 }
 
-function anthropicThinking(reasoningDepth?: string) {
+function anthropicUsesAdaptiveThinking(modelId: string) {
+  return /claude-(?:sonnet|opus|fable|mythos)-(?:5(?:-|$)|4-(?:6|7|8|9)(?:-|$))/i.test(modelId);
+}
+
+function anthropicEffort(reasoningDepth?: string) {
+  if (reasoningDepth === 'low') return 'low';
+  if (reasoningDepth === 'medium') return 'medium';
+  if (reasoningDepth === 'high') return 'high';
+  if (reasoningDepth === 'extreme') return 'max';
+  return undefined;
+}
+
+function anthropicThinking(modelId: string, reasoningDepth?: string) {
   if (!reasoningDepth || reasoningDepth === 'none') return undefined;
+  if (anthropicUsesAdaptiveThinking(modelId)) {
+    return { type: 'adaptive' as const };
+  }
   const budgetTokens = reasoningDepth === 'low'
     ? 1024
     : reasoningDepth === 'medium'
@@ -236,7 +248,7 @@ function anthropicThinking(reasoningDepth?: string) {
       : reasoningDepth === 'high'
         ? 8192
         : 16000;
-  return { type: 'enabled', budget_tokens: budgetTokens };
+  return { type: 'enabled' as const, budget_tokens: budgetTokens };
 }
 
 async function invokeOpenAiCompatible(params: InvokeModelParams): Promise<ModelInvocationResult> {
@@ -251,7 +263,7 @@ async function invokeOpenAiCompatible(params: InvokeModelParams): Promise<ModelI
       ],
       temperature: 0.1,
       ...(params.jsonMode ? { response_format: { type: 'json_object' } } : {}),
-      ...(params.maxTokens ? { max_tokens: params.maxTokens } : {}),
+      ...(params.maxTokens ? { max_completion_tokens: params.maxTokens } : {}),
     }),
     timeoutMs: params.timeoutMs,
     maxBytes: 8 * 1024 * 1024,
@@ -374,7 +386,7 @@ async function invokeGemini(params: InvokeModelParams): Promise<ModelInvocationR
 }
 
 async function invokeAnthropic(params: InvokeModelParams): Promise<ModelInvocationResult> {
-  const thinking = anthropicThinking(params.reasoningDepth);
+  const thinking = anthropicThinking(params.modelId, params.reasoningDepth);
   const maxTokens = Math.max(params.maxTokens || 12_000, (thinking?.budget_tokens || 0) + 4096);
   const response = await safeOutboundRequest(`${params.baseUrl.replace(/\/$/, '')}/messages`, {
     method: 'POST',
@@ -388,7 +400,8 @@ async function invokeAnthropic(params: InvokeModelParams): Promise<ModelInvocati
       system: params.system,
       messages: [{ role: 'user', content: params.userPrompt }],
       max_tokens: maxTokens,
-      ...(thinking ? { thinking } : { temperature: 0.1 }),
+      ...(thinking ? { thinking } : (!anthropicUsesAdaptiveThinking(params.modelId) ? { temperature: 0.1 } : {})),
+      ...(thinking && anthropicUsesAdaptiveThinking(params.modelId) ? { output_config: { effort: anthropicEffort(params.reasoningDepth) } } : {}),
       ...(params.nativeSearch ? { tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 8 }] } : {}),
     }),
     timeoutMs: params.timeoutMs,
@@ -460,10 +473,7 @@ async function invokeQwen(params: InvokeModelParams): Promise<ModelInvocationRes
     ...standardChatBody(params),
     ...(params.maxTokens ? { max_tokens: params.maxTokens } : {}),
     ...qwenThinking(params.reasoningDepth),
-    ...(params.nativeSearch ? {
-      enable_search: true,
-      search_options: { forced_search: true, search_strategy: params.reasoningDepth === 'extreme' ? 'max' : 'turbo', enable_source: true },
-    } : {}),
+    ...(params.nativeSearch ? { enable_search: true } : {}),
   };
   const { response, payload } = await postChatCompletion(params, body);
   const sources = structuredSearchSources(payload?.search_info || payload?.web_search || payload?.choices?.[0]?.message?.annotations || [], 'qwen-native');
