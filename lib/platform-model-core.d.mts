@@ -15,6 +15,11 @@ export function formatCreditCents(cents: number): string;
 export function localizedModelText(fallback: unknown, translations: unknown, locale: string): string;
 export function operationCapabilityField(operation: PlatformModelOperation): 'supportsAnalysis' | 'supportsCompletion' | 'supportsFollowup';
 export function normalizeModelOperation(value: unknown): PlatformModelOperation;
+export function effectivePlatformModelId(models: Array<{
+  id: string;
+  isUserDefault?: boolean;
+  isDefault?: boolean;
+}> | null | undefined, preferredId?: unknown): string;
 export function estimateExternalCostMicros(config: {
   inputPriceMicrosPerMillion?: number;
   outputPriceMicrosPerMillion?: number;

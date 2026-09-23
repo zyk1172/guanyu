@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { hasActivePro } from '@/lib/billing';
-import { normalizeModelOperation } from '@/lib/platform-model-core.mjs';
+import { effectivePlatformModelId, normalizeModelOperation } from '@/lib/platform-model-core.mjs';
 import { listPublicPlatformModels } from '@/lib/platform-models';
 
 function localeFromRequest(request: Request) {
@@ -39,12 +39,16 @@ export async function GET(request: Request) {
       locale: localeFromRequest(request),
       userDefaultId: settings?.defaultPlatformModelConfigId,
     });
+    const defaultPlatformModelConfigId = effectivePlatformModelId(
+      models,
+      settings?.defaultPlatformModelConfigId,
+    ) || null;
     return NextResponse.json({
       models,
       operation,
       modelSource: settings?.modelSource === 'custom' && customAvailable ? 'custom' : 'platform',
       customAvailable,
-      defaultPlatformModelConfigId: settings?.defaultPlatformModelConfigId || models.find((item) => item.isDefault)?.id || null,
+      defaultPlatformModelConfigId,
     });
   } catch (error) {
     console.error('List platform models failed:', error);

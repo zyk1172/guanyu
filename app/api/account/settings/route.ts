@@ -9,6 +9,7 @@ import { getEffectiveRssSourceConfig, getRssSourceCatalog, normalizeRssSourceCon
 import { assertPublicOutboundUrl } from '@/lib/safe-outbound';
 import { cacheDel, CACHE_KEYS } from '@/lib/cache';
 import { sameOriginResponse } from '@/lib/request-security';
+import { ensurePlatformModelBaseline } from '@/lib/platform-models';
 
 const VALID_THINKING_DEPTHS = new Set(['none', 'low', 'medium', 'high', 'extreme', 'quick', 'standard', 'deep', 'exhaustive']);
 const VALID_TAVILY_DEPTHS = new Set(['basic', 'advanced']);
@@ -147,6 +148,7 @@ export async function PATCH(request: Request) {
     const originError = sameOriginResponse(request);
     if (originError) return originError;
     await ensureRuntimeSchema();
+    await ensurePlatformModelBaseline();
     const user = await getCurrentUser(request);
     if (!user) {
       return NextResponse.json({ error: '请登录后再操作。' }, { status: 401 });
@@ -187,11 +189,31 @@ export async function PATCH(request: Request) {
     const safeReasoningDepth = normalizeThinkingDepth(defaultReasoningDepth);
     const safeReportLanguage = VALID_REPORT_LANGUAGES.has(defaultReportLanguage) ? defaultReportLanguage : 'zh-CN';
     const requestedPlatformModelId = String(defaultPlatformModelConfigId || '').trim().slice(0, 120);
-    const validPlatformModel = requestedPlatformModelId
+    let validPlatformModel = requestedPlatformModelId
       ? await prisma.platformModelConfig.findFirst({ where: { id: requestedPlatformModelId, archivedAt: null, isEnabled: true, isVisibleToUsers: true, supportsAnalysis: true } })
       : null;
-    if (requestedPlatformModelId && !validPlatformModel) {
-      return NextResponse.json({ error: '所选默认平台模型暂时不可用，请重新选择。' }, { status: 400 });
+    if (!validPlatformModel && modelSource !== 'custom') {
+      validPlatformModel = await prisma.platformModelConfig.findFirst({
+        where: {
+          archivedAt: null,
+          isEnabled: true,
+          isVisibleToUsers: true,
+          supportsAnalysis: true,
+          isDefault: true,
+        },
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      }) || await prisma.platformModelConfig.findFirst({
+        where: {
+          archivedAt: null,
+          isEnabled: true,
+          isVisibleToUsers: true,
+          supportsAnalysis: true,
+        },
+        orderBy: [{ isRecommended: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+      });
+    }
+    if (modelSource !== 'custom' && !validPlatformModel) {
+      return NextResponse.json({ error: '当前没有可用的平台模型，请联系管理员。' }, { status: 400 });
     }
     const trimmedApiKey = typeof llmApiKey === 'string' ? llmApiKey.trim() : '';
     const trimmedTavilyApiKey = typeof tavilyApiKey === 'string' ? tavilyApiKey.trim() : '';

@@ -66,7 +66,6 @@ export async function createAnalyzeJob(userId: string, input: Partial<AnalyzeJob
     let creditCostCents = 0;
     if (usageSource === 'platform') {
       const selectedModel = await resolvePlatformModel({
-        selectedId: settings?.defaultPlatformModelConfigId,
         userDefaultId: settings?.defaultPlatformModelConfigId,
         operation: 'analysis',
       });

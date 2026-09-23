@@ -554,7 +554,6 @@ async function handleAnalyze(userId: string, body: any, executionContext: Analyz
       selectedPlatformSnapshot = isInternalRequest
         ? decodePlatformModelSnapshot(executionContext.platformModelSnapshotJson)
         : platformModelSnapshot(await resolvePlatformModel({
-            selectedId: userSettings?.defaultPlatformModelConfigId,
             userDefaultId: userSettings?.defaultPlatformModelConfigId,
             operation: 'analysis',
           }));
