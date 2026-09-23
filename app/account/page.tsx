@@ -1503,6 +1503,8 @@ export default function AccountPage() {
             />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {modelSource === 'custom' && (
+                <>
               <div className="space-y-1">
                 <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   {t('account.defaultModel')}
@@ -1636,6 +1638,9 @@ export default function AccountPage() {
                   <p className="text-xxs text-gray-400">{t('account.serperHint')}</p>
                 </div>
               </div>
+
+                </>
+              )}
 
               <section className="space-y-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 md:col-span-2">
                 <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
