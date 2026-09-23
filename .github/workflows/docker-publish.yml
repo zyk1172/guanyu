@@ -54,6 +54,13 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
+      - name: Reject stale Prisma Client imports
+        run: |
+          if git grep -n "@prisma/client" -- '*.ts' '*.tsx' '*.mts' '*.mjs'; then
+            echo "Found stale @prisma/client imports after Prisma 7 migration."
+            exit 1
+          fi
+
       - name: Sync Prisma schema for CI
         run: npx prisma db push
 
