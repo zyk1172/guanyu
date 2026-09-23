@@ -161,6 +161,16 @@ function zhipuThinking(reasoningDepth?: string) {
   };
 }
 
+function parseUpstreamJson(body: Buffer) {
+  const raw = body.toString('utf8').trim();
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
 function chatUsage(payload: any, nativeSearchRequests = 0): RuntimeUsage {
   const usage = payload?.usage || {};
   return {
@@ -185,7 +195,7 @@ async function postChatCompletion(params: InvokeModelParams, body: Record<string
     requireHttps: process.env.NODE_ENV === 'production' && !params.allowPrivateAddress,
     allowPrivateAddress: params.allowPrivateAddress,
   });
-  return { response, payload: JSON.parse(response.body.toString('utf8') || '{}') };
+  return { response, payload: parseUpstreamJson(response.body) };
 }
 
 function standardChatBody(params: InvokeModelParams) {
@@ -270,7 +280,7 @@ async function invokeOpenAiCompatible(params: InvokeModelParams): Promise<ModelI
     requireHttps: process.env.NODE_ENV === 'production' && !params.allowPrivateAddress,
     allowPrivateAddress: params.allowPrivateAddress,
   });
-  const payload = JSON.parse(response.body.toString('utf8') || '{}');
+  const payload = parseUpstreamJson(response.body);
   const usage = payload?.usage || {};
   return {
     ok: response.status >= 200 && response.status < 300,
@@ -314,7 +324,7 @@ async function invokeOpenAiResponses(params: InvokeModelParams): Promise<ModelIn
     requireHttps: process.env.NODE_ENV === 'production' && !params.allowPrivateAddress,
     allowPrivateAddress: params.allowPrivateAddress,
   });
-  const payload = JSON.parse(response.body.toString('utf8') || '{}');
+  const payload = parseUpstreamJson(response.body);
   const usage = payload?.usage || {};
   const nativeSearchRequests = (Array.isArray(payload?.output) ? payload.output : []).filter((item: any) => item?.type === 'web_search_call').length;
   return {
@@ -355,7 +365,7 @@ async function invokeGemini(params: InvokeModelParams): Promise<ModelInvocationR
     requireHttps: process.env.NODE_ENV === 'production' && !params.allowPrivateAddress,
     allowPrivateAddress: params.allowPrivateAddress,
   });
-  const payload = JSON.parse(response.body.toString('utf8') || '{}');
+  const payload = parseUpstreamJson(response.body);
   const candidate = payload?.candidates?.[0] || {};
   const message = (Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [])
     .map((part: any) => typeof part?.text === 'string' ? part.text : '')
@@ -409,7 +419,7 @@ async function invokeAnthropic(params: InvokeModelParams): Promise<ModelInvocati
     requireHttps: process.env.NODE_ENV === 'production' && !params.allowPrivateAddress,
     allowPrivateAddress: params.allowPrivateAddress,
   });
-  const payload = JSON.parse(response.body.toString('utf8') || '{}');
+  const payload = parseUpstreamJson(response.body);
   const blocks = Array.isArray(payload?.content) ? payload.content : [];
   const message = blocks.filter((block: any) => block?.type === 'text').map((block: any) => String(block.text || '')).join('\n').trim();
   const sources: RuntimeSearchSource[] = [];
