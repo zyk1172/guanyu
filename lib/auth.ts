@@ -1,5 +1,7 @@
 import type { NextAuthOptions } from 'next-auth';
-import CredentialsProvider from 'next-auth/providers/credentials';
+import CredentialsProviderImport from 'next-auth/providers/credentials';
+
+const CredentialsProvider = ((CredentialsProviderImport as unknown as { default?: typeof CredentialsProviderImport }).default ?? CredentialsProviderImport) as typeof CredentialsProviderImport;
 import { getToken } from 'next-auth/jwt';
 import type { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';

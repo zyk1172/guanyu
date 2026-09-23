@@ -5,9 +5,10 @@ FROM ${NODE_IMAGE} AS builder
 WORKDIR /app
 COPY package*.json ./
 COPY prisma ./prisma
-RUN npm ci --legacy-peer-deps
+COPY prisma.config.ts ./
+RUN DATABASE_URL="postgresql://guanyu:guanyu@localhost:5432/guanyu" npm ci --legacy-peer-deps
 COPY . .
-RUN npx prisma generate && npm run build
+RUN DATABASE_URL="postgresql://guanyu:guanyu@localhost:5432/guanyu" npm run build
 
 FROM ${NODE_IMAGE} AS runner
 
@@ -21,10 +22,11 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/prisma.config.ts ./
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/next.config.ts ./
 
-RUN npm ci --omit=dev --legacy-peer-deps && mkdir -p /app/data && chown -R node:node /app
+RUN DATABASE_URL="postgresql://guanyu:guanyu@localhost:5432/guanyu" npm ci --omit=dev --legacy-peer-deps && mkdir -p /app/data && chown -R node:node /app
 
 EXPOSE 3000
 USER node

@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { gzipSync, gunzipSync } from 'zlib';
-import { Prisma } from '@prisma/client';
+import { Prisma } from '@/lib/generated/prisma/client';
 import { prisma } from '@/lib/prisma';
 import { decryptSecret, encryptSecret } from '@/lib/secret';
 

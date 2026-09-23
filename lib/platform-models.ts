@@ -1,4 +1,4 @@
-import type { PlatformModelConfig } from '@prisma/client';
+import type { PlatformModelConfig } from '@/lib/generated/prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getOrCreateAppSetting } from '@/lib/billing';
 import {

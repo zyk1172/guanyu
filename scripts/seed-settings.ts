@@ -1,5 +1,5 @@
 import crypto, { randomBytes, scryptSync } from 'crypto';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../lib/prisma';
 
 const ALGORITHM = 'aes-256-gcm';
 const rawSecret = process.env.APP_ENCRYPTION_KEY || process.env.NEXTAUTH_SECRET;
@@ -22,7 +22,6 @@ const encrypted = Buffer.concat([cipher.update(apiKey, 'utf8'), cipher.final()])
 const tag = cipher.getAuthTag();
 const encryptedStr = [iv.toString('base64'), tag.toString('base64'), encrypted.toString('base64')].join('.');
 
-const prisma = new PrismaClient();
 function hashPassword(password: string) {
   const salt = randomBytes(16).toString('base64url');
   const digest = scryptSync(password, salt, 64).toString('base64url');

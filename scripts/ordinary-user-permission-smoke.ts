@@ -1,4 +1,6 @@
-import { loadEnvConfig } from '@next/env';
+import * as NextEnv from '@next/env';
+
+const loadEnvConfig = ((NextEnv as unknown as { default?: typeof NextEnv }).default?.loadEnvConfig ?? NextEnv.loadEnvConfig) as typeof NextEnv.loadEnvConfig;
 import { encode } from 'next-auth/jwt';
 import { NextRequest } from 'next/server';
 

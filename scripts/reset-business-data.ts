@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../lib/prisma';
 
 const confirmation = process.env.CONFIRM_RESET_BUSINESS_DATA;
 if (confirmation !== 'DELETE_NON_ADMIN_BUSINESS_DATA') {
@@ -6,7 +6,6 @@ if (confirmation !== 'DELETE_NON_ADMIN_BUSINESS_DATA') {
   process.exit(1);
 }
 
-const prisma = new PrismaClient();
 
 try {
   const admins = await prisma.user.findMany({ where: { role: 'super_admin' }, select: { id: true, email: true } });
