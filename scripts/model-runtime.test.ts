@@ -62,7 +62,7 @@ test('provider adapters map reasoning and native search without changing compati
   await withModelServer(async (baseUrl, captured) => {
     const openai = await invokeModel({ ...BASE, provider: 'openai', baseUrl: `${baseUrl}/v1`, modelId: 'gpt-5.6-terra', reasoningDepth: 'extreme', nativeSearch: true });
     const gemini = await invokeModel({ ...BASE, provider: 'gemini', baseUrl: `${baseUrl}/v1beta`, modelId: 'gemini-3.1-pro-preview', reasoningDepth: 'high', nativeSearch: true });
-    const anthropic = await invokeModel({ ...BASE, provider: 'anthropic', baseUrl: `${baseUrl}/v1`, modelId: 'claude-sonnet-4', reasoningDepth: 'medium', nativeSearch: true });
+    const anthropic = await invokeModel({ ...BASE, provider: 'anthropic', baseUrl: `${baseUrl}/v1`, modelId: 'claude-sonnet-4-6', reasoningDepth: 'medium', nativeSearch: true });
     const compatible = await invokeModel({ ...BASE, provider: 'openai_compatible', baseUrl: `${baseUrl}/v1`, modelId: 'deepseek-v4-pro', reasoningDepth: 'extreme', nativeSearch: false });
 
     assert.equal(openai.message, 'OPENAI_OK');
@@ -84,7 +84,8 @@ test('provider adapters map reasoning and native search without changing compati
     assert.deepEqual(captured[1].body.tools, [{ google_search: {} }]);
 
     assert.equal(captured[2].path, '/v1/messages');
-    assert.deepEqual(captured[2].body.thinking, { type: 'enabled', budget_tokens: 4096 });
+    assert.deepEqual(captured[2].body.thinking, { type: 'adaptive' });
+    assert.deepEqual(captured[2].body.output_config, { effort: 'medium' });
     assert.equal(captured[2].body.temperature, undefined);
     assert.equal(captured[2].body.tools[0].type, 'web_search_20250305');
 
@@ -97,7 +98,7 @@ test('provider adapters map reasoning and native search without changing compati
 
 test('Chinese provider adapters use provider-native thinking and web search contracts', async () => {
   await withModelServer(async (baseUrl, captured) => {
-    const mimo = await invokeModel({ ...BASE, provider: 'xiaomi_mimo', baseUrl: `${baseUrl}/v1`, modelId: 'mimo-v2.5-pro', reasoningDepth: 'high', nativeSearch: true });
+    const mimo = await invokeModel({ ...BASE, provider: 'xiaomi_mimo', baseUrl: `${baseUrl}/v1`, modelId: 'mimo-v2.6-pro', reasoningDepth: 'high', nativeSearch: true });
     const qwen = await invokeModel({ ...BASE, provider: 'qwen', baseUrl: `${baseUrl}/v1`, modelId: 'qwen-plus', reasoningDepth: 'extreme', nativeSearch: true });
     const zhipu = await invokeModel({ ...BASE, provider: 'zhipu', baseUrl: `${baseUrl}/v1`, modelId: 'glm-5', reasoningDepth: 'high', nativeSearch: true });
     const kimi = await invokeModel({ ...BASE, provider: 'moonshot', baseUrl: `${baseUrl}/v1`, modelId: 'kimi-k3', reasoningDepth: 'extreme', nativeSearch: true });
@@ -107,12 +108,13 @@ test('Chinese provider adapters use provider-native thinking and web search cont
     assert.equal(captured[0].body.thinking.type, 'enabled');
     assert.equal(captured[0].body.tools[0].type, 'web_search');
     assert.equal(captured[0].body.max_completion_tokens, 5_000);
+    assert.equal(captured[0].body.temperature, undefined);
 
     assert.equal(qwen.message, 'QWEN_OK GUANYU_MODEL_OK');
     assert.equal(captured[1].body.enable_thinking, true);
     assert.equal(captured[1].body.thinking_budget, 16_384);
     assert.equal(captured[1].body.enable_search, true);
-    assert.equal(captured[1].body.search_options.search_strategy, 'max');
+    assert.equal(captured[1].body.search_options, undefined);
 
     assert.equal(zhipu.message, 'ZHIPU_OK GUANYU_MODEL_OK');
     assert.deepEqual(captured[2].body.thinking, { type: 'enabled' });
@@ -122,6 +124,8 @@ test('Chinese provider adapters use provider-native thinking and web search cont
     assert.equal(kimi.message, 'KIMI_OK GUANYU_MODEL_OK');
     assert.equal(kimi.usage.nativeSearchRequests, 1);
     assert.equal(captured[3].body.reasoning_effort, 'max');
+    assert.equal(captured[3].body.max_completion_tokens, 5_000);
+    assert.equal(captured[3].body.max_tokens, undefined);
     assert.equal(captured[3].body.tools[0].function.name, '$web_search');
     assert.equal(captured[4].body.messages.at(-1).role, 'tool');
   });
@@ -210,4 +214,20 @@ test('platform model snapshots preserve native providers without persisting cred
   }));
   assert.equal(legacy?.legacyApiKeyEncrypted, 'legacy-ciphertext');
   assert.equal(encodePlatformModelSnapshot(legacy!).includes('legacy-ciphertext'), false);
+});
+
+
+test('Gemini 3 Pro maps none to supported low thinking instead of invalid minimal', async () => {
+  await withModelServer(async (baseUrl, captured) => {
+    const result = await invokeModel({
+      ...BASE,
+      provider: 'gemini',
+      baseUrl: `${baseUrl}/v1beta`,
+      modelId: 'gemini-3.1-pro-preview',
+      reasoningDepth: 'none',
+      nativeSearch: false,
+    });
+    assert.equal(result.ok, true);
+    assert.deepEqual(captured[0].body.generationConfig.thinkingConfig, { thinkingLevel: 'low' });
+  });
 });
