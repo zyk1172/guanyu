@@ -118,7 +118,12 @@ function openAiOutputText(payload: any) {
   return parts.join('\n').trim();
 }
 
-function openAiReasoning(reasoningDepth?: string) {
+function openAiSupportsReasoning(modelId: string) {
+  return /^(?:gpt-(?:5|6)(?:[.-]|$)|o[134](?:[.-]|$))/i.test(modelId.trim());
+}
+
+function openAiReasoning(modelId: string, reasoningDepth?: string) {
+  if (!openAiSupportsReasoning(modelId)) return undefined;
   if (reasoningDepth === 'none') return { effort: 'none' };
   if (reasoningDepth === 'low') return { effort: 'low' };
   if (reasoningDepth === 'medium') return { effort: 'medium' };
@@ -272,7 +277,7 @@ async function invokeOpenAiCompatible(params: InvokeModelParams): Promise<ModelI
 }
 
 async function invokeOpenAiResponses(params: InvokeModelParams): Promise<ModelInvocationResult> {
-  const reasoning = openAiReasoning(params.reasoningDepth);
+  const reasoning = openAiReasoning(params.modelId, params.reasoningDepth);
   const response = await safeOutboundRequest(`${params.baseUrl.replace(/\/$/, '')}/responses`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${params.apiKey}` },
@@ -283,7 +288,12 @@ async function invokeOpenAiResponses(params: InvokeModelParams): Promise<ModelIn
         { role: 'user', content: params.userPrompt },
       ],
       store: false,
-      ...(params.nativeSearch ? { tools: [{ type: 'web_search', search_context_size: 'high' }] } : {}),
+      ...(params.jsonMode ? { text: { format: { type: 'json_object' } } } : {}),
+      ...(params.nativeSearch ? {
+        tools: [{ type: 'web_search', search_context_size: 'high' }],
+        tool_choice: 'auto',
+        include: ['web_search_call.action.sources'],
+      } : {}),
       ...(params.maxTokens ? { max_output_tokens: params.maxTokens } : {}),
       ...(reasoning ? { reasoning } : {}),
     }),
