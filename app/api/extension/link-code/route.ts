@@ -3,8 +3,11 @@ import { getCurrentUser } from '@/lib/auth';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { createExtensionLinkCode, hashExtensionSecret } from '@/lib/extension-auth';
 import { prisma } from '@/lib/prisma';
+import { sameOriginResponse } from '@/lib/request-security';
 
 export async function POST(request: Request) {
+  const originError = sameOriginResponse(request);
+  if (originError) return originError;
   await ensureRuntimeSchema();
   const user = await getCurrentUser(request);
   if (!user) {
