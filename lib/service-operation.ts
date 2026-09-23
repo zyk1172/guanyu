@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import type { Prisma, ServiceOperation } from '@prisma/client';
+import type { Prisma, ServiceOperation } from '@/lib/generated/prisma/client';
 import { prisma } from '@/lib/prisma';
 import { changeBalance, type BillingModelSnapshot } from '@/lib/billing';
 
