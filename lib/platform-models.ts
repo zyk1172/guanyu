@@ -1,6 +1,7 @@
 import type { PlatformModelConfig } from '@/lib/generated/prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getOrCreateAppSetting } from '@/lib/billing';
+import { decryptSecret } from '@/lib/secret';
 import {
   PLATFORM_MODEL_PROVIDERS,
   formatCreditCents,
@@ -138,8 +139,8 @@ export async function resolvePlatformModelApiKey(snapshot: PlatformModelSnapshot
     where: { id: snapshot.configId },
     select: { apiKeyEncrypted: true },
   });
-  if (current) return current.apiKeyEncrypted || '';
-  return snapshot.legacyApiKeyEncrypted || '';
+  if (current) return decryptSecret(current.apiKeyEncrypted);
+  return decryptSecret(snapshot.legacyApiKeyEncrypted);
 }
 
 export async function resolvePlatformModel(params: {
