@@ -8,6 +8,7 @@ import { ensurePlatformModelBaseline, safeAdminPlatformModel } from '@/lib/platf
 import {
   PLATFORM_MODEL_PROVIDERS,
   PLATFORM_MODEL_SEARCH_MODES,
+  isOfficialOpenAiApiBaseUrl,
   parseMultiplierToBps,
   type PlatformModelProvider,
   type PlatformModelSearchMode,
@@ -59,13 +60,8 @@ function modelBaseUrl(value: unknown, provider: PlatformModelProvider) {
   if (process.env.NODE_ENV === 'production' && parsed.protocol !== 'https:') throw new Error('生产环境模型接口必须使用 HTTPS。');
   if (parsed.username || parsed.password) throw new Error('模型接口地址不能包含用户名或密码。');
 
-  if (provider === 'openai') {
-    const hostname = parsed.hostname.toLowerCase();
-    const officialHost = hostname === 'api.openai.com' || hostname.endsWith('.api.openai.com');
-    const officialPath = parsed.pathname === '/v1' || parsed.pathname === '/v1/';
-    if (!officialHost || !officialPath || parsed.protocol !== 'https:') {
-      throw new Error('OpenAI 原生模式仅允许官方 *.api.openai.com/v1 端点；代理或中转请使用 OpenAI-compatible。');
-    }
+  if (provider === 'openai' && !isOfficialOpenAiApiBaseUrl(raw)) {
+    throw new Error('OpenAI 原生模式仅允许官方 *.api.openai.com/v1 端点；代理或中转请使用 OpenAI-compatible。');
   }
   return raw;
 }
