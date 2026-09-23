@@ -15,6 +15,12 @@ async function withModelServer(run: (baseUrl: string, captured: CapturedRequest[
     request.on('end', () => {
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
       captured.push({ path: request.url || '', body });
+      if (request.url?.includes('/malformed/')) {
+        response.statusCode = 429;
+        response.setHeader('content-type', 'text/plain');
+        response.end('rate limited');
+        return;
+      }
       response.setHeader('content-type', 'application/json');
       if (request.url?.endsWith('/responses')) {
         response.end(JSON.stringify({ output_text: 'OPENAI_OK', output: [{ type: 'web_search_call', action: { sources: [{ title: 'OpenAI', url: 'https://openai.com/' }] } }], usage: { input_tokens: 10, output_tokens: 2, input_tokens_details: { cached_tokens: 3 } } }));
@@ -229,5 +235,21 @@ test('Gemini 3 Pro maps none to supported low thinking instead of invalid minima
     });
     assert.equal(result.ok, true);
     assert.deepEqual(captured[0].body.generationConfig.thinkingConfig, { thinkingLevel: 'low' });
+  });
+});
+
+
+test('malformed upstream error bodies preserve HTTP status and error code', async () => {
+  await withModelServer(async (baseUrl) => {
+    const result = await invokeModel({
+      ...BASE,
+      provider: 'openai_compatible',
+      baseUrl: `${baseUrl}/malformed/v1`,
+      modelId: 'compatible-model',
+      nativeSearch: false,
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 429);
+    assert.equal(result.errorCode, 'upstream_429');
   });
 });
