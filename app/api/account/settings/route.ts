@@ -9,6 +9,7 @@ import { getEffectiveRssSourceConfig, getRssSourceCatalog, normalizeRssSourceCon
 import { assertPublicOutboundUrl } from '@/lib/safe-outbound';
 import { cacheDel, CACHE_KEYS } from '@/lib/cache';
 import { sameOriginResponse } from '@/lib/request-security';
+import { ensurePlatformModelBaseline } from '@/lib/platform-models';
 
 const VALID_THINKING_DEPTHS = new Set(['none', 'low', 'medium', 'high', 'extreme', 'quick', 'standard', 'deep', 'exhaustive']);
 const VALID_TAVILY_DEPTHS = new Set(['basic', 'advanced']);
@@ -147,6 +148,7 @@ export async function PATCH(request: Request) {
     const originError = sameOriginResponse(request);
     if (originError) return originError;
     await ensureRuntimeSchema();
+    await ensurePlatformModelBaseline();
     const user = await getCurrentUser(request);
     if (!user) {
       return NextResponse.json({ error: '请登录后再操作。' }, { status: 401 });
