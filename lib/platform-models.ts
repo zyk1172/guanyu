@@ -103,7 +103,8 @@ export function platformModelSnapshot(config: PlatformModelConfig): PlatformMode
 }
 
 export function encodePlatformModelSnapshot(snapshot: PlatformModelSnapshot) {
-  const { legacyApiKeyEncrypted: _legacySecret, ...safeSnapshot } = snapshot;
+  const safeSnapshot = { ...snapshot };
+  delete safeSnapshot.legacyApiKeyEncrypted;
   return JSON.stringify(safeSnapshot);
 }
 
