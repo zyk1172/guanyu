@@ -15,7 +15,7 @@ import { getAnalysisTimeoutMs, getModelOutputTokenBudget, normalizeThinkingDepth
 import { formatUnconfirmedItem } from '@/lib/report-display-core.mjs';
 import { applyModelSourceCleanup } from '@/lib/source-content-cleanup.mjs';
 import { operationCostCents } from '@/lib/platform-model-core.mjs';
-import { decodePlatformModelSnapshot, platformModelSnapshot, resolvePlatformModel, type PlatformModelSnapshot } from '@/lib/platform-models';
+import { decodePlatformModelSnapshot, platformModelSnapshot, resolvePlatformModel, resolvePlatformModelApiKey, type PlatformModelSnapshot } from '@/lib/platform-models';
 import { invokeModel, type RuntimeUsage } from '@/lib/model-runtime';
 import { recordModelUsage } from '@/lib/model-usage';
 import type { UsagePlan, UsageSource } from '@/lib/billing';
@@ -561,7 +561,7 @@ async function handleAnalyze(userId: string, body: any, executionContext: Analyz
       if (!selectedPlatformSnapshot) {
         return NextResponse.json({ error: '任务中的平台模型快照无效，本次未扣除点数。' }, { status: 409 });
       }
-      const apiKey = decryptSecret(selectedPlatformSnapshot.apiKeyEncrypted);
+      const apiKey = await resolvePlatformModelApiKey(selectedPlatformSnapshot);
       if (!apiKey) return NextResponse.json({ error: '所选平台模型未配置可用的 API Key，请联系管理员。' }, { status: 503 });
       modelConfig = { apiKey, modelName: selectedPlatformSnapshot.modelId, baseURL: selectedPlatformSnapshot.baseUrl };
       actualReasoningDepth = normalizeThinkingDepthCore(selectedPlatformSnapshot.reasoningDepth);
