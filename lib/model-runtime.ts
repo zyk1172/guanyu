@@ -397,7 +397,8 @@ async function invokeGemini(params: InvokeModelParams): Promise<ModelInvocationR
 
 async function invokeAnthropic(params: InvokeModelParams): Promise<ModelInvocationResult> {
   const thinking = anthropicThinking(params.modelId, params.reasoningDepth);
-  const maxTokens = Math.max(params.maxTokens || 12_000, (thinking?.budget_tokens || 0) + 4096);
+  const thinkingBudget = thinking && 'budget_tokens' in thinking ? thinking.budget_tokens : 0;
+  const maxTokens = Math.max(params.maxTokens || 12_000, thinkingBudget + 4096);
   const response = await safeOutboundRequest(`${params.baseUrl.replace(/\/$/, '')}/messages`, {
     method: 'POST',
     headers: {
