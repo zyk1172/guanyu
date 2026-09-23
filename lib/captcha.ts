@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import type { Prisma } from '@prisma/client';
+import type { Prisma } from '@/lib/generated/prisma/client';
 import { prisma } from '@/lib/prisma';
 import { assertCaptchaChallengeLimit, hashForStorage } from '@/lib/rate-limit';
 import { createCaptchaText } from '@/lib/captcha-core.mjs';
