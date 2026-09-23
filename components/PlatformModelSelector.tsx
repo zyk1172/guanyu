@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useUiLanguage } from '@/components/LanguageProvider';
+import { effectivePlatformModelId } from '@/lib/platform-model-core.mjs';
 
 export type ModelOperation = 'analysis' | 'completion' | 'followup';
 export type ModelSourceSelection = 'platform' | 'custom';
@@ -61,9 +62,7 @@ export function PlatformModelSelector({
         const nextModels = Array.isArray(data.models) ? data.models : [];
         setModels(nextModels);
         setCustomAvailable(Boolean(data.customAvailable));
-        const nextId = selectedId && nextModels.some((item: ModelItem) => item.id === selectedId)
-          ? selectedId
-          : String(data.defaultPlatformModelConfigId || nextModels.find((item: ModelItem) => item.isUserDefault)?.id || nextModels.find((item: ModelItem) => item.isDefault)?.id || nextModels[0]?.id || '');
+        const nextId = effectivePlatformModelId(nextModels, selectedId);
         if (nextId !== selectedId) onSelectedIdChange(nextId);
         if (data.modelSource === 'custom' && data.customAvailable && source !== 'custom') onSourceChange('custom');
       })
@@ -73,6 +72,12 @@ export function PlatformModelSelector({
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [language, operation]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (loading || !models.length) return;
+    const effectiveId = effectivePlatformModelId(models, selectedId);
+    if (effectiveId && effectiveId !== selectedId) onSelectedIdChange(effectiveId);
+  }, [loading, models, selectedId, onSelectedIdChange]);
 
   const selected = useMemo(() => models.find((item) => item.id === selectedId) || models[0] || null, [models, selectedId]);
   useEffect(() => {
