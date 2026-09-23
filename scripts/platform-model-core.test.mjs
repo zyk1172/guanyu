@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   calculatePlatformOperationCostCents,
+  effectivePlatformModelId,
   formatCreditCents,
   formatMultiplierBps,
   isOfficialOpenAiApiBaseUrl,
@@ -58,4 +59,16 @@ test('native OpenAI endpoints accept only official HTTPS API bases', () => {
   assert.equal(isOfficialOpenAiApiBaseUrl('https://api.openai.com.evil.example/v1'), false);
   assert.equal(isOfficialOpenAiApiBaseUrl('https://example.com/v1'), false);
   assert.equal(isOfficialOpenAiApiBaseUrl('https://api.openai.com/v1?key=leak'), false);
+});
+
+
+test('effective platform model id never preserves an unavailable stale preference', () => {
+  const models = [
+    { id: 'cloudflare', isDefault: true, isUserDefault: false },
+    { id: 'backup', isDefault: false, isUserDefault: false },
+  ];
+  assert.equal(effectivePlatformModelId(models, 'stale-model'), 'cloudflare');
+  assert.equal(effectivePlatformModelId(models, 'backup'), 'backup');
+  assert.equal(effectivePlatformModelId([{ id: 'personal', isUserDefault: true }, { id: 'global', isDefault: true }], ''), 'personal');
+  assert.equal(effectivePlatformModelId([], 'stale-model'), '');
 });
