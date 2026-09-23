@@ -263,7 +263,7 @@ async function invokeOpenAiCompatible(params: InvokeModelParams): Promise<ModelI
       ],
       temperature: 0.1,
       ...(params.jsonMode ? { response_format: { type: 'json_object' } } : {}),
-      ...(params.maxTokens ? { max_completion_tokens: params.maxTokens } : {}),
+      ...(params.maxTokens ? { max_tokens: params.maxTokens } : {}),
     }),
     timeoutMs: params.timeoutMs,
     maxBytes: 8 * 1024 * 1024,
@@ -443,6 +443,7 @@ async function invokeAnthropic(params: InvokeModelParams): Promise<ModelInvocati
 async function invokeXiaomiMimo(params: InvokeModelParams): Promise<ModelInvocationResult> {
   const body = {
     ...standardChatBody(params),
+    ...(params.reasoningDepth === 'none' ? {} : { temperature: undefined }),
     ...(params.maxTokens ? { max_completion_tokens: params.maxTokens } : {}),
     thinking: { type: params.reasoningDepth === 'none' ? 'disabled' : 'enabled' },
     ...(params.nativeSearch ? {
@@ -530,7 +531,7 @@ async function invokeMoonshot(params: InvokeModelParams): Promise<ModelInvocatio
       stream: false,
       temperature: 0.1,
       reasoning_effort: kimiReasoning(params.reasoningDepth),
-      ...(params.maxTokens ? { max_tokens: params.maxTokens } : {}),
+      ...(params.maxTokens ? { max_completion_tokens: params.maxTokens } : {}),
       ...(params.jsonMode ? { response_format: { type: 'json_object' } } : {}),
       ...(tools ? { tools } : {}),
     });
