@@ -32,7 +32,6 @@ export async function resolveOperationModel(params: {
   }
 
   const config = await resolvePlatformModel({
-    selectedId: settings?.defaultPlatformModelConfigId,
     userDefaultId: settings?.defaultPlatformModelConfigId,
     operation: params.operation,
   });
