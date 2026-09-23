@@ -334,6 +334,7 @@ export default function AccountPage() {
         setEnableSerperSearch(Boolean(data.enableSerperSearch));
         setTavilySearchDepth(data.tavilySearchDepth || 'basic');
         setCanUseOwnApi(Boolean(data.canUseOwnApi));
+        setDefaultPlatformModelConfigId(String(data.defaultPlatformModelConfigId || ''));
         setSettingsSettingsMessage(`✅ ${t('account.settingsSaved')}`);
         setTimeout(() => setSettingsSettingsMessage(null), 3000);
       } else {
