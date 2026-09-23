@@ -14,12 +14,7 @@ function safeMarkdownHref(value: string) {
 }
 
 function renderMarkdownInline(text: string, keyPrefix: string): React.ReactNode[] {
-  const pattern = /(\*\*[^*
-]+\*\*|\*[^*
-]+\*|`[^`
-]+`|\[[^\]
-]+\]\([^\)
-]+\))/g;
+  const pattern = /(\*\*[^*\n]+\*\*|\*[^*\n]+\*|`[^`\n]+`|\[[^\]\n]+\]\([^\)\n]+\))/g;
   const nodes: React.ReactNode[] = [];
   let cursor = 0;
   let match: RegExpExecArray | null;
@@ -52,7 +47,7 @@ function renderMarkdownInline(text: string, keyPrefix: string): React.ReactNode[
 
 function isMarkdownBlockStart(line: string) {
   return /^(#{1,6})\s+/.test(line)
-    || /^\s*([-*_])(?:\s*){2,}\s*$/.test(line)
+    || /^\s*([-*_])(?:\s*\1){2,}\s*$/.test(line)
     || /^>\s?/.test(line)
     || /^\s*[-*+]\s+/.test(line)
     || /^\s*\d+[.)]\s+/.test(line)
@@ -60,10 +55,7 @@ function isMarkdownBlockStart(line: string) {
 }
 
 function MarkdownMessage({ content }: { content: string }) {
-  const lines = content.replace(/
-?/g, '
-').split('
-');
+  const lines = content.replace(/\r\n?/g, '\n').split('\n');
   const blocks: React.ReactNode[] = [];
   let index = 0;
   let blockIndex = 0;
@@ -85,8 +77,7 @@ function MarkdownMessage({ content }: { content: string }) {
       if (index < lines.length) index += 1;
       blocks.push(
         <pre key={key} className="overflow-x-auto rounded-lg border border-gray-200 bg-gray-950 p-3 text-[11px] leading-relaxed text-gray-100 dark:border-gray-800">
-          <code data-language={language || undefined}>{codeLines.join('
-')}</code>
+          <code data-language={language || undefined}>{codeLines.join('\n')}</code>
         </pre>,
       );
       continue;
@@ -105,7 +96,7 @@ function MarkdownMessage({ content }: { content: string }) {
       continue;
     }
 
-    if (/^\s*([-*_])(?:\s*){2,}\s*$/.test(line)) {
+    if (/^\s*([-*_])(?:\s*\1){2,}\s*$/.test(line)) {
       blocks.push(<hr key={key} className="border-gray-200 dark:border-gray-800" />);
       index += 1;
       continue;
