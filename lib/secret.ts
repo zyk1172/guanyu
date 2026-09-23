@@ -45,8 +45,8 @@ export function decryptSecret(value?: string | null): string {
     ]);
 
     return decrypted.toString('utf8');
-  } catch (error) {
-    console.error('Failed to decrypt model API key:', error);
+  } catch {
+    console.error('Failed to decrypt encrypted secret.');
     return '';
   }
 }
