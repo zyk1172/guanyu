@@ -7,7 +7,7 @@ export function chooseModelConfig(params: {
 }) {
   if (params.usageSource !== 'custom' && params.usageSource !== 'byok') {
     return {
-      modelName: params.appSetting?.adminModelName || process.env.OPENAI_MODEL_DEFAULT || 'gpt-4o',
+      modelName: params.appSetting?.adminModelName || process.env.OPENAI_MODEL_DEFAULT || 'gpt-5.6-terra',
       baseURL: params.appSetting?.adminLlmBaseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
       apiKey: params.appSetting?.adminLlmApiKeyEncrypted
         ? decryptSecret(params.appSetting.adminLlmApiKeyEncrypted)
