@@ -134,12 +134,24 @@ export function decodePlatformModelSnapshot(value: string | null | undefined): P
   }
 }
 
+function normalizedBaseUrl(value: string) {
+  return value.trim().replace(/\/$/, '');
+}
+
 export async function resolvePlatformModelApiKey(snapshot: PlatformModelSnapshot) {
   const current = await prisma.platformModelConfig.findUnique({
     where: { id: snapshot.configId },
-    select: { apiKeyEncrypted: true },
+    select: { provider: true, baseUrl: true, apiKeyEncrypted: true },
   });
-  if (current) return decryptSecret(current.apiKeyEncrypted);
+  if (current) {
+    const sameCredentialScope = provider(current.provider) === snapshot.provider
+      && normalizedBaseUrl(current.baseUrl) === normalizedBaseUrl(snapshot.baseUrl);
+    if (sameCredentialScope) return decryptSecret(current.apiKeyEncrypted);
+    // Old queued jobs carried the credential that belonged to their captured
+    // endpoint. New snapshots intentionally carry no credential and will fail
+    // closed if the provider or endpoint was changed while the job was queued.
+    return decryptSecret(snapshot.legacyApiKeyEncrypted);
+  }
   return decryptSecret(snapshot.legacyApiKeyEncrypted);
 }
 
