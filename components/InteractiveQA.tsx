@@ -14,7 +14,7 @@ function safeMarkdownHref(value: string) {
 }
 
 function renderMarkdownInline(text: string, keyPrefix: string): React.ReactNode[] {
-  const pattern = /(\*\*[^*\n]+\*\*|\*[^*\n]+\*|`[^`\n]+`|\[[^\]\n]+\]\([^\)\n]+\))/g;
+  const pattern = /(\*\*[^*\n]+\*\*|\*[^*\n]+\*|`[^`\n]+`|\[[^\]\n]+\]\([^)\n]+\))/g;
   const nodes: React.ReactNode[] = [];
   let cursor = 0;
   let match: RegExpExecArray | null;
