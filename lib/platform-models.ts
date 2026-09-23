@@ -2,6 +2,7 @@ import type { PlatformModelConfig } from '@/lib/generated/prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getOrCreateAppSetting } from '@/lib/billing';
 import {
+  PLATFORM_MODEL_PROVIDERS,
   formatCreditCents,
   localizedModelText,
   operationCapabilityField,
@@ -17,7 +18,6 @@ export type PlatformModelSnapshot = {
   provider: PlatformModelProvider;
   displayName: string;
   baseUrl: string;
-  apiKeyEncrypted: string;
   modelId: string;
   reasoningDepth: string;
   searchMode: PlatformModelSearchMode;
@@ -27,6 +27,8 @@ export type PlatformModelSnapshot = {
   outputPriceMicrosPerMillion: number;
   nativeSearchPriceMicrosPerRequest: number;
   capturedAt: string;
+  /** Backward-compatibility only for queued jobs created before secret-free snapshots. */
+  legacyApiKeyEncrypted?: string;
 };
 
 export type PublicPlatformModel = {
@@ -45,8 +47,9 @@ export type PublicPlatformModel = {
 };
 
 function provider(value: string): PlatformModelProvider {
-  if (value === 'openai' || value === 'gemini' || value === 'anthropic') return value;
-  return 'openai_compatible';
+  return (PLATFORM_MODEL_PROVIDERS as readonly string[]).includes(value)
+    ? value as PlatformModelProvider
+    : 'openai_compatible';
 }
 
 function searchMode(value: string): PlatformModelSearchMode {
@@ -86,7 +89,6 @@ export function platformModelSnapshot(config: PlatformModelConfig): PlatformMode
     provider: provider(config.provider),
     displayName: config.displayName,
     baseUrl: config.baseUrl,
-    apiKeyEncrypted: config.apiKeyEncrypted || '',
     modelId: config.modelId,
     reasoningDepth: config.reasoningDepth,
     searchMode: searchMode(config.searchMode),
@@ -100,7 +102,8 @@ export function platformModelSnapshot(config: PlatformModelConfig): PlatformMode
 }
 
 export function encodePlatformModelSnapshot(snapshot: PlatformModelSnapshot) {
-  return JSON.stringify(snapshot);
+  const { legacyApiKeyEncrypted: _legacySecret, ...safeSnapshot } = snapshot;
+  return JSON.stringify(safeSnapshot);
 }
 
 export function decodePlatformModelSnapshot(value: string | null | undefined): PlatformModelSnapshot | null {
@@ -114,7 +117,6 @@ export function decodePlatformModelSnapshot(value: string | null | undefined): P
       provider: provider(String(parsed.provider)),
       displayName: String(parsed.displayName || parsed.modelId),
       baseUrl: String(parsed.baseUrl),
-      apiKeyEncrypted: String(parsed.apiKeyEncrypted || ''),
       modelId: String(parsed.modelId),
       reasoningDepth: String(parsed.reasoningDepth || 'medium'),
       searchMode: searchMode(String(parsed.searchMode)),
@@ -124,10 +126,20 @@ export function decodePlatformModelSnapshot(value: string | null | undefined): P
       outputPriceMicrosPerMillion: Number.isSafeInteger(parsed.outputPriceMicrosPerMillion) ? parsed.outputPriceMicrosPerMillion : 0,
       nativeSearchPriceMicrosPerRequest: Number.isSafeInteger(parsed.nativeSearchPriceMicrosPerRequest) ? parsed.nativeSearchPriceMicrosPerRequest : 0,
       capturedAt: String(parsed.capturedAt || ''),
+      legacyApiKeyEncrypted: parsed.apiKeyEncrypted ? String(parsed.apiKeyEncrypted) : undefined,
     };
   } catch {
     return null;
   }
+}
+
+export async function resolvePlatformModelApiKey(snapshot: PlatformModelSnapshot) {
+  const current = await prisma.platformModelConfig.findUnique({
+    where: { id: snapshot.configId },
+    select: { apiKeyEncrypted: true },
+  });
+  if (current) return current.apiKeyEncrypted || '';
+  return snapshot.legacyApiKeyEncrypted || '';
 }
 
 export async function resolvePlatformModel(params: {
