@@ -4,6 +4,155 @@ import React, { useState } from 'react';
 import { useUiLanguage } from './LanguageProvider';
 import { useActiveModel } from './useActiveModel';
 
+function safeMarkdownHref(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function renderMarkdownInline(text: string, keyPrefix: string): React.ReactNode[] {
+  const pattern = /(\*\*[^*\n]+\*\*|\*[^*\n]+\*|`[^`\n]+`|\[[^\]\n]+\]\([^\)\n]+\))/g;
+  const nodes: React.ReactNode[] = [];
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  let tokenIndex = 0;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > cursor) nodes.push(text.slice(cursor, match.index));
+    const token = match[0];
+    const key = keyPrefix + '-inline-' + tokenIndex++;
+
+    if (token.startsWith('**') && token.endsWith('**')) {
+      nodes.push(<strong key={key} className="font-bold text-gray-900 dark:text-gray-100">{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith('*') && token.endsWith('*')) {
+      nodes.push(<em key={key}>{token.slice(1, -1)}</em>);
+    } else if (token.startsWith('`') && token.endsWith('`')) {
+      nodes.push(<code key={key} className="rounded bg-gray-200/70 px-1 py-0.5 font-mono text-[0.92em] dark:bg-gray-800">{token.slice(1, -1)}</code>);
+    } else {
+      const linkMatch = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+      const href = linkMatch ? safeMarkdownHref(linkMatch[2].trim()) : null;
+      nodes.push(href && linkMatch
+        ? <a key={key} href={href} target="_blank" rel="noopener noreferrer" className="font-semibold text-indigo-600 underline underline-offset-2 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300">{linkMatch[1]}</a>
+        : token);
+    }
+    cursor = match.index + token.length;
+  }
+
+  if (cursor < text.length) nodes.push(text.slice(cursor));
+  return nodes;
+}
+
+function isMarkdownBlockStart(line: string) {
+  return /^(#{1,6})\s+/.test(line)
+    || /^\s*([-*_])(?:\s*\1){2,}\s*$/.test(line)
+    || /^>\s?/.test(line)
+    || /^\s*[-*+]\s+/.test(line)
+    || /^\s*\d+[.)]\s+/.test(line)
+    || /^```/.test(line);
+}
+
+function MarkdownMessage({ content }: { content: string }) {
+  const lines = content.replace(/\r\n?/g, '\n').split('\n');
+  const blocks: React.ReactNode[] = [];
+  let index = 0;
+  let blockIndex = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+    if (!line.trim()) {
+      index += 1;
+      continue;
+    }
+
+    const key = 'md-' + blockIndex++;
+    const fence = line.match(/^```\s*([^\s]*)\s*$/);
+    if (fence) {
+      const language = fence[1];
+      const codeLines: string[] = [];
+      index += 1;
+      while (index < lines.length && !/^```\s*$/.test(lines[index])) codeLines.push(lines[index++]);
+      if (index < lines.length) index += 1;
+      blocks.push(
+        <pre key={key} className="overflow-x-auto rounded-lg border border-gray-200 bg-gray-950 p-3 text-[11px] leading-relaxed text-gray-100 dark:border-gray-800">
+          <code data-language={language || undefined}>{codeLines.join('\n')}</code>
+        </pre>,
+      );
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      const level = heading[1].length;
+      const classes = level <= 2
+        ? 'text-sm font-black text-gray-950 dark:text-white'
+        : level === 3
+          ? 'text-[13px] font-extrabold text-gray-900 dark:text-gray-100'
+          : 'text-xs font-bold text-gray-900 dark:text-gray-100';
+      blocks.push(<div key={key} role="heading" aria-level={level} className={classes}>{renderMarkdownInline(heading[2], key)}</div>);
+      index += 1;
+      continue;
+    }
+
+    if (/^\s*([-*_])(?:\s*\1){2,}\s*$/.test(line)) {
+      blocks.push(<hr key={key} className="border-gray-200 dark:border-gray-800" />);
+      index += 1;
+      continue;
+    }
+
+    if (/^>\s?/.test(line)) {
+      const quoteLines: string[] = [];
+      while (index < lines.length && /^>\s?/.test(lines[index])) quoteLines.push(lines[index++].replace(/^>\s?/, ''));
+      blocks.push(
+        <blockquote key={key} className="border-l-2 border-indigo-300 pl-3 text-gray-600 dark:border-indigo-700 dark:text-gray-300">
+          {quoteLines.map((quote, quoteIndex) => <React.Fragment key={key + '-quote-' + quoteIndex}>{quoteIndex > 0 && <br />}{renderMarkdownInline(quote, key + '-quote-' + quoteIndex)}</React.Fragment>)}
+        </blockquote>,
+      );
+      continue;
+    }
+
+    if (/^\s*[-*+]\s+/.test(line)) {
+      const items: string[] = [];
+      while (index < lines.length && /^\s*[-*+]\s+/.test(lines[index])) items.push(lines[index++].replace(/^\s*[-*+]\s+/, ''));
+      blocks.push(
+        <ul key={key} className="list-disc space-y-1 pl-5 marker:text-gray-400">
+          {items.map((item, itemIndex) => <li key={key + '-item-' + itemIndex}>{renderMarkdownInline(item, key + '-item-' + itemIndex)}</li>)}
+        </ul>,
+      );
+      continue;
+    }
+
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      const items: string[] = [];
+      while (index < lines.length && /^\s*\d+[.)]\s+/.test(lines[index])) items.push(lines[index++].replace(/^\s*\d+[.)]\s+/, ''));
+      blocks.push(
+        <ol key={key} className="list-decimal space-y-1 pl-5 marker:font-semibold marker:text-gray-500">
+          {items.map((item, itemIndex) => <li key={key + '-item-' + itemIndex}>{renderMarkdownInline(item, key + '-item-' + itemIndex)}</li>)}
+        </ol>,
+      );
+      continue;
+    }
+
+    const paragraphLines = [line];
+    index += 1;
+    while (index < lines.length && lines[index].trim() && !isMarkdownBlockStart(lines[index])) paragraphLines.push(lines[index++]);
+    blocks.push(
+      <p key={key} className="leading-6">
+        {paragraphLines.map((paragraphLine, paragraphIndex) => (
+          <React.Fragment key={key + '-line-' + paragraphIndex}>
+            {paragraphIndex > 0 && <br />}
+            {renderMarkdownInline(paragraphLine, key + '-line-' + paragraphIndex)}
+          </React.Fragment>
+        ))}
+      </p>,
+    );
+  }
+
+  return <div className="space-y-2.5 break-words text-gray-700 dark:text-gray-300">{blocks}</div>;
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
@@ -101,7 +250,9 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
                 <span className="text-xxs font-bold uppercase tracking-wider text-gray-400">
                   {m.role === 'user' ? `👤 ${t('qa.user')}` : `🤖 ${t('qa.assistant')}`}
                 </span>
-                <p className="text-gray-700 dark:text-gray-300 font-normal whitespace-pre-wrap">{m.content}</p>
+                {m.role === 'assistant'
+                  ? <MarkdownMessage content={m.content} />
+                  : <p className="whitespace-pre-wrap font-normal text-gray-700 dark:text-gray-300">{m.content}</p>}
               </div>
             ))}
           </div>
