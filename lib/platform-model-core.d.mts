@@ -24,3 +24,5 @@ export function estimateExternalCostMicros(config: {
   outputTokens?: number;
   nativeSearchRequests?: number;
 }): number;
+
+export function isOfficialOpenAiApiBaseUrl(value: unknown): boolean;

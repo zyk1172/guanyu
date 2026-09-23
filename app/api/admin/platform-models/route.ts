@@ -8,6 +8,7 @@ import { ensurePlatformModelBaseline, safeAdminPlatformModel } from '@/lib/platf
 import {
   PLATFORM_MODEL_PROVIDERS,
   PLATFORM_MODEL_SEARCH_MODES,
+  isOfficialOpenAiApiBaseUrl,
   parseMultiplierToBps,
   type PlatformModelProvider,
   type PlatformModelSearchMode,
@@ -52,11 +53,16 @@ function reasoningDepth(value: unknown) {
   return selected;
 }
 
-function modelBaseUrl(value: unknown) {
+function modelBaseUrl(value: unknown, provider: PlatformModelProvider) {
   const raw = string(value, 1000).replace(/\/$/, '');
   const parsed = new URL(raw);
   if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('模型接口只允许 HTTP 或 HTTPS。');
   if (process.env.NODE_ENV === 'production' && parsed.protocol !== 'https:') throw new Error('生产环境模型接口必须使用 HTTPS。');
+  if (parsed.username || parsed.password) throw new Error('模型接口地址不能包含用户名或密码。');
+
+  if (provider === 'openai' && !isOfficialOpenAiApiBaseUrl(raw)) {
+    throw new Error('OpenAI 原生模式仅允许官方 *.api.openai.com/v1 端点；代理或中转请使用 OpenAI-compatible。');
+  }
   return raw;
 }
 
@@ -96,7 +102,7 @@ function configData(body: any, existing?: { apiKeyEncrypted: string | null }) {
     description: string(body.description, 1000),
     displayNameI18nJson: jsonMap(body.displayNameI18nJson || body.displayNameI18n || {}),
     descriptionI18nJson: jsonMap(body.descriptionI18nJson || body.descriptionI18n || {}),
-    baseUrl: modelBaseUrl(body.baseUrl),
+    baseUrl: modelBaseUrl(body.baseUrl, provider),
     apiKeyEncrypted: apiKey ? encryptSecret(apiKey) : existing?.apiKeyEncrypted,
     modelId,
     reasoningDepth: reasoningDepth(body.reasoningDepth),

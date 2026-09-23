@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import test from 'node:test';
 import { historicalAuditModelName, withHistoricalAuditModelName } from '../lib/audit-model-display';
 import { invokeModel } from '../lib/model-runtime';
+import { decodePlatformModelSnapshot, encodePlatformModelSnapshot, platformModelSnapshot } from '../lib/platform-models';
 
 type CapturedRequest = { path: string; body: any };
 
@@ -14,9 +15,15 @@ async function withModelServer(run: (baseUrl: string, captured: CapturedRequest[
     request.on('end', () => {
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
       captured.push({ path: request.url || '', body });
+      if (request.url?.includes('/malformed/')) {
+        response.statusCode = 429;
+        response.setHeader('content-type', 'text/plain');
+        response.end('rate limited');
+        return;
+      }
       response.setHeader('content-type', 'application/json');
       if (request.url?.endsWith('/responses')) {
-        response.end(JSON.stringify({ output_text: 'OPENAI_OK', output: [], usage: { input_tokens: 10, output_tokens: 2 } }));
+        response.end(JSON.stringify({ output_text: 'OPENAI_OK', output: [{ type: 'web_search_call', action: { sources: [{ title: 'OpenAI', url: 'https://openai.com/' }] } }], usage: { input_tokens: 10, output_tokens: 2, input_tokens_details: { cached_tokens: 3 } } }));
       } else if (request.url?.includes(':generateContent')) {
         response.end(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'GEMINI_OK' }] } }], usageMetadata: { promptTokenCount: 8, candidatesTokenCount: 2 } }));
       } else if (request.url?.endsWith('/messages')) {
@@ -59,9 +66,9 @@ const BASE = {
 
 test('provider adapters map reasoning and native search without changing compatible baseline requests', async () => {
   await withModelServer(async (baseUrl, captured) => {
-    const openai = await invokeModel({ ...BASE, provider: 'openai', baseUrl: `${baseUrl}/v1`, modelId: 'gpt-5.4', reasoningDepth: 'extreme', nativeSearch: true });
+    const openai = await invokeModel({ ...BASE, provider: 'openai', baseUrl: `${baseUrl}/v1`, modelId: 'gpt-5.6-terra', reasoningDepth: 'extreme', nativeSearch: true });
     const gemini = await invokeModel({ ...BASE, provider: 'gemini', baseUrl: `${baseUrl}/v1beta`, modelId: 'gemini-3.1-pro-preview', reasoningDepth: 'high', nativeSearch: true });
-    const anthropic = await invokeModel({ ...BASE, provider: 'anthropic', baseUrl: `${baseUrl}/v1`, modelId: 'claude-sonnet-4', reasoningDepth: 'medium', nativeSearch: true });
+    const anthropic = await invokeModel({ ...BASE, provider: 'anthropic', baseUrl: `${baseUrl}/v1`, modelId: 'claude-sonnet-4-6', reasoningDepth: 'medium', nativeSearch: true });
     const compatible = await invokeModel({ ...BASE, provider: 'openai_compatible', baseUrl: `${baseUrl}/v1`, modelId: 'deepseek-v4-pro', reasoningDepth: 'extreme', nativeSearch: false });
 
     assert.equal(openai.message, 'OPENAI_OK');
@@ -71,14 +78,20 @@ test('provider adapters map reasoning and native search without changing compati
 
     assert.equal(captured[0].path, '/v1/responses');
     assert.deepEqual(captured[0].body.reasoning, { effort: 'xhigh' });
+    assert.equal(captured[0].body.text.format.type, 'json_object');
     assert.equal(captured[0].body.tools[0].type, 'web_search');
+    assert.deepEqual(captured[0].body.include, ['web_search_call.action.sources']);
+    assert.equal(captured[0].body.tool_choice, 'auto');
+    assert.equal(openai.sources[0]?.url, 'https://openai.com/');
+    assert.equal(openai.usage.cacheReadTokens, 3);
 
     assert.match(captured[1].path, /gemini-3\.1-pro-preview:generateContent$/);
     assert.deepEqual(captured[1].body.generationConfig.thinkingConfig, { thinkingLevel: 'high' });
     assert.deepEqual(captured[1].body.tools, [{ google_search: {} }]);
 
     assert.equal(captured[2].path, '/v1/messages');
-    assert.deepEqual(captured[2].body.thinking, { type: 'enabled', budget_tokens: 4096 });
+    assert.deepEqual(captured[2].body.thinking, { type: 'adaptive' });
+    assert.deepEqual(captured[2].body.output_config, { effort: 'medium' });
     assert.equal(captured[2].body.temperature, undefined);
     assert.equal(captured[2].body.tools[0].type, 'web_search_20250305');
 
@@ -91,7 +104,7 @@ test('provider adapters map reasoning and native search without changing compati
 
 test('Chinese provider adapters use provider-native thinking and web search contracts', async () => {
   await withModelServer(async (baseUrl, captured) => {
-    const mimo = await invokeModel({ ...BASE, provider: 'xiaomi_mimo', baseUrl: `${baseUrl}/v1`, modelId: 'mimo-v2.5-pro', reasoningDepth: 'high', nativeSearch: true });
+    const mimo = await invokeModel({ ...BASE, provider: 'xiaomi_mimo', baseUrl: `${baseUrl}/v1`, modelId: 'mimo-v2.6-pro', reasoningDepth: 'high', nativeSearch: true });
     const qwen = await invokeModel({ ...BASE, provider: 'qwen', baseUrl: `${baseUrl}/v1`, modelId: 'qwen-plus', reasoningDepth: 'extreme', nativeSearch: true });
     const zhipu = await invokeModel({ ...BASE, provider: 'zhipu', baseUrl: `${baseUrl}/v1`, modelId: 'glm-5', reasoningDepth: 'high', nativeSearch: true });
     const kimi = await invokeModel({ ...BASE, provider: 'moonshot', baseUrl: `${baseUrl}/v1`, modelId: 'kimi-k3', reasoningDepth: 'extreme', nativeSearch: true });
@@ -101,12 +114,13 @@ test('Chinese provider adapters use provider-native thinking and web search cont
     assert.equal(captured[0].body.thinking.type, 'enabled');
     assert.equal(captured[0].body.tools[0].type, 'web_search');
     assert.equal(captured[0].body.max_completion_tokens, 5_000);
+    assert.equal(captured[0].body.temperature, undefined);
 
     assert.equal(qwen.message, 'QWEN_OK GUANYU_MODEL_OK');
     assert.equal(captured[1].body.enable_thinking, true);
     assert.equal(captured[1].body.thinking_budget, 16_384);
     assert.equal(captured[1].body.enable_search, true);
-    assert.equal(captured[1].body.search_options.search_strategy, 'max');
+    assert.equal(captured[1].body.search_options, undefined);
 
     assert.equal(zhipu.message, 'ZHIPU_OK GUANYU_MODEL_OK');
     assert.deepEqual(captured[2].body.thinking, { type: 'enabled' });
@@ -116,6 +130,8 @@ test('Chinese provider adapters use provider-native thinking and web search cont
     assert.equal(kimi.message, 'KIMI_OK GUANYU_MODEL_OK');
     assert.equal(kimi.usage.nativeSearchRequests, 1);
     assert.equal(captured[3].body.reasoning_effort, 'max');
+    assert.equal(captured[3].body.max_completion_tokens, 5_000);
+    assert.equal(captured[3].body.max_tokens, undefined);
     assert.equal(captured[3].body.tools[0].function.name, '$web_search');
     assert.equal(captured[4].body.messages.at(-1).role, 'tool');
   });
@@ -133,4 +149,107 @@ test('historical reports prefer their immutable model display snapshot', () => {
     modelName: 'DeepSeek V4 Pro 历史名称',
   });
   assert.equal(historicalAuditModelName({ modelName: 'legacy-model' }), 'legacy-model');
+});
+
+
+test('OpenAI native skips reasoning controls for non-reasoning models', async () => {
+  await withModelServer(async (baseUrl, captured) => {
+    const result = await invokeModel({
+      ...BASE,
+      provider: 'openai',
+      baseUrl: `${baseUrl}/v1`,
+      modelId: 'gpt-4o',
+      reasoningDepth: 'high',
+      nativeSearch: false,
+      jsonMode: false,
+    });
+    assert.equal(result.ok, true);
+    assert.equal(captured[0].path, '/v1/responses');
+    assert.equal(captured[0].body.reasoning, undefined);
+    assert.equal(captured[0].body.text, undefined);
+  });
+});
+
+test('platform model snapshots preserve native providers without persisting credentials', () => {
+  const base = {
+    id: 'model-1',
+    configKey: 'qwen-native',
+    provider: 'qwen',
+    displayName: 'Qwen Native',
+    description: '',
+    displayNameI18nJson: '{}',
+    descriptionI18nJson: '{}',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    apiKeyEncrypted: 'encrypted-secret-material',
+    modelId: 'qwen-plus',
+    reasoningDepth: 'high',
+    searchMode: 'native',
+    supportsAnalysis: true,
+    supportsCompletion: true,
+    supportsFollowup: true,
+    creditMultiplierBps: 100,
+    inputPriceMicrosPerMillion: 0,
+    outputPriceMicrosPerMillion: 0,
+    nativeSearchPriceMicrosPerRequest: 0,
+    isEnabled: true,
+    isVisibleToUsers: true,
+    isRecommended: false,
+    isDefault: false,
+    sortOrder: 0,
+    configVersion: 1,
+    lastTestStatus: null,
+    lastTestMessage: null,
+    lastTestedAt: null,
+    archivedAt: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  } as any;
+
+  const snapshot = platformModelSnapshot(base);
+  assert.equal(snapshot.provider, 'qwen');
+  assert.equal('apiKeyEncrypted' in snapshot, false);
+
+  const encoded = encodePlatformModelSnapshot(snapshot);
+  assert.equal(encoded.includes('encrypted-secret-material'), false);
+  assert.equal(encoded.includes('apiKeyEncrypted'), false);
+  assert.equal(decodePlatformModelSnapshot(encoded)?.provider, 'qwen');
+
+  const legacy = decodePlatformModelSnapshot(JSON.stringify({
+    ...snapshot,
+    apiKeyEncrypted: 'legacy-ciphertext',
+  }));
+  assert.equal(legacy?.legacyApiKeyEncrypted, 'legacy-ciphertext');
+  assert.equal(encodePlatformModelSnapshot(legacy!).includes('legacy-ciphertext'), false);
+});
+
+
+test('Gemini 3 Pro maps none to supported low thinking instead of invalid minimal', async () => {
+  await withModelServer(async (baseUrl, captured) => {
+    const result = await invokeModel({
+      ...BASE,
+      provider: 'gemini',
+      baseUrl: `${baseUrl}/v1beta`,
+      modelId: 'gemini-3.1-pro-preview',
+      reasoningDepth: 'none',
+      nativeSearch: false,
+    });
+    assert.equal(result.ok, true);
+    assert.deepEqual(captured[0].body.generationConfig.thinkingConfig, { thinkingLevel: 'low' });
+  });
+});
+
+
+test('malformed upstream error bodies preserve HTTP status and error code', async () => {
+  await withModelServer(async (baseUrl) => {
+    const result = await invokeModel({
+      ...BASE,
+      provider: 'openai_compatible',
+      baseUrl: `${baseUrl}/malformed/v1`,
+      modelId: 'compatible-model',
+      nativeSearch: false,
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 429);
+    assert.equal(result.errorCode, 'upstream_429');
+  });
 });

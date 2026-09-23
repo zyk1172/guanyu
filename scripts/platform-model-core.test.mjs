@@ -4,6 +4,7 @@ import {
   calculatePlatformOperationCostCents,
   formatCreditCents,
   formatMultiplierBps,
+  isOfficialOpenAiApiBaseUrl,
   localizedModelText,
   operationCostCents,
   parseMultiplierToBps,
@@ -46,4 +47,15 @@ test('localized model text follows exact locale then language and fallback', () 
   assert.equal(localizedModelText('Fallback', translations, 'en-US'), 'Baseline model');
   assert.equal(localizedModelText('Fallback', translations, 'ja-JP'), '基準モデル');
   assert.equal(localizedModelText('Fallback', '{}', 'de-DE'), 'Fallback');
+});
+
+
+test('native OpenAI endpoints accept only official HTTPS API bases', () => {
+  assert.equal(isOfficialOpenAiApiBaseUrl('https://api.openai.com/v1'), true);
+  assert.equal(isOfficialOpenAiApiBaseUrl('https://us.api.openai.com/v1'), true);
+  assert.equal(isOfficialOpenAiApiBaseUrl('https://eu.api.openai.com/v1/'), true);
+  assert.equal(isOfficialOpenAiApiBaseUrl('http://api.openai.com/v1'), false);
+  assert.equal(isOfficialOpenAiApiBaseUrl('https://api.openai.com.evil.example/v1'), false);
+  assert.equal(isOfficialOpenAiApiBaseUrl('https://example.com/v1'), false);
+  assert.equal(isOfficialOpenAiApiBaseUrl('https://api.openai.com/v1?key=leak'), false);
 });

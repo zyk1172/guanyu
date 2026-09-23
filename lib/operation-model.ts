@@ -1,9 +1,8 @@
 import { prisma } from '@/lib/prisma';
 import { getOrCreateAppSetting, getUsageSource } from '@/lib/billing';
 import { chooseModelConfig } from '@/lib/model-config';
-import { decryptSecret } from '@/lib/secret';
 import { operationCostCents, type PlatformModelOperation } from '@/lib/platform-model-core.mjs';
-import { platformModelSnapshot, resolvePlatformModel, type PlatformModelSnapshot } from '@/lib/platform-models';
+import { platformModelSnapshot, resolvePlatformModel, resolvePlatformModelApiKey, type PlatformModelSnapshot } from '@/lib/platform-models';
 
 export async function resolveOperationModel(params: {
   userId: string;
@@ -38,7 +37,7 @@ export async function resolveOperationModel(params: {
     operation: params.operation,
   });
   const snapshot = platformModelSnapshot(config);
-  const apiKey = decryptSecret(snapshot.apiKeyEncrypted);
+  const apiKey = await resolvePlatformModelApiKey(snapshot);
   if (!apiKey) throw new Error('所选平台模型未配置可用的 API Key，请联系管理员。');
   const configuredAdminBaseUrl = process.env.OPENAI_BASE_URL || '';
   return {

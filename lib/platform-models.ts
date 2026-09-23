@@ -1,7 +1,9 @@
 import type { PlatformModelConfig } from '@/lib/generated/prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getOrCreateAppSetting } from '@/lib/billing';
+import { decryptSecret } from '@/lib/secret';
 import {
+  PLATFORM_MODEL_PROVIDERS,
   formatCreditCents,
   localizedModelText,
   operationCapabilityField,
@@ -17,7 +19,6 @@ export type PlatformModelSnapshot = {
   provider: PlatformModelProvider;
   displayName: string;
   baseUrl: string;
-  apiKeyEncrypted: string;
   modelId: string;
   reasoningDepth: string;
   searchMode: PlatformModelSearchMode;
@@ -27,6 +28,8 @@ export type PlatformModelSnapshot = {
   outputPriceMicrosPerMillion: number;
   nativeSearchPriceMicrosPerRequest: number;
   capturedAt: string;
+  /** Backward-compatibility only for queued jobs created before secret-free snapshots. */
+  legacyApiKeyEncrypted?: string;
 };
 
 export type PublicPlatformModel = {
@@ -45,8 +48,9 @@ export type PublicPlatformModel = {
 };
 
 function provider(value: string): PlatformModelProvider {
-  if (value === 'openai' || value === 'gemini' || value === 'anthropic') return value;
-  return 'openai_compatible';
+  return (PLATFORM_MODEL_PROVIDERS as readonly string[]).includes(value)
+    ? value as PlatformModelProvider
+    : 'openai_compatible';
 }
 
 function searchMode(value: string): PlatformModelSearchMode {
@@ -86,7 +90,6 @@ export function platformModelSnapshot(config: PlatformModelConfig): PlatformMode
     provider: provider(config.provider),
     displayName: config.displayName,
     baseUrl: config.baseUrl,
-    apiKeyEncrypted: config.apiKeyEncrypted || '',
     modelId: config.modelId,
     reasoningDepth: config.reasoningDepth,
     searchMode: searchMode(config.searchMode),
@@ -100,7 +103,9 @@ export function platformModelSnapshot(config: PlatformModelConfig): PlatformMode
 }
 
 export function encodePlatformModelSnapshot(snapshot: PlatformModelSnapshot) {
-  return JSON.stringify(snapshot);
+  const safeSnapshot = { ...snapshot };
+  delete safeSnapshot.legacyApiKeyEncrypted;
+  return JSON.stringify(safeSnapshot);
 }
 
 export function decodePlatformModelSnapshot(value: string | null | undefined): PlatformModelSnapshot | null {
@@ -114,7 +119,6 @@ export function decodePlatformModelSnapshot(value: string | null | undefined): P
       provider: provider(String(parsed.provider)),
       displayName: String(parsed.displayName || parsed.modelId),
       baseUrl: String(parsed.baseUrl),
-      apiKeyEncrypted: String(parsed.apiKeyEncrypted || ''),
       modelId: String(parsed.modelId),
       reasoningDepth: String(parsed.reasoningDepth || 'medium'),
       searchMode: searchMode(String(parsed.searchMode)),
@@ -124,10 +128,32 @@ export function decodePlatformModelSnapshot(value: string | null | undefined): P
       outputPriceMicrosPerMillion: Number.isSafeInteger(parsed.outputPriceMicrosPerMillion) ? parsed.outputPriceMicrosPerMillion : 0,
       nativeSearchPriceMicrosPerRequest: Number.isSafeInteger(parsed.nativeSearchPriceMicrosPerRequest) ? parsed.nativeSearchPriceMicrosPerRequest : 0,
       capturedAt: String(parsed.capturedAt || ''),
+      legacyApiKeyEncrypted: parsed.apiKeyEncrypted ? String(parsed.apiKeyEncrypted) : undefined,
     };
   } catch {
     return null;
   }
+}
+
+function normalizedBaseUrl(value: string) {
+  return value.trim().replace(/\/$/, '');
+}
+
+export async function resolvePlatformModelApiKey(snapshot: PlatformModelSnapshot) {
+  const current = await prisma.platformModelConfig.findUnique({
+    where: { id: snapshot.configId },
+    select: { provider: true, baseUrl: true, apiKeyEncrypted: true },
+  });
+  if (current) {
+    const sameCredentialScope = provider(current.provider) === snapshot.provider
+      && normalizedBaseUrl(current.baseUrl) === normalizedBaseUrl(snapshot.baseUrl);
+    if (sameCredentialScope) return decryptSecret(current.apiKeyEncrypted);
+    // Old queued jobs carried the credential that belonged to their captured
+    // endpoint. New snapshots intentionally carry no credential and will fail
+    // closed if the provider or endpoint was changed while the job was queued.
+    return decryptSecret(snapshot.legacyApiKeyEncrypted);
+  }
+  return decryptSecret(snapshot.legacyApiKeyEncrypted);
 }
 
 export async function resolvePlatformModel(params: {

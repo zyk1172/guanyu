@@ -118,7 +118,12 @@ function openAiOutputText(payload: any) {
   return parts.join('\n').trim();
 }
 
-function openAiReasoning(reasoningDepth?: string) {
+function openAiSupportsReasoning(modelId: string) {
+  return /^(?:gpt-(?:5|6)(?:[.-]|$)|o[134](?:[.-]|$))/i.test(modelId.trim());
+}
+
+function openAiReasoning(modelId: string, reasoningDepth?: string) {
+  if (!openAiSupportsReasoning(modelId)) return undefined;
   if (reasoningDepth === 'none') return { effort: 'none' };
   if (reasoningDepth === 'low') return { effort: 'low' };
   if (reasoningDepth === 'medium') return { effort: 'medium' };
@@ -156,6 +161,16 @@ function zhipuThinking(reasoningDepth?: string) {
   };
 }
 
+function parseUpstreamJson(body: Buffer) {
+  const raw = body.toString('utf8').trim();
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
 function chatUsage(payload: any, nativeSearchRequests = 0): RuntimeUsage {
   const usage = payload?.usage || {};
   return {
@@ -180,7 +195,7 @@ async function postChatCompletion(params: InvokeModelParams, body: Record<string
     requireHttps: process.env.NODE_ENV === 'production' && !params.allowPrivateAddress,
     allowPrivateAddress: params.allowPrivateAddress,
   });
-  return { response, payload: JSON.parse(response.body.toString('utf8') || '{}') };
+  return { response, payload: parseUpstreamJson(response.body) };
 }
 
 function standardChatBody(params: InvokeModelParams) {
@@ -198,32 +213,44 @@ function standardChatBody(params: InvokeModelParams) {
 
 function geminiThinking(modelId: string, reasoningDepth?: string) {
   if (/gemini-3/i.test(modelId)) {
-    const level = reasoningDepth === 'none'
-      ? 'minimal'
-      : reasoningDepth === 'low'
-        ? 'low'
-        : reasoningDepth === 'medium'
-          ? 'medium'
-          : 'high';
+    const level = reasoningDepth === 'none' || reasoningDepth === 'low'
+      ? 'low'
+      : reasoningDepth === 'medium'
+        ? 'medium'
+        : 'high';
     return { thinkingConfig: { thinkingLevel: level } };
   }
   if (/gemini-2\.5/i.test(modelId)) {
+    const cannotDisable = /pro/i.test(modelId);
     const budget = reasoningDepth === 'none'
-      ? 0
+      ? (cannotDisable ? 1024 : 0)
       : reasoningDepth === 'low'
         ? 1024
         : reasoningDepth === 'medium'
-          ? 4096
-          : reasoningDepth === 'high'
-            ? 8192
-            : 16384;
+          ? 8192
+          : 24576;
     return { thinkingConfig: { thinkingBudget: budget } };
   }
   return {};
 }
 
-function anthropicThinking(reasoningDepth?: string) {
+function anthropicUsesAdaptiveThinking(modelId: string) {
+  return /claude-(?:sonnet|opus|fable|mythos)-(?:5(?:-|$)|4-(?:6|7|8|9)(?:-|$))/i.test(modelId);
+}
+
+function anthropicEffort(reasoningDepth?: string) {
+  if (reasoningDepth === 'low') return 'low';
+  if (reasoningDepth === 'medium') return 'medium';
+  if (reasoningDepth === 'high') return 'high';
+  if (reasoningDepth === 'extreme') return 'max';
+  return undefined;
+}
+
+function anthropicThinking(modelId: string, reasoningDepth?: string) {
   if (!reasoningDepth || reasoningDepth === 'none') return undefined;
+  if (anthropicUsesAdaptiveThinking(modelId)) {
+    return { type: 'adaptive' as const };
+  }
   const budgetTokens = reasoningDepth === 'low'
     ? 1024
     : reasoningDepth === 'medium'
@@ -231,7 +258,7 @@ function anthropicThinking(reasoningDepth?: string) {
       : reasoningDepth === 'high'
         ? 8192
         : 16000;
-  return { type: 'enabled', budget_tokens: budgetTokens };
+  return { type: 'enabled' as const, budget_tokens: budgetTokens };
 }
 
 async function invokeOpenAiCompatible(params: InvokeModelParams): Promise<ModelInvocationResult> {
@@ -253,7 +280,7 @@ async function invokeOpenAiCompatible(params: InvokeModelParams): Promise<ModelI
     requireHttps: process.env.NODE_ENV === 'production' && !params.allowPrivateAddress,
     allowPrivateAddress: params.allowPrivateAddress,
   });
-  const payload = JSON.parse(response.body.toString('utf8') || '{}');
+  const payload = parseUpstreamJson(response.body);
   const usage = payload?.usage || {};
   return {
     ok: response.status >= 200 && response.status < 300,
@@ -272,7 +299,7 @@ async function invokeOpenAiCompatible(params: InvokeModelParams): Promise<ModelI
 }
 
 async function invokeOpenAiResponses(params: InvokeModelParams): Promise<ModelInvocationResult> {
-  const reasoning = openAiReasoning(params.reasoningDepth);
+  const reasoning = openAiReasoning(params.modelId, params.reasoningDepth);
   const response = await safeOutboundRequest(`${params.baseUrl.replace(/\/$/, '')}/responses`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${params.apiKey}` },
@@ -283,7 +310,12 @@ async function invokeOpenAiResponses(params: InvokeModelParams): Promise<ModelIn
         { role: 'user', content: params.userPrompt },
       ],
       store: false,
-      ...(params.nativeSearch ? { tools: [{ type: 'web_search', search_context_size: 'high' }] } : {}),
+      ...(params.jsonMode ? { text: { format: { type: 'json_object' } } } : {}),
+      ...(params.nativeSearch ? {
+        tools: [{ type: 'web_search', search_context_size: 'high' }],
+        tool_choice: 'auto',
+        include: ['web_search_call.action.sources'],
+      } : {}),
       ...(params.maxTokens ? { max_output_tokens: params.maxTokens } : {}),
       ...(reasoning ? { reasoning } : {}),
     }),
@@ -292,7 +324,7 @@ async function invokeOpenAiResponses(params: InvokeModelParams): Promise<ModelIn
     requireHttps: process.env.NODE_ENV === 'production' && !params.allowPrivateAddress,
     allowPrivateAddress: params.allowPrivateAddress,
   });
-  const payload = JSON.parse(response.body.toString('utf8') || '{}');
+  const payload = parseUpstreamJson(response.body);
   const usage = payload?.usage || {};
   const nativeSearchRequests = (Array.isArray(payload?.output) ? payload.output : []).filter((item: any) => item?.type === 'web_search_call').length;
   return {
@@ -333,7 +365,7 @@ async function invokeGemini(params: InvokeModelParams): Promise<ModelInvocationR
     requireHttps: process.env.NODE_ENV === 'production' && !params.allowPrivateAddress,
     allowPrivateAddress: params.allowPrivateAddress,
   });
-  const payload = JSON.parse(response.body.toString('utf8') || '{}');
+  const payload = parseUpstreamJson(response.body);
   const candidate = payload?.candidates?.[0] || {};
   const message = (Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [])
     .map((part: any) => typeof part?.text === 'string' ? part.text : '')
@@ -364,8 +396,11 @@ async function invokeGemini(params: InvokeModelParams): Promise<ModelInvocationR
 }
 
 async function invokeAnthropic(params: InvokeModelParams): Promise<ModelInvocationResult> {
-  const thinking = anthropicThinking(params.reasoningDepth);
-  const maxTokens = Math.max(params.maxTokens || 12_000, (thinking?.budget_tokens || 0) + 4096);
+  const thinking = anthropicThinking(params.modelId, params.reasoningDepth);
+  const thinkingBudget = thinking && 'budget_tokens' in thinking && typeof thinking.budget_tokens === 'number'
+    ? thinking.budget_tokens
+    : 0;
+  const maxTokens = Math.max(params.maxTokens || 12_000, thinkingBudget + 4096);
   const response = await safeOutboundRequest(`${params.baseUrl.replace(/\/$/, '')}/messages`, {
     method: 'POST',
     headers: {
@@ -378,7 +413,8 @@ async function invokeAnthropic(params: InvokeModelParams): Promise<ModelInvocati
       system: params.system,
       messages: [{ role: 'user', content: params.userPrompt }],
       max_tokens: maxTokens,
-      ...(thinking ? { thinking } : { temperature: 0.1 }),
+      ...(thinking ? { thinking } : (!anthropicUsesAdaptiveThinking(params.modelId) ? { temperature: 0.1 } : {})),
+      ...(thinking && anthropicUsesAdaptiveThinking(params.modelId) ? { output_config: { effort: anthropicEffort(params.reasoningDepth) } } : {}),
       ...(params.nativeSearch ? { tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 8 }] } : {}),
     }),
     timeoutMs: params.timeoutMs,
@@ -386,7 +422,7 @@ async function invokeAnthropic(params: InvokeModelParams): Promise<ModelInvocati
     requireHttps: process.env.NODE_ENV === 'production' && !params.allowPrivateAddress,
     allowPrivateAddress: params.allowPrivateAddress,
   });
-  const payload = JSON.parse(response.body.toString('utf8') || '{}');
+  const payload = parseUpstreamJson(response.body);
   const blocks = Array.isArray(payload?.content) ? payload.content : [];
   const message = blocks.filter((block: any) => block?.type === 'text').map((block: any) => String(block.text || '')).join('\n').trim();
   const sources: RuntimeSearchSource[] = [];
@@ -420,6 +456,7 @@ async function invokeAnthropic(params: InvokeModelParams): Promise<ModelInvocati
 async function invokeXiaomiMimo(params: InvokeModelParams): Promise<ModelInvocationResult> {
   const body = {
     ...standardChatBody(params),
+    ...(params.reasoningDepth === 'none' ? {} : { temperature: undefined }),
     ...(params.maxTokens ? { max_completion_tokens: params.maxTokens } : {}),
     thinking: { type: params.reasoningDepth === 'none' ? 'disabled' : 'enabled' },
     ...(params.nativeSearch ? {
@@ -450,10 +487,7 @@ async function invokeQwen(params: InvokeModelParams): Promise<ModelInvocationRes
     ...standardChatBody(params),
     ...(params.maxTokens ? { max_tokens: params.maxTokens } : {}),
     ...qwenThinking(params.reasoningDepth),
-    ...(params.nativeSearch ? {
-      enable_search: true,
-      search_options: { forced_search: true, search_strategy: params.reasoningDepth === 'extreme' ? 'max' : 'turbo', enable_source: true },
-    } : {}),
+    ...(params.nativeSearch ? { enable_search: true } : {}),
   };
   const { response, payload } = await postChatCompletion(params, body);
   const sources = structuredSearchSources(payload?.search_info || payload?.web_search || payload?.choices?.[0]?.message?.annotations || [], 'qwen-native');
@@ -510,7 +544,7 @@ async function invokeMoonshot(params: InvokeModelParams): Promise<ModelInvocatio
       stream: false,
       temperature: 0.1,
       reasoning_effort: kimiReasoning(params.reasoningDepth),
-      ...(params.maxTokens ? { max_tokens: params.maxTokens } : {}),
+      ...(params.maxTokens ? { max_completion_tokens: params.maxTokens } : {}),
       ...(params.jsonMode ? { response_format: { type: 'json_object' } } : {}),
       ...(tools ? { tools } : {}),
     });
