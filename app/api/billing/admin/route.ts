@@ -11,6 +11,7 @@ import { encryptSecret } from '@/lib/secret';
 import { deleteUserAccount } from '@/lib/privacy';
 import { verifyStepUp } from '@/lib/step-up';
 import { sameOriginResponse } from '@/lib/request-security';
+import { requiresBillingAdminStepUp } from '@/lib/billing-admin-security';
 
 async function requireAdmin(request: Request) {
   const user = await getCurrentUser(request);
@@ -138,7 +139,7 @@ export async function PATCH(request: NextRequest) {
   const body = await request.json();
   const action = String(body.action || '');
 
-  if (['grant', 'grantProAccess', 'setUserBanned', 'deleteUser', 'sendUserEmail'].includes(action)) {
+  if (requiresBillingAdminStepUp(action)) {
     const confirmed = await verifyStepUp(admin.id, { password: String(body.stepUpPassword || '') });
     if (!confirmed) {
       return NextResponse.json({ error: '需要输入当前密码以执行敏感操作。' }, { status: 400 });

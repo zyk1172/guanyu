@@ -6,6 +6,7 @@ import { serviceOperationChargeKey, serviceOperationRefundKey } from '../lib/ser
 import { sameOriginResponse } from '../lib/request-security';
 import { assertValidPasswordInput, hashPassword, verifyPassword } from '../lib/password-core.mjs';
 import { DELETE, PATCH } from '../app/api/audits/[id]/route';
+import { requiresBillingAdminStepUp } from '../lib/billing-admin-security';
 import { normalizeOnlineVerification, normalizeSourceUrl, normalizeVerificationStatus } from '../app/api/analyze/route';
 
 test('getClientIp reads record-style headers used by NextAuth authorize', () => {
@@ -139,4 +140,12 @@ test('online verification only trusts observed source URLs', () => {
   assert.equal(backgroundOnly.verifiedSources.length, 0);
   assert.equal(backgroundOnly.backgroundSources[0].verificationStatus, 'source_supported');
   assert.equal(normalizeVerificationStatus('已核验', false), 'source_supported');
+});
+
+
+test('billing admin step-up protects canonical and compatibility Pro grant actions', () => {
+  for (const action of ['grant', 'grantProAccess', 'unlockByok', 'setUserBanned', 'deleteUser', 'sendUserEmail']) {
+    assert.equal(requiresBillingAdminStepUp(action), true, `${action} must require step-up`);
+  }
+  assert.equal(requiresBillingAdminStepUp('settings'), false);
 });
