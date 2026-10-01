@@ -12,7 +12,7 @@ type ModelItem = {
   displayName: string;
   description: string;
   provider: string;
-  searchMode: 'platform' | 'native' | 'none';
+  searchMode: 'platform' | 'native' | 'agent' | 'none';
   supportsWebSearch: boolean;
   contentOnlyAnalysis: boolean;
   recommended: boolean;
@@ -129,7 +129,9 @@ export function PlatformModelSelector({
               {selected.description && <span className="mr-1">{selected.description}</span>}
               <span className="rounded-full border border-[var(--color-border)] px-2 py-0.5">{selected.estimatedCost} {t('modelSelector.credits', '点')}</span>
               <span className="rounded-full border border-[var(--color-border)] px-2 py-0.5">
-                {selected.searchMode === 'native'
+                {selected.searchMode === 'agent'
+                  ? t('modelSelector.agentSearch', '模型自主查证')
+                  : selected.searchMode === 'native'
                   ? t('modelSelector.nativeSearch', '模型原生联网')
                   : selected.searchMode === 'platform'
                     ? t('modelSelector.platformSearch', '平台联网核验')

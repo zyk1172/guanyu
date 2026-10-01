@@ -14,6 +14,7 @@ import {
   type PlatformModelSearchMode,
 } from '@/lib/platform-model-core.mjs';
 import { testModelConnection } from '@/lib/model-runtime';
+import { WebResearchSession } from '@/lib/web-research';
 import { sameOriginResponse } from '@/lib/request-security';
 
 const REASONING_DEPTHS = new Set(['none', 'low', 'medium', 'high', 'extreme']);
@@ -208,11 +209,14 @@ export async function PATCH(request: Request) {
         modelId: existing.modelId,
         reasoningDepth: existing.reasoningDepth,
         nativeSearch: existing.searchMode === 'native',
+        webResearch: existing.searchMode === 'agent' ? new WebResearchSession() : undefined,
         allowPrivateAddress: process.env.NODE_ENV !== 'production',
       });
       const testMessage = result.passed
-        ? `连接成功 · ${result.durationMs}ms${existing.searchMode === 'native' ? ' · 原生联网可用' : ''} · 输入 ${result.usage.inputTokens} / 输出 ${result.usage.outputTokens} Token`
-        : existing.searchMode === 'native' && result.ok && !result.nativeSearchPassed
+        ? `连接成功 · ${result.durationMs}ms${existing.searchMode === 'agent' ? ' · 自主搜索和网页读取可用' : existing.searchMode === 'native' ? ' · 原生联网可用' : ''} · 输入 ${result.usage.inputTokens} / 输出 ${result.usage.outputTokens} Token`
+        : existing.searchMode === 'agent' && result.ok && !result.webResearchPassed
+          ? `模型连接成功，但未完成自主搜索和网页读取（${result.durationMs}ms）。请检查搜索服务和模型工具调用能力。`
+          : existing.searchMode === 'native' && result.ok && !result.nativeSearchPassed
           ? `模型连接成功，但未检测到原生联网结果（${result.durationMs}ms）。请确认模型型号支持联网且已开通搜索服务。`
           : `连接失败（${result.errorCode || result.status}，${result.durationMs}ms）。`;
       const tested = await prisma.platformModelConfig.update({

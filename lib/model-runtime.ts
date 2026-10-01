@@ -1,5 +1,6 @@
 import { safeOutboundRequest } from '@/lib/safe-outbound';
 import type { PlatformModelProvider } from '@/lib/platform-model-core.mjs';
+import type { WebResearchSession } from './web-research';
 
 export type RuntimeSearchSource = {
   title: string;
@@ -13,6 +14,7 @@ export type RuntimeUsage = {
   outputTokens: number;
   cacheReadTokens: number;
   nativeSearchRequests: number;
+  webSearchRequests?: number;
 };
 
 export type ModelInvocationResult = {
@@ -38,6 +40,7 @@ type InvokeModelParams = {
   jsonMode?: boolean;
   nativeSearch?: boolean;
   allowPrivateAddress?: boolean;
+  webResearch?: WebResearchSession;
 };
 
 const EMPTY_USAGE: RuntimeUsage = {
@@ -597,8 +600,149 @@ async function invokeMoonshot(params: InvokeModelParams): Promise<ModelInvocatio
   };
 }
 
+async function invokeWithWebTools(params: InvokeModelParams): Promise<ModelInvocationResult> {
+  const { WEB_RESEARCH_TOOLS, WEB_RESEARCH_INSTRUCTIONS } = await import('./web-research');
+  const session = params.webResearch!;
+  const deadline = Date.now() + params.timeoutMs;
+  session.limitDeadline(deadline);
+  const system = `${params.system}\n\n${WEB_RESEARCH_INSTRUCTIONS}`;
+  const wire: any[] = params.provider === 'gemini'
+    ? [{ role: 'user', parts: [{ text: params.userPrompt }] }]
+    : params.provider === 'anthropic'
+      ? [{ role: 'user', content: params.userPrompt }]
+      : [{ role: 'system', content: system }, { role: 'user', content: params.userPrompt }];
+  const usage: RuntimeUsage = { ...EMPTY_USAGE, webSearchRequests: 0 };
+  const result = (ok: boolean, status: number, message = '', errorCode?: string): ModelInvocationResult => ({
+    ok, status, message, errorCode, usedTokenBudget: Boolean(params.maxTokens),
+    sources: dedupeSources(session.sources.map((source) => ({ ...source, provider: source.provider || 'web-research' }))), usage: { ...usage, webSearchRequests: session.searchRequests },
+  });
+
+  try {
+    // Four research rounds followed by a final answer with tools disabled.
+    for (let round = 0; round < 5; round += 1) {
+      const timeoutMs = deadline - Date.now();
+      if (timeoutMs <= 0) return result(false, 504, '', 'timeout');
+      const toolsEnabled = round < 4 && session.available;
+      let endpoint: string;
+      let headers: Record<string, string> = { 'Content-Type': 'application/json', Authorization: `Bearer ${params.apiKey}` };
+      let body: Record<string, unknown>;
+      if (params.provider === 'openai') {
+        endpoint = `${params.baseUrl.replace(/\/$/, '')}/responses`;
+        body = {
+          model: params.modelId, input: wire, store: false,
+          ...(toolsEnabled ? { tools: WEB_RESEARCH_TOOLS.map((tool) => ({ type: 'function', ...tool })), tool_choice: 'auto' } : {}),
+          ...(!toolsEnabled && params.jsonMode ? { text: { format: { type: 'json_object' } } } : {}),
+          ...(params.maxTokens ? { max_output_tokens: params.maxTokens } : {}),
+          ...(openAiReasoning(params.modelId, params.reasoningDepth) ? { reasoning: openAiReasoning(params.modelId, params.reasoningDepth) } : {}),
+          include: ['reasoning.encrypted_content'],
+        };
+      } else if (params.provider === 'anthropic') {
+        endpoint = `${params.baseUrl.replace(/\/$/, '')}/messages`;
+        headers = { 'Content-Type': 'application/json', 'x-api-key': params.apiKey, 'anthropic-version': '2023-06-01' };
+        const thinking = anthropicThinking(params.modelId, params.reasoningDepth);
+        const budget = thinking && 'budget_tokens' in thinking ? thinking.budget_tokens || 0 : 0;
+        body = {
+          model: params.modelId, system, messages: wire, max_tokens: Math.max(params.maxTokens || 12_000, budget + 4096),
+          ...(thinking ? { thinking } : { temperature: 0.1 }),
+          ...(thinking && anthropicUsesAdaptiveThinking(params.modelId) ? { output_config: { effort: anthropicEffort(params.reasoningDepth) } } : {}),
+          ...(toolsEnabled ? { tools: WEB_RESEARCH_TOOLS.map((tool) => ({ name: tool.name, description: tool.description, input_schema: tool.parameters })) } : {}),
+        };
+      } else if (params.provider === 'gemini') {
+        endpoint = `${params.baseUrl.replace(/\/$/, '')}/models/${encodeURIComponent(params.modelId)}:generateContent`;
+        headers = { 'Content-Type': 'application/json', 'x-goog-api-key': params.apiKey };
+        body = {
+          systemInstruction: { parts: [{ text: system }] }, contents: wire,
+          ...(toolsEnabled ? { tools: [{ functionDeclarations: WEB_RESEARCH_TOOLS.map((tool) => ({ name: tool.name, description: tool.description, parametersJsonSchema: tool.parameters })) }] } : {}),
+          generationConfig: {
+            temperature: 0.1, ...geminiThinking(params.modelId, params.reasoningDepth),
+            ...(params.maxTokens ? { maxOutputTokens: params.maxTokens } : {}),
+            ...(!toolsEnabled && params.jsonMode ? { responseMimeType: 'application/json' } : {}),
+          },
+        };
+      } else {
+        endpoint = `${params.baseUrl.replace(/\/$/, '')}/chat/completions`;
+        body = {
+          model: params.modelId, messages: wire, temperature: 0.1, stream: false,
+          ...(params.maxTokens ? { max_tokens: params.maxTokens } : {}),
+          ...(params.provider === 'qwen' ? qwenThinking(params.reasoningDepth) : {}),
+          ...(params.provider === 'zhipu' ? zhipuThinking(params.reasoningDepth) : {}),
+          ...(params.provider === 'moonshot' ? { reasoning_effort: kimiReasoning(params.reasoningDepth) } : {}),
+          ...(params.provider === 'xiaomi_mimo' ? { thinking: { type: params.reasoningDepth === 'none' ? 'disabled' : 'enabled' }, temperature: undefined } : {}),
+          ...(toolsEnabled ? { tools: WEB_RESEARCH_TOOLS.map((tool) => ({ type: 'function', function: tool })), tool_choice: 'auto' } : {}),
+          ...(!toolsEnabled && params.jsonMode ? { response_format: { type: 'json_object' } } : {}),
+        };
+        if (params.provider === 'moonshot' || params.provider === 'xiaomi_mimo') {
+          delete body.max_tokens;
+          if (params.maxTokens) body.max_completion_tokens = params.maxTokens;
+        }
+        if (params.provider === 'xiaomi_mimo') headers['api-key'] = params.apiKey;
+      }
+      const response = await safeOutboundRequest(endpoint, {
+        method: 'POST', headers, body: JSON.stringify(body), timeoutMs, maxBytes: 8 * 1024 * 1024,
+        requireHttps: process.env.NODE_ENV === 'production' && !params.allowPrivateAddress,
+        allowPrivateAddress: params.allowPrivateAddress,
+      });
+      const payload = parseUpstreamJson(response.body);
+      const counts = params.provider === 'openai'
+        ? { inputTokens: int(payload.usage?.input_tokens), outputTokens: int(payload.usage?.output_tokens), cacheReadTokens: int(payload.usage?.input_tokens_details?.cached_tokens) }
+        : params.provider === 'gemini'
+          ? { inputTokens: int(payload.usageMetadata?.promptTokenCount), outputTokens: int(payload.usageMetadata?.candidatesTokenCount), cacheReadTokens: int(payload.usageMetadata?.cachedContentTokenCount) }
+          : params.provider === 'anthropic'
+            ? { inputTokens: int(payload.usage?.input_tokens), outputTokens: int(payload.usage?.output_tokens), cacheReadTokens: int(payload.usage?.cache_read_input_tokens) }
+            : chatUsage(payload);
+      usage.inputTokens += counts.inputTokens;
+      usage.outputTokens += counts.outputTokens;
+      usage.cacheReadTokens += counts.cacheReadTokens;
+      if (response.status < 200 || response.status >= 300) return result(false, response.status, '', `upstream_${response.status}`);
+
+      let calls: Array<{ id: string; name: string; arguments: unknown }>;
+      let message: string;
+      let assistant: any;
+      if (params.provider === 'openai') {
+        assistant = Array.isArray(payload.output) ? payload.output : [];
+        calls = assistant.filter((item: any) => item.type === 'function_call').map((item: any) => ({ id: item.call_id, name: item.name, arguments: item.arguments }));
+        message = openAiOutputText(payload);
+      } else if (params.provider === 'anthropic') {
+        assistant = Array.isArray(payload.content) ? payload.content : [];
+        calls = assistant.filter((item: any) => item.type === 'tool_use').map((item: any) => ({ id: item.id, name: item.name, arguments: item.input }));
+        message = assistant.filter((item: any) => item.type === 'text').map((item: any) => item.text || '').join('\n');
+      } else if (params.provider === 'gemini') {
+        assistant = payload.candidates?.[0]?.content || { role: 'model', parts: [] };
+        calls = (assistant.parts || []).filter((item: any) => item.functionCall).map((item: any, index: number) => ({ id: item.functionCall.id || `call-${round}-${index}`, name: item.functionCall.name, arguments: item.functionCall.args }));
+        message = (assistant.parts || []).filter((item: any) => !item.thought && typeof item.text === 'string').map((item: any) => item.text).join('\n');
+      } else {
+        assistant = payload.choices?.[0]?.message || {};
+        calls = (Array.isArray(assistant.tool_calls) ? assistant.tool_calls : []).map((item: any) => ({ id: item.id, name: item.function?.name, arguments: item.function?.arguments }));
+        message = typeof assistant.content === 'string' ? assistant.content : '';
+      }
+      if (!calls.length) return result(true, response.status, message.trim());
+      if (!toolsEnabled) return result(false, 502, '', 'web_research_loop_exceeded');
+      if (calls.length > 8 || calls.some((call) => !call.id || !call.name) || new Set(calls.map((call) => call.id)).size !== calls.length) return result(false, 502, '', 'invalid_tool_calls');
+      const outputs: Awaited<ReturnType<WebResearchSession['execute']>>[] = [];
+      for (const call of calls) outputs.push(await session.execute(call.name, call.arguments));
+      // Retain provider reasoning/signatures and call IDs exactly as returned.
+      if (params.provider === 'openai') {
+        wire.push(...assistant, ...calls.map((call, index) => ({ type: 'function_call_output', call_id: call.id, output: JSON.stringify(outputs[index]) })));
+      } else if (params.provider === 'anthropic') {
+        wire.push({ role: 'assistant', content: assistant }, { role: 'user', content: calls.map((call, index) => ({ type: 'tool_result', tool_use_id: call.id, content: JSON.stringify(outputs[index]), is_error: !outputs[index].ok })) });
+      } else if (params.provider === 'gemini') {
+        const originalCalls = assistant.parts.filter((item: any) => item.functionCall);
+        wire.push(assistant, { role: 'user', parts: calls.map((call, index) => ({ functionResponse: { name: call.name, ...(originalCalls[index].functionCall.id ? { id: originalCalls[index].functionCall.id } : {}), response: outputs[index] } })) });
+      } else {
+        wire.push(assistant, ...calls.map((call, index) => ({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(outputs[index]) })));
+      }
+    }
+    return result(false, 502, '', 'web_research_loop_exceeded');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+    const timeout = /超时|timeout/i.test(message);
+    return result(false, timeout ? 504 : 502, '', timeout ? 'timeout' : 'network_error');
+  }
+}
+
 export async function invokeModel(params: InvokeModelParams): Promise<ModelInvocationResult> {
   try {
+    if (params.webResearch) return await invokeWithWebTools(params);
     if (params.provider === 'openai') return await invokeOpenAiResponses(params);
     if (params.provider === 'gemini') return await invokeGemini(params);
     if (params.provider === 'anthropic') return await invokeAnthropic(params);
@@ -625,10 +769,14 @@ export async function testModelConnection(params: Omit<InvokeModelParams, 'syste
   const startedAt = Date.now();
   const result = await invokeModel({
     ...params,
-    system: params.nativeSearch
+    system: params.webResearch
+      ? 'You are a web-research connectivity test. Call web_search, then read_webpage on a search result. Include GUANYU_MODEL_OK and the URL only after a successful page read.'
+      : params.nativeSearch
       ? 'You are a connectivity and native web-search test. Use the configured web-search tool once, then include GUANYU_MODEL_OK in the final answer.'
       : 'You are a connectivity test. Do not use tools.',
-    userPrompt: params.nativeSearch
+    userPrompt: params.webResearch
+      ? 'Search for Mozilla Readability on its official GitHub repository and read its README. Reply with GUANYU_MODEL_OK and the inspected source URL.'
+      : params.nativeSearch
       ? 'Search the web for the official homepage of the configured model provider. Reply with GUANYU_MODEL_OK and one source URL.'
       : 'Reply with exactly GUANYU_MODEL_OK',
     timeoutMs: 90_000,
@@ -637,10 +785,12 @@ export async function testModelConnection(params: Omit<InvokeModelParams, 'syste
     nativeSearch: Boolean(params.nativeSearch),
   });
   const nativeSearchPassed = !params.nativeSearch || result.usage.nativeSearchRequests > 0 || result.sources.length > 0;
+  const webResearchPassed = !params.webResearch || (params.webResearch.searchRequests > 0 && result.sources.some((source) => source.provider === 'webpage'));
   return {
     ...result,
     durationMs: Date.now() - startedAt,
     nativeSearchPassed,
-    passed: result.ok && /GUANYU_MODEL_OK/i.test(result.message) && nativeSearchPassed,
+    webResearchPassed,
+    passed: result.ok && /GUANYU_MODEL_OK/i.test(result.message) && nativeSearchPassed && webResearchPassed,
   };
 }

@@ -15,6 +15,7 @@ export interface WebSearchOptions {
   tavilySearchDepth?: 'basic' | 'advanced' | string;
   serperApiKey?: string;
   locale?: ReportLanguage;
+  timeoutMs?: number;
 }
 
 const SEARCH_TIMEOUT_MS = 15_000;
@@ -59,7 +60,7 @@ async function searchTavily(query: string, limit: number, options: WebSearchOpti
       },
       body: JSON.stringify(buildTavilySearchRequest(query, limit, options.tavilySearchDepth || 'basic')),
       cache: 'no-store',
-      signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
+      signal: AbortSignal.timeout(options.timeoutMs || SEARCH_TIMEOUT_MS),
     });
 
     if (!response.ok) {
@@ -136,7 +137,7 @@ async function searchSerper(query: string, limit: number, options: WebSearchOpti
       },
       body: JSON.stringify(buildSerperSearchRequest(query, limit, options.locale)),
       cache: 'no-store',
-      signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
+      signal: AbortSignal.timeout(options.timeoutMs || SEARCH_TIMEOUT_MS),
     });
 
     if (!response.ok) {

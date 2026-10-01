@@ -9,7 +9,7 @@
     "postinstall": "prisma generate",
     "start": "next start",
     "lint": "eslint",
-    "ci": "npm run lint && npm run test:report && npm run test:report-schema && npm run test:round2 && npm run test:backup && npm run test:platform-models && npm run test:analyze-job && npm run test:model-runtime && npm run test:permissions && npm run build",
+    "ci": "npm run lint && npm run test:report && npm run test:report-schema && npm run test:round2 && npm run test:backup && npm run test:platform-models && npm run test:analyze-job && npm run test:model-runtime && npm run test:web-research && npm run test:permissions && npm run build",
     "test:report": "node --test scripts/report-logic.test.mjs",
     "test:report-schema": "tsx --test scripts/report-schema.test.ts",
     "test:round2": "tsx --test scripts/round2-security.test.ts",
@@ -23,7 +23,8 @@
     "test:platform-models": "node --test scripts/platform-model-core.test.mjs",
     "test:analyze-job": "node --test scripts/analyze-job.test.mjs",
     "test:model-runtime": "tsx --test scripts/model-runtime.test.ts",
-    "bootstrap:admin": "tsx scripts/bootstrap-admin.ts"
+    "bootstrap:admin": "tsx scripts/bootstrap-admin.ts",
+    "test:web-research": "tsx --test scripts/web-research.test.ts"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",
@@ -50,7 +51,9 @@
     "recharts": "^3.10.1",
     "zod": "^4.6.5",
     "@prisma/adapter-pg": "7.10.0",
-    "dotenv": "^17.4.2"
+    "dotenv": "^17.4.2",
+    "@mozilla/readability": "0.6.0",
+    "jsdom": "26.1.0"
   },
   "overrides": {
     "undici": "7.29.0",
@@ -71,7 +74,8 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5",
-    "@types/pg": "^8.23.1"
+    "@types/pg": "^8.23.1",
+    "@types/jsdom": "21.1.7"
   },
   "type": "module"
 }

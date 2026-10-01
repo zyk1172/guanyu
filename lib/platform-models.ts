@@ -54,7 +54,7 @@ function provider(value: string): PlatformModelProvider {
 }
 
 function searchMode(value: string): PlatformModelSearchMode {
-  if (value === 'native' || value === 'none') return value;
+  if (value === 'native' || value === 'agent' || value === 'none') return value;
   return 'platform';
 }
 

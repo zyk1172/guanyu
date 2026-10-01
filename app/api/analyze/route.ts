@@ -6,6 +6,7 @@ import { buildCompactFallbackPrompt, buildPrompt } from '@/lib/prompts';
 import { buildReportLanguageJsonRepairPrompt, buildReportLanguageSystemGuard, getLanguageRepairErrorMessage, hasUnexpectedReportProse } from '@/lib/report-language-core.mjs';
 import { computeReadWorth } from '@/lib/readWorth';
 import { searchWeb, WebSearchOptions } from '@/lib/search';
+import { WebResearchSession } from '@/lib/web-research';
 import { decryptSecret } from '@/lib/secret';
 import { chooseModelConfig } from '@/lib/model-config';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
@@ -599,22 +600,26 @@ async function handleAnalyze(userId: string, body: any, executionContext: Analyz
       && Boolean(configuredAdminBaseURL)
       && modelConfig.baseURL.replace(/\/$/, '') === configuredAdminBaseURL!.replace(/\/$/, '');
     const configuredSearchMode = selectedPlatformSnapshot?.searchMode || 'platform';
-    const searchOptions = usagePlan.source === 'platform' && configuredSearchMode !== 'platform'
+    const agentSearchEnabled = usagePlan.source === 'platform'
+      ? configuredSearchMode === 'agent'
+      : process.env.GUANYU_CUSTOM_WEB_RESEARCH === 'true';
+    const searchOptions = usagePlan.source === 'platform' && !['platform', 'agent'].includes(configuredSearchMode)
       ? { provider: 'none' as const, locale: actualReportLanguage }
       : buildSearchOptions({ usageSource: usagePlan.source, userSettings, appSetting, reportLanguage: actualReportLanguage });
-    if (usagePlan.source === 'custom' && searchOptions.provider === 'none') {
+    const webResearch = agentSearchEnabled ? new WebResearchSession({ searchOptions }) : undefined;
+    if (usagePlan.source === 'custom' && searchOptions.provider === 'none' && !agentSearchEnabled) {
       await releaseReservation();
       return NextResponse.json({ error: '自定义 API 模式进行新闻分析时，需要同时配置并启用自己的联网搜索 API；系统不会改用平台搜索。' }, { status: 400 });
     }
 
     const searchQuery = [title, source, truncatedContent.slice(0, 120)].filter(Boolean).join(' ').slice(0, 240);
-    const factCheckSources = searchQuery ? await searchWeb(searchQuery, 5, searchOptions) : [];
-    const deepSources = actualAnalysisMode === 'deep'
+    const factCheckSources = searchQuery && !agentSearchEnabled ? await searchWeb(searchQuery, 5, searchOptions) : [];
+    const deepSources = actualAnalysisMode === 'deep' && !agentSearchEnabled
       ? (await buildDeepSearchGroups({ title, source, content: truncatedContent, reportLanguage: actualReportLanguage }, searchOptions)).flat()
       : [];
     const allSearchSources = [...factCheckSources, ...deepSources];
     let webSearchContext = buildSearchContext(allSearchSources);
-    const platformSearchRequestCount = searchOptions.provider === 'none' || !searchQuery
+    const platformSearchRequestCount = agentSearchEnabled || searchOptions.provider === 'none' || !searchQuery
       ? 0
       : 4 * (searchOptions.provider === 'multi' ? 2 : 1);
     let searchSourceCounts = allSearchSources.reduce<Record<string, number>>((counts, item) => {
@@ -651,6 +656,7 @@ async function handleAnalyze(userId: string, body: any, executionContext: Analyz
         outputTokens: totalRuntimeUsage.outputTokens + usage.outputTokens,
         cacheReadTokens: totalRuntimeUsage.cacheReadTokens + usage.cacheReadTokens,
         nativeSearchRequests: totalRuntimeUsage.nativeSearchRequests + usage.nativeSearchRequests,
+        webSearchRequests: (totalRuntimeUsage.webSearchRequests || 0) + (usage.webSearchRequests || 0),
       };
     };
     const recordFailedUsage = async (errorCode: string) => {
@@ -681,9 +687,28 @@ async function handleAnalyze(userId: string, body: any, executionContext: Analyz
         maxTokens: outputTokenBudget,
         jsonMode: true,
         nativeSearch,
+        webResearch,
         allowPrivateAddress: allowPrivateAdminEndpoint,
       });
       addRuntimeUsage(result.usage);
+      // A shared session spans fallback/repair invocations; its search count is
+      // cumulative, whereas token usage is specific to each model invocation.
+      if (webResearch) totalRuntimeUsage.webSearchRequests = webResearch.searchRequests;
+      for (const sourceItem of result.sources) {
+        const existing = allSearchSources.find((item) => item.url === sourceItem.url);
+        if (!existing) {
+          allSearchSources.push({ title: sourceItem.title, url: sourceItem.url, snippet: sourceItem.snippet || '', provider: sourceItem.provider });
+        } else if (sourceItem.provider === 'webpage') {
+          Object.assign(existing, { title: sourceItem.title, snippet: sourceItem.snippet || '', provider: sourceItem.provider });
+        }
+      }
+      webSearchContext = buildSearchContext(allSearchSources);
+      promptInput.webSearchContext = webSearchContext;
+      searchSourceCounts = allSearchSources.reduce<Record<string, number>>((counts, item) => {
+        const provider = item.provider || 'unknown';
+        counts[provider] = (counts[provider] || 0) + 1;
+        return counts;
+      }, {});
       return result;
     };
     const nativeSearchEnabled = usagePlan.source === 'platform' && configuredSearchMode === 'native';
@@ -693,18 +718,6 @@ async function handleAnalyze(userId: string, body: any, executionContext: Analyz
       undefined,
       nativeSearchEnabled,
     );
-
-    if (llmResult.sources.length) {
-      for (const sourceItem of llmResult.sources) {
-        allSearchSources.push({ title: sourceItem.title, url: sourceItem.url, snippet: sourceItem.snippet || '', provider: sourceItem.provider });
-      }
-      webSearchContext = buildSearchContext(allSearchSources);
-      searchSourceCounts = allSearchSources.reduce<Record<string, number>>((counts, item) => {
-        const provider = item.provider || 'unknown';
-        counts[provider] = (counts[provider] || 0) + 1;
-        return counts;
-      }, {});
-    }
 
     if (!llmResult.ok && llmResult.status >= 500) {
       const fallbackPrompt = buildCompactFallbackPrompt(promptInput);
@@ -819,7 +832,8 @@ async function handleAnalyze(userId: string, body: any, executionContext: Analyz
     normalizedResult.generationMeta = {
       usedCompactFallback: usedFallbackPrompt,
       hasWebSearchContext: Boolean(webSearchContext),
-      searchProvider: usagePlan.source === 'platform' && configuredSearchMode === 'native'
+      searchProvider: agentSearchEnabled ? 'agent'
+        : usagePlan.source === 'platform' && configuredSearchMode === 'native'
         ? `${selectedPlatformSnapshot?.provider || 'model'}-native`
         : searchOptions.provider || 'none',
       searchResultCount: allSearchSources.length,
