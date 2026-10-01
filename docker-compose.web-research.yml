@@ -1,0 +1,23 @@
+# Optional overlay: docker compose -f docker-compose.yml -f docker-compose.web-research.yml up -d
+services:
+  searxng:
+    image: searxng/searxng@sha256:a07a5cd2da2c63d66e559f9e4d3a3db106cfc6c32fb0ac70abe91cc28bcd7350
+    restart: unless-stopped
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:?Set a random SEARXNG_SECRET in .env}
+    volumes:
+      - ./deploy/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    # No published port: only the app can access the search service.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=5)"]
+      interval: 15s
+      timeout: 6s
+      retries: 10
+      start_period: 30s
+  guanyu:
+    depends_on:
+      searxng:
+        condition: service_healthy
+    environment:
+      WEB_RESEARCH_SEARXNG_URL: http://searxng:8080
+      WEB_RESEARCH_ALLOW_PRIVATE_SEARXNG: "true"

@@ -1,5 +1,5 @@
 export type PlatformModelProvider = 'openai_compatible' | 'openai' | 'gemini' | 'anthropic' | 'xiaomi_mimo' | 'qwen' | 'moonshot' | 'zhipu';
-export type PlatformModelSearchMode = 'platform' | 'native' | 'none';
+export type PlatformModelSearchMode = 'platform' | 'native' | 'agent' | 'none';
 export type PlatformModelOperation = 'analysis' | 'completion' | 'followup';
 
 export const PLATFORM_MODEL_PROVIDERS: readonly PlatformModelProvider[];

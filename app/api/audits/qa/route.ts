@@ -9,6 +9,7 @@ import { normalizeReportLanguage } from '@/lib/types';
 import { getReportLanguageRule } from '@/lib/report-language-core.mjs';
 import { resolveOperationModel } from '@/lib/operation-model';
 import { invokeModel } from '@/lib/model-runtime';
+import { WebResearchSession } from '@/lib/web-research';
 import { recordModelUsage } from '@/lib/model-usage';
 import { historicalAuditModelName } from '@/lib/audit-model-display';
 import { sameOriginResponse } from '@/lib/request-security';
@@ -219,6 +220,9 @@ ${recentHistory.map((h) => `${h.role === 'user' ? '用户' : 'AI'}: ${h.content}
       maxTokens: 8_000,
       jsonMode: false,
       nativeSearch: operationModel.source === 'platform' && operationModel.snapshot?.searchMode === 'native',
+      webResearch: (operationModel.source === 'platform' && operationModel.snapshot?.searchMode === 'agent')
+        || (operationModel.source === 'custom' && process.env.GUANYU_CUSTOM_WEB_RESEARCH === 'true')
+        ? new WebResearchSession() : undefined,
       allowPrivateAddress: operationModel.allowPrivateAddress,
     });
 

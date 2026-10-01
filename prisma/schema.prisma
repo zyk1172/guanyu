@@ -251,7 +251,7 @@ model PlatformModelConfig {
   apiKeyEncrypted                   String?
   modelId                           String
   reasoningDepth                    String    @default("medium")
-  searchMode                        String    @default("platform") // platform, native, none
+  searchMode                        String    @default("platform") // platform, native, agent, none
   supportsAnalysis                  Boolean   @default(true)
   supportsCompletion                Boolean   @default(true)
   supportsFollowup                  Boolean   @default(true)

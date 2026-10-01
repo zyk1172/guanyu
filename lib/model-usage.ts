@@ -37,7 +37,7 @@ export async function recordModelUsage(params: {
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
       cacheReadTokens: usage.cacheReadTokens,
-      searchRequestCount: params.platformSearchRequests || 0,
+      searchRequestCount: (params.platformSearchRequests || 0) + (usage.webSearchRequests || 0),
       nativeSearchRequestCount: usage.nativeSearchRequests,
       estimatedExternalCostMicros: snapshot ? estimateExternalCostMicros(snapshot, {
         inputTokens: usage.inputTokens,

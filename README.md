@@ -12,6 +12,7 @@
 - 观隅九镜审读法报告
 - 新闻原文解析、新闻总结、审视报告保存
 - 联网线索、继续提问、Markdown 导出
+- 模型自主调用网页搜索与正文读取工具（SearXNG / Mozilla Readability）
 - 热门审视、我的审视、公开/私有切换
 - Recharts 图形化核心指数和证据结构
 - PostgreSQL 持久化数据库
@@ -56,6 +57,8 @@ OPENAI_MODEL_DEFAULT=gpt-4o
 - `DATABASE_URL` 支持 Prisma PostgreSQL 连接参数，例如 `connection_limit=10&pool_timeout=20`。
 
 ## 本地开发
+
+模型自主查证的启用、无需搜索 API Key 的部署方式和工具限制见 [模型自主网页查证](docs/model-web-research.md)。
 
 准备 PostgreSQL 后运行：
 
