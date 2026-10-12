@@ -26,4 +26,7 @@ test('private source excerpts remain visible to owners but are removed from publ
   assert.equal(JSON.parse(publicAuditDto(audit).auditResultJson).keyFindings[0].originalQuote, undefined);
   assert.equal(JSON.parse(ownerAuditDto(audit).auditResultJson).keyFindings[0].originalQuote, 'private source');
   assert.equal(JSON.parse(publicAuditDto({ ...audit, isSourcePublic: true }).auditResultJson).keyFindings[0].originalQuote, 'private source');
+  const damaged = { ...audit, auditResultJson: '{"originalQuote":"private source",' };
+  assert.equal(publicAuditDto(damaged).auditResultJson, 'null');
+  assert.equal(ownerAuditDto(damaged).auditResultJson, damaged.auditResultJson);
 });
