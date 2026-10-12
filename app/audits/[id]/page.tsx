@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { after } from 'next/server';
+import { after, NextRequest } from 'next/server';
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
@@ -25,7 +25,7 @@ async function loadAudit(id: string) {
   if (!currentAudit) return null;
 
   const incomingHeaders = await headers();
-  const request = new Request(new URL(`/api/audits/${encodeURIComponent(id)}`, siteUrl), { headers: incomingHeaders });
+  const request = new NextRequest(new URL(`/api/audits/${encodeURIComponent(id)}`, siteUrl), { headers: incomingHeaders });
   const user = await getCurrentUser(request);
   const userId = user?.id;
   const isSuperAdmin = userId ? await getSuperAdminStatus(userId) : false;

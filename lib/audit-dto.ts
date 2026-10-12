@@ -1,3 +1,10 @@
+function publicReportJson(audit: any) {
+  if (audit.isSourcePublic) return audit.auditResultJson;
+  try {
+    return JSON.stringify(JSON.parse(audit.auditResultJson), (key, value) => key === 'originalQuote' ? undefined : value);
+  } catch { return audit.auditResultJson; }
+}
+
 export function publicAuditDto(audit: any) {
   return {
     id: audit.id,
@@ -15,7 +22,7 @@ export function publicAuditDto(audit: any) {
     modelDisplayNameSnapshot: audit.modelDisplayNameSnapshot,
     newsSummary: audit.newsSummary,
     originalContent: audit.isSourcePublic ? audit.originalContent : undefined,
-    auditResultJson: audit.auditResultJson,
+    auditResultJson: publicReportJson(audit),
     credibilityScore: audit.credibilityScore,
     informationCompletenessScore: audit.informationCompletenessScore,
     narrativeBiasScore: audit.narrativeBiasScore,
@@ -40,6 +47,7 @@ export function ownerAuditDto(audit: any) {
   return {
     ...publicAuditDto(audit),
     originalContent: audit.originalContent,
+    auditResultJson: audit.auditResultJson,
     focus: audit.focus,
     completionMarkdown: audit.completionMarkdown,
     completionGeneratedAt: audit.completionGeneratedAt,

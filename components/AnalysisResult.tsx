@@ -29,6 +29,7 @@ import { useUiLanguage } from './LanguageProvider';
 import ReadWorthVerdict from './ReadWorthVerdict';
 import { useActiveModel } from './useActiveModel';
 import VerificationRoadmap from './VerificationRoadmap';
+import ReportBrief from './ReportBrief';
 import { computeReadWorth } from '../lib/readWorth';
 import {
   formatAnalysisMode,
@@ -1128,6 +1129,7 @@ function DeepReportView({ report, originalContent, qaMessages, displayLimit, aud
   const questions = limitedItems(report.questionsToAsk, displayLimit);
   return (
     <>
+      <ReportBrief report={report} originalContent={originalContent} />
       <Section title={text('sourceInterpretation')}>
         <div className="grid gap-3 text-xs md:grid-cols-2">
           <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900 md:col-span-2">

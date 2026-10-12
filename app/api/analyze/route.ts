@@ -19,6 +19,7 @@ import { operationCostCents } from '@/lib/platform-model-core.mjs';
 import { decodePlatformModelSnapshot, platformModelSnapshot, resolvePlatformModel, resolvePlatformModelApiKey, type PlatformModelSnapshot } from '@/lib/platform-models';
 import { invokeModel, type RuntimeUsage } from '@/lib/model-runtime';
 import { recordModelUsage } from '@/lib/model-usage';
+import { normalizeEvidenceReferences } from '@/lib/report-evidence';
 import type { UsagePlan, UsageSource } from '@/lib/billing';
 import type {
   AnalysisMode,
@@ -247,6 +248,7 @@ export function normalizeOnlineVerification(parsed: any, factCheckSources: Await
 
 function normalizeReport(params: {
   parsed: any;
+  originalContent: string;
   mode: AnalysisMode;
   meta: any;
   factCheckSources: Awaited<ReturnType<typeof searchWeb>>;
@@ -350,7 +352,7 @@ function normalizeReport(params: {
       cannotJudgeYet: stringArray(parsed.conclusionLayers?.cannotJudgeYet || parsed.conclusion_layers?.cannot_judge_yet, ['缺少原始材料、多方来源或当事方回应前，不宜形成确定结论。']),
     },
     keyFindings: asArray(parsed.keyFindings || parsed.key_findings).slice(0, 3).map((item, index) =>
-      normalizeJudgment(item, `关键发现 ${index + 1}`, hasExternalResults)
+      ({ ...normalizeJudgment(item, `关键发现 ${index + 1}`, hasExternalResults), ...normalizeEvidenceReferences(item, params.originalContent, factCheckSources) })
     ),
     supportingEvidence: asArray(parsed.supportingEvidence || parsed.narrative_supporting_evidence).map((item: any) => ({
       content: String(item?.content || item?.detail || '当前材料不足，无法形成可靠判断。'),
@@ -815,6 +817,7 @@ async function handleAnalyze(userId: string, body: any, executionContext: Analyz
     const createdAt = new Date().toISOString();
     const normalizedResult = normalizeReport({
       parsed: parsedJSON,
+      originalContent: sourceCleanup.content,
       mode: actualAnalysisMode,
       factCheckSources: allSearchSources,
       meta: {
