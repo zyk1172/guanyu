@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma';
 import { estimateExternalCostMicros, type PlatformModelOperation } from '@/lib/platform-model-core.mjs';
 import type { PlatformModelSnapshot } from '@/lib/platform-models';
 import type { RuntimeUsage } from '@/lib/model-runtime';
+import { searchUnitRates, usageCostBreakdown } from '@/lib/usage-cost';
 
 export async function recordModelUsage(params: {
   userId?: string | null;
@@ -14,11 +15,13 @@ export async function recordModelUsage(params: {
   creditCostCents?: number;
   usage?: RuntimeUsage;
   platformSearchRequests?: number;
+  externalSearchCounts?: Record<string, number>;
   durationMs?: number;
   errorCode?: string | null;
 }) {
   const snapshot = params.snapshot || null;
   const usage = params.usage || { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, nativeSearchRequests: 0 };
+  const cost = usageCostBreakdown({ snapshot, usage, searchCounts: params.externalSearchCounts, fallbackSearchCount: (params.platformSearchRequests || 0) + (usage.webSearchRequests || 0), rates: params.source === 'platform' ? searchUnitRates(process.env.SEARCH_UNIT_COST_MICROS_JSON) : {} });
   return prisma.modelUsageEvent.create({
     data: {
       userId: params.userId || null,
@@ -37,7 +40,10 @@ export async function recordModelUsage(params: {
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
       cacheReadTokens: usage.cacheReadTokens,
-      searchRequestCount: (params.platformSearchRequests || 0) + (usage.webSearchRequests || 0),
+      searchRequestCount: cost.searchRequestCount,
+      estimatedSearchCostMicros: cost.estimatedSearchCostMicros,
+      costCoverage: cost.costCoverage,
+      costBreakdownJson: JSON.stringify(cost.details),
       nativeSearchRequestCount: usage.nativeSearchRequests,
       estimatedExternalCostMicros: snapshot ? estimateExternalCostMicros(snapshot, {
         inputTokens: usage.inputTokens,

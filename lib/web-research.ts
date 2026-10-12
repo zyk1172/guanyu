@@ -118,6 +118,7 @@ export class WebResearchSession {
     const configured = this.options.searxngUrl ?? process.env.WEB_RESEARCH_SEARXNG_URL;
     if (configured) {
       this.searchRequests += 1;
+      searchOptions?.onRequest?.('searxng');
       // Only this administrator-controlled endpoint may opt into private access.
       const url = new URL(configured);
       url.pathname = `${url.pathname.replace(/\/$/, '')}/search`;
@@ -137,6 +138,7 @@ export class WebResearchSession {
       return searchWeb(query, 5, { ...searchOptions, timeoutMs: Math.max(1, Math.min(15_000, this.deadline - Date.now())) });
     }
     const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    searchOptions?.onRequest?.('duckduckgo');
     const response = await this.fetch(url);
     if (response.status !== 200) throw new Error('search_unavailable');
     return parseSearchHtml(response.body.toString('utf8'), url);

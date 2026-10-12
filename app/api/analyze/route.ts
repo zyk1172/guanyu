@@ -517,6 +517,7 @@ type AnalyzeExecutionContext = {
 
 async function handleAnalyze(userId: string, body: any, executionContext: AnalyzeExecutionContext = {}) {
   let usageReservation: UsagePlan | null = null;
+  let failureRecorder: ((code: string) => Promise<void>) | null = null;
   const releaseReservation = async () => {
     if (!usageReservation) return;
     const reservation = usageReservation;
@@ -605,9 +606,11 @@ async function handleAnalyze(userId: string, body: any, executionContext: Analyz
     const agentSearchEnabled = usagePlan.source === 'platform'
       ? configuredSearchMode === 'agent'
       : process.env.GUANYU_CUSTOM_WEB_RESEARCH === 'true';
-    const searchOptions = usagePlan.source === 'platform' && !['platform', 'agent'].includes(configuredSearchMode)
+    const externalSearchCounts: Record<string, number> = {};
+    const searchOptions: WebSearchOptions = usagePlan.source === 'platform' && !['platform', 'agent'].includes(configuredSearchMode)
       ? { provider: 'none' as const, locale: actualReportLanguage }
       : buildSearchOptions({ usageSource: usagePlan.source, userSettings, appSetting, reportLanguage: actualReportLanguage });
+    searchOptions.onRequest = (provider) => { externalSearchCounts[provider] = (externalSearchCounts[provider] || 0) + 1; };
     const webResearch = agentSearchEnabled ? new WebResearchSession({ searchOptions }) : undefined;
     if (usagePlan.source === 'custom' && searchOptions.provider === 'none' && !agentSearchEnabled) {
       await releaseReservation();
@@ -672,10 +675,12 @@ async function handleAnalyze(userId: string, body: any, executionContext: Analyz
         creditCostCents: 0,
         usage: totalRuntimeUsage,
         platformSearchRequests: platformSearchRequestCount,
+        externalSearchCounts,
         durationMs: Date.now() - startedAt,
         errorCode,
       }).catch((error) => console.error('Record failed model usage failed:', error));
     };
+    failureRecorder = recordFailedUsage;
     const invoke = async (invocationSystem: string, invocationPrompt: string, timeoutMs?: number, nativeSearch = false) => {
       const result = await invokeModel({
         provider: selectedPlatformSnapshot?.provider || 'openai_compatible',
@@ -918,9 +923,11 @@ async function handleAnalyze(userId: string, body: any, executionContext: Analyz
       creditCostCents: usagePlan.costCents,
       usage: totalRuntimeUsage,
       platformSearchRequests: platformSearchRequestCount,
+      externalSearchCounts,
       durationMs: Date.now() - startedAt,
     }).catch((error) => console.error('Record model usage failed:', error));
     usageReservation = null;
+    failureRecorder = null;
     if (actualIsPublic) {
       // 新公开审视应尽快出现在热门榜，主动失效热榜缓存
       after(() => cacheDelByPrefix(CACHE_KEYS.hotAuditsPrefix));
@@ -931,6 +938,7 @@ async function handleAnalyze(userId: string, body: any, executionContext: Analyz
       result: normalizedResult,
     });
   } catch (error: any) {
+    await failureRecorder?.('analysis_persistence_or_runtime_failure').catch(() => {});
     await releaseReservation();
     console.error('Route analyze error', { code: 'internal_analyze', message: error instanceof Error ? error.message.slice(0, 500) : 'unknown' });
     const clientError = toClientError(error);

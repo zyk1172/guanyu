@@ -140,7 +140,7 @@ export async function GET(request: Request) {
     const [models, groupedUsage] = await Promise.all([
       prisma.platformModelConfig.findMany({ where: { archivedAt: null }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] }),
       prisma.modelUsageEvent.groupBy({
-        by: ['platformModelConfigIdSnapshot', 'operation', 'status'],
+        by: ['platformModelConfigIdSnapshot', 'operation', 'status', 'costCoverage'],
         where: { createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } },
         _count: { _all: true },
         _sum: {
@@ -150,6 +150,7 @@ export async function GET(request: Request) {
           searchRequestCount: true,
           nativeSearchRequestCount: true,
           estimatedExternalCostMicros: true,
+          estimatedSearchCostMicros: true,
           durationMs: true,
         },
       }),

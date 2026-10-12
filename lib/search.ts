@@ -16,6 +16,7 @@ export interface WebSearchOptions {
   serperApiKey?: string;
   locale?: ReportLanguage;
   timeoutMs?: number;
+  onRequest?: (provider: string) => void;
 }
 
 const SEARCH_TIMEOUT_MS = 15_000;
@@ -52,6 +53,7 @@ async function searchTavily(query: string, limit: number, options: WebSearchOpti
   if (!apiKey) return [];
 
   try {
+    options.onRequest?.(options.tavilySearchDepth === 'advanced' ? 'tavily_advanced' : 'tavily_basic');
     const response = await fetch('https://api.tavily.com/search', {
       method: 'POST',
       headers: {
@@ -78,11 +80,12 @@ async function searchTavily(query: string, limit: number, options: WebSearchOpti
   }
 }
 
-async function searchDuckDuckGo(query: string, limit = 5): Promise<WebSearchSource[]> {
+async function searchDuckDuckGo(query: string, limit = 5, options: WebSearchOptions = {}): Promise<WebSearchSource[]> {
   const normalizedQuery = query.trim().replace(/\s+/g, ' ');
   if (!normalizedQuery) return [];
 
   try {
+    options.onRequest?.('duckduckgo');
     const response = await fetch(
       `https://duckduckgo.com/html/?q=${encodeURIComponent(normalizedQuery)}`,
       {
@@ -129,6 +132,7 @@ async function searchSerper(query: string, limit: number, options: WebSearchOpti
   if (!apiKey) return [];
 
   try {
+    options.onRequest?.('serper');
     const response = await fetch('https://google.serper.dev/search', {
       method: 'POST',
       headers: {
@@ -181,5 +185,5 @@ export async function searchWeb(query: string, limit = 5, options: WebSearchOpti
     ]);
     return dedupeSources([...tavilyResults, ...serperResults]).slice(0, limit);
   }
-  return searchDuckDuckGo(query, limit);
+  return searchDuckDuckGo(query, limit, options);
 }
