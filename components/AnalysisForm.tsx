@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { AnalysisMode, ReportLanguage, normalizeReportLanguage } from '../lib/types';
 import { useUiLanguage } from './LanguageProvider';
-import { useActiveModel } from './useActiveModel';
+import Link from 'next/link';
+import TaskBudget from './TaskBudget';
 
 interface AnalysisFormProps {
   onSubmit: (data: {
@@ -58,7 +59,6 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
   const [isParsing, setIsParsing] = useState(false);
   const [parseFailure, setParseFailure] = useState<ParseFailure | null>(null);
   const [creditBalance, setCreditBalance] = useState<number | null>(null);
-  const activeModel = useActiveModel('analysis');
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
   const modalRef = useRef<HTMLDivElement | null>(null);
   const closeParseFailureButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -187,6 +187,7 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
         </span>
       </div>
 
+      <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">{language.startsWith('zh-') ? '平台模型可直接使用，无需填写个人 API。先查看示例了解结论、证据和核验流程。' : 'Use a platform model without configuring your own API. Explore the example to see conclusions, evidence and verification steps.'} <Link href="/demo" className="font-bold text-[var(--color-primary)] underline">{language.startsWith('zh-') ? '查看完整示例 · 无需注册' : 'View full example · no account required'}</Link></p>
       <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
         {/* URL 自动解析区 */}
         <div className="space-y-2">
@@ -293,16 +294,12 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
           />
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border border-[var(--color-warning)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs font-semibold leading-relaxed text-[var(--color-text)]">
-          <span>{activeModel.source === 'custom'
-            ? t('modelSelector.customCharge', '本次使用自定义 API，不消耗平台点数。')
-            : t('modelSelector.estimatedCharge', '预计消耗 {credits} 点；仅在报告成功保存后扣除。', { credits: activeModel.estimatedCost })}</span>
-          {creditBalance !== null && (
+        <TaskBudget />
+        {creditBalance !== null && <div className="flex justify-end text-xs">
             <span className="shrink-0 font-black text-[var(--color-primary)]">
               {t('billing.remainingCredits', undefined, { credits: Number.isInteger(creditBalance) ? String(creditBalance) : creditBalance.toFixed(1) })}
             </span>
-          )}
-        </div>
+        </div>}
 
         <button
           type="submit"
