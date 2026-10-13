@@ -299,6 +299,9 @@ model ModelUsageEvent {
   searchRequestCount            Int      @default(0)
   nativeSearchRequestCount      Int      @default(0)
   estimatedExternalCostMicros   Int      @default(0)
+  estimatedSearchCostMicros     Int?
+  costCoverage                  String   @default("legacy_partial")
+  costBreakdownJson              String?
   durationMs                    Int      @default(0)
   errorCode                     String?
   createdAt                     DateTime @default(now())

@@ -208,6 +208,10 @@ ${recentHistory.map((h) => `${h.role === 'user' ? '用户' : 'AI'}: ${h.content}
 
     // 5. 请求大模型
     const startedAt = Date.now();
+    const externalSearchCounts: Record<string, number> = {};
+    const webResearch = (operationModel.source === 'platform' && operationModel.snapshot?.searchMode === 'agent')
+      || (operationModel.source === 'custom' && process.env.GUANYU_CUSTOM_WEB_RESEARCH === 'true')
+      ? new WebResearchSession({ searchOptions: { locale: reportLanguage, onRequest: (provider) => { externalSearchCounts[provider] = (externalSearchCounts[provider] || 0) + 1; } } }) : undefined;
     const response = await invokeModel({
       provider: operationModel.provider,
       baseUrl: operationModel.baseUrl,
@@ -220,14 +224,12 @@ ${recentHistory.map((h) => `${h.role === 'user' ? '用户' : 'AI'}: ${h.content}
       maxTokens: 8_000,
       jsonMode: false,
       nativeSearch: operationModel.source === 'platform' && operationModel.snapshot?.searchMode === 'native',
-      webResearch: (operationModel.source === 'platform' && operationModel.snapshot?.searchMode === 'agent')
-        || (operationModel.source === 'custom' && process.env.GUANYU_CUSTOM_WEB_RESEARCH === 'true')
-        ? new WebResearchSession() : undefined,
+      webResearch,
       allowPrivateAddress: operationModel.allowPrivateAddress,
     });
 
     if (!response.ok) {
-      await recordModelUsage({ userId: user.id, auditId, operation: 'followup', status: 'failed', source: operationModel.source, snapshot: operationModel.snapshot, usage: response.usage, durationMs: Date.now() - startedAt, errorCode: response.errorCode }).catch(() => {});
+      await recordModelUsage({ userId: user.id, auditId, operation: 'followup', status: 'failed', source: operationModel.source, snapshot: operationModel.snapshot, usage: response.usage, externalSearchCounts, durationMs: Date.now() - startedAt, errorCode: response.errorCode }).catch(() => {});
       await failServiceOperation(serviceOperation.id, serviceOperation.currentAttempt, response.errorCode || 'model_upstream_failure').catch(() => {});
       const retryHint = operationModel.source === 'custom'
         ? '自定义 API 交互失败，本次未扣除点数。你可以检查配置后重试，或切换到平台模型并确认点数后重新提问。'
@@ -237,7 +239,7 @@ ${recentHistory.map((h) => `${h.role === 'user' ? '用户' : 'AI'}: ${h.content}
 
     const reply = response.message.trim();
     if (!reply) {
-      await recordModelUsage({ userId: user.id, auditId, operation: 'followup', status: 'failed', source: operationModel.source, snapshot: operationModel.snapshot, usage: response.usage, durationMs: Date.now() - startedAt, errorCode: 'empty_response' }).catch(() => {});
+      await recordModelUsage({ userId: user.id, auditId, operation: 'followup', status: 'failed', source: operationModel.source, snapshot: operationModel.snapshot, usage: response.usage, externalSearchCounts, durationMs: Date.now() - startedAt, errorCode: 'empty_response' }).catch(() => {});
       await failServiceOperation(serviceOperation.id, serviceOperation.currentAttempt, 'empty_response').catch(() => {});
       return NextResponse.json({ error: '所选模型未返回有效解答，本次未扣除点数。' }, { status: 502 });
     }
@@ -255,7 +257,7 @@ ${recentHistory.map((h) => `${h.role === 'user' ? '用户' : 'AI'}: ${h.content}
       await failServiceOperation(serviceOperation.id, serviceOperation.currentAttempt, 'persist_result_failed').catch(() => {});
       return NextResponse.json({ error: '追问结果保存失败，本次点数已释放，请重试。' }, { status: 500 });
     }
-    await recordModelUsage({ userId: user.id, auditId, operation: 'followup', status: 'success', source: operationModel.source, snapshot: operationModel.snapshot, creditCostCents: operationModel.costCents, usage: response.usage, durationMs: Date.now() - startedAt }).catch(() => {});
+    await recordModelUsage({ userId: user.id, auditId, operation: 'followup', status: 'success', source: operationModel.source, snapshot: operationModel.snapshot, creditCostCents: operationModel.costCents, usage: response.usage, externalSearchCounts, durationMs: Date.now() - startedAt }).catch(() => {});
     return NextResponse.json({ reply, usage: usagePayload });
 
   } catch (error: any) {

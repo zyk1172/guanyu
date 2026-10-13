@@ -7,6 +7,13 @@ import { isSupportedPaymentMethod } from '@/lib/payment-core.mjs';
 import { prisma } from '@/lib/prisma';
 import { sameOriginResponse } from '@/lib/request-security';
 
+export async function GET(request: NextRequest) {
+  const user = await getCurrentUser(request);
+  if (!user) return NextResponse.json({ error: '请先登录。' }, { status: 401 });
+  const orders = await prisma.purchaseOrder.findMany({ where: { userId: user.id }, orderBy: { createdAt: 'desc' }, take: 20, select: { id: true, packageName: true, amountCents: true, currency: true, points: true, proAccessDays: true, status: true, paymentMethod: true, createdAt: true, paidAt: true, fulfilledAt: true, confirmedAt: true } });
+  return NextResponse.json({ orders }, { headers: { 'Cache-Control': 'private, no-store' } });
+}
+
 export async function POST(request: NextRequest) {
   const originError = sameOriginResponse(request);
   if (originError) return originError;

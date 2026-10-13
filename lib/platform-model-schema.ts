@@ -93,6 +93,10 @@ export function bootstrapPlatformModelSchema() {
           "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
           CONSTRAINT "ModelUsageEvent_pkey" PRIMARY KEY ("id")
         )`,
+        `ALTER TABLE "ModelUsageEvent"
+          ADD COLUMN IF NOT EXISTS "estimatedSearchCostMicros" INTEGER,
+          ADD COLUMN IF NOT EXISTS "costCoverage" TEXT NOT NULL DEFAULT 'legacy_partial',
+          ADD COLUMN IF NOT EXISTS "costBreakdownJson" TEXT`,
         `CREATE INDEX IF NOT EXISTS "ModelUsageEvent_model_created_idx" ON "ModelUsageEvent"("platformModelConfigIdSnapshot", "createdAt")`,
         `CREATE INDEX IF NOT EXISTS "ModelUsageEvent_user_created_idx" ON "ModelUsageEvent"("userId", "createdAt")`,
         `CREATE INDEX IF NOT EXISTS "ModelUsageEvent_operation_status_created_idx" ON "ModelUsageEvent"("operation", "status", "createdAt")`,

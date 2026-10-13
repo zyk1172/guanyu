@@ -17,6 +17,7 @@ import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { useUiLanguage } from '@/components/LanguageProvider';
 import { PlatformModelSelector } from '@/components/PlatformModelSelector';
 import PlatformModelAdmin from '@/components/PlatformModelAdmin';
+import OrderHistory from '@/components/OrderHistory';
 import {
   CheckCircle2,
   DatabaseBackup,
@@ -1009,6 +1010,8 @@ export default function AccountPage() {
             </div>
               </>
             )}
+            {activeTab === 'info' && <OrderHistory refreshKey={billing?.recentOrders?.[0]?.id || ''} />}
+
             {activeTab === 'system' && isSuperAdmin && adminBilling && (
               <section className="order-2 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-card)] p-4 shadow-[var(--shadow-card)]">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
