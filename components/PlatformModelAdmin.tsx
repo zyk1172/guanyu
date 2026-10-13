@@ -71,18 +71,18 @@ type Draft = {
 };
 
 const EMPTY: Draft = {
-  id: '', provider: 'openai_compatible', displayName: '', description: '', displayNameI18n: {}, descriptionI18n: {}, baseUrl: 'https://api.deepseek.com', apiKey: '', modelId: '', reasoningDepth: 'medium', searchMode: 'platform', supportsAnalysis: true, supportsCompletion: true, supportsFollowup: true, creditMultiplier: '1', inputPriceMicrosPerMillion: '0', outputPriceMicrosPerMillion: '0', nativeSearchPriceMicrosPerRequest: '0', isEnabled: true, isVisibleToUsers: true, isRecommended: false, isDefault: false, sortOrder: '0',
+  id: '', provider: 'openai_compatible', displayName: '', description: '', displayNameI18n: {}, descriptionI18n: {}, baseUrl: 'https://api.deepseek.com', apiKey: '', modelId: '', reasoningDepth: 'medium', searchMode: 'agent', supportsAnalysis: true, supportsCompletion: true, supportsFollowup: true, creditMultiplier: '1', inputPriceMicrosPerMillion: '0', outputPriceMicrosPerMillion: '0', nativeSearchPriceMicrosPerRequest: '0', isEnabled: true, isVisibleToUsers: true, isRecommended: false, isDefault: false, sortOrder: '0',
 };
 
 const PROVIDER_DEFAULTS: Record<string, { baseUrl: string; modelId: string; searchMode: string }> = {
-  openai_compatible: { baseUrl: 'https://api.deepseek.com', modelId: '', searchMode: 'platform' },
-  openai: { baseUrl: 'https://api.openai.com/v1', modelId: 'gpt-5.6-terra', searchMode: 'native' },
-  gemini: { baseUrl: 'https://generativelanguage.googleapis.com/v1beta', modelId: 'gemini-3.1-pro-preview', searchMode: 'native' },
-  anthropic: { baseUrl: 'https://api.anthropic.com/v1', modelId: 'claude-sonnet-4-6', searchMode: 'native' },
-  xiaomi_mimo: { baseUrl: 'https://api.xiaomimimo.com/v1', modelId: 'mimo-v2.6-pro', searchMode: 'native' },
-  qwen: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', modelId: 'qwen-plus', searchMode: 'native' },
-  moonshot: { baseUrl: 'https://api.moonshot.cn/v1', modelId: 'kimi-k3', searchMode: 'native' },
-  zhipu: { baseUrl: 'https://open.bigmodel.cn/api/paas/v4', modelId: 'glm-5', searchMode: 'native' },
+  openai_compatible: { baseUrl: 'https://api.deepseek.com', modelId: '', searchMode: 'agent' },
+  openai: { baseUrl: 'https://api.openai.com/v1', modelId: 'gpt-5.6-terra', searchMode: 'agent' },
+  gemini: { baseUrl: 'https://generativelanguage.googleapis.com/v1beta', modelId: 'gemini-3.1-pro-preview', searchMode: 'agent' },
+  anthropic: { baseUrl: 'https://api.anthropic.com/v1', modelId: 'claude-sonnet-4-6', searchMode: 'agent' },
+  xiaomi_mimo: { baseUrl: 'https://api.xiaomimimo.com/v1', modelId: 'mimo-v2.6-pro', searchMode: 'agent' },
+  qwen: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', modelId: 'qwen-plus', searchMode: 'agent' },
+  moonshot: { baseUrl: 'https://api.moonshot.cn/v1', modelId: 'kimi-k3', searchMode: 'agent' },
+  zhipu: { baseUrl: 'https://open.bigmodel.cn/api/paas/v4', modelId: 'glm-5', searchMode: 'agent' },
 };
 
 function parseMap(value: string) {
@@ -128,6 +128,7 @@ export default function PlatformModelAdmin() {
   const [models, setModels] = useState<AdminModel[]>([]);
   const [usage, setUsage] = useState<UsageGroup[]>([]);
   const [draft, setDraft] = useState<Draft>(EMPTY);
+  const [allowPaidSearch, setAllowPaidSearch] = useState(false);
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState('');
   const [expanded, setExpanded] = useState(false);
@@ -138,7 +139,7 @@ export default function PlatformModelAdmin() {
       const response = await fetch('/api/admin/platform-models', { cache: 'no-store' });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || t('platformAdmin.loadFailed', '平台模型加载失败。'));
-      setModels(data.models || []); setUsage(data.usage || []);
+      setModels(data.models || []); setUsage(data.usage || []); setAllowPaidSearch(Boolean(data.paidSearchAllowed));
     } catch (error) { setMessage(error instanceof Error ? error.message : t('platformAdmin.loadFailed', '平台模型加载失败。')); }
     finally { setBusy(''); }
   }, [t]);
@@ -224,7 +225,8 @@ export default function PlatformModelAdmin() {
           <Field label="Model ID"><input className={inputClass} value={draft.modelId} onChange={(e) => setDraft({ ...draft, modelId: e.target.value })} /></Field>
           <Field wide label={draft.id ? t('platformAdmin.apiKeyOptional', 'API Key（留空则保留原密钥）') : 'API Key'}><input type="password" className={inputClass} value={draft.apiKey} onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })} /></Field>
           <Field label={t('platformAdmin.reasoning', '思考强度')}><select className={inputClass} value={draft.reasoningDepth} onChange={(e) => setDraft({ ...draft, reasoningDepth: e.target.value })}><option value="none">None</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="extreme">Extreme</option></select></Field>
-          <Field label={t('platformAdmin.searchMode', '联网方式')}><select className={inputClass} value={draft.searchMode} onChange={(e) => setDraft({ ...draft, searchMode: e.target.value })}><option value="platform">{t('modelSelector.platformSearch', '平台联网核验')}</option>{draft.provider !== 'openai_compatible' && <option value="native">{t('modelSelector.nativeSearch', '模型原生联网')}</option>}<option value="agent">{t('modelSelector.agentSearch', '模型自主查证')}</option><option value="none">{t('modelSelector.noSearch', '不联网')}</option></select></Field>
+          <Field label={t('platformAdmin.searchMode', '联网方式')}><select className={inputClass} value={draft.searchMode} onChange={(e) => setDraft({ ...draft, searchMode: e.target.value })}><option value="platform">{t('modelSelector.platformSearch', '平台联网核验')}</option>{draft.provider !== 'openai_compatible' && <option value="native" disabled={!allowPaidSearch}>{t('modelSelector.nativeSearch', '模型原生联网')}</option>}<option value="agent">{t('modelSelector.agentSearch', '模型自主查证')}</option><option value="none">{t('modelSelector.noSearch', '不联网')}</option></select></Field>
+          <p className="text-xxs leading-relaxed text-[var(--color-text-muted)] sm:col-span-2">{language.startsWith('zh-') ? (allowPaidSearch ? '付费搜索已由部署者启用；模型自主查证仍只使用免费网页搜索。' : '默认免费网页搜索，无需 Tavily/Serper Key。旧的原生联网配置会使用自主网页工具；不联网模式保持关闭。') : (allowPaidSearch ? 'Paid search is enabled by the deployment. Model-led research still uses free web search.' : 'Free web search by default; no Tavily/Serper key needed. Saved native-search modes use web tools. Offline mode stays disabled.')}</p>
           <Field label={t('platformAdmin.multiplierLabel', '点数倍率')}><input className={inputClass} inputMode="decimal" value={draft.creditMultiplier} onChange={(e) => setDraft({ ...draft, creditMultiplier: e.target.value })} /></Field>
           <Field label={t('platformAdmin.sortOrder', '排序')}><input className={inputClass} inputMode="numeric" value={draft.sortOrder} onChange={(e) => setDraft({ ...draft, sortOrder: e.target.value })} /></Field>
           <Field label={t('platformAdmin.inputPrice', '输入成本微美元/百万 Token')}><input className={inputClass} inputMode="numeric" value={draft.inputPriceMicrosPerMillion} onChange={(e) => setDraft({ ...draft, inputPriceMicrosPerMillion: e.target.value })} /></Field>

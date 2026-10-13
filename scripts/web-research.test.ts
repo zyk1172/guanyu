@@ -75,7 +75,7 @@ test('configured SearXNG takes precedence over existing paid API settings', asyn
   const requests: string[] = [];
   const session = new WebResearchSession({ searxngUrl: 'https://search.example', searchOptions: { provider: 'multi', tavilyApiKey: 'fixture', serperApiKey: 'fixture' }, request: async (url) => {
     requests.push(url);
-    return reply('{"results":[]}', 200, { 'content-type': 'application/json' });
+    return reply('{"results":[{"title":"Evidence","url":"https://evidence.example/news"}]}', 200, { 'content-type': 'application/json' });
   } });
   assert.equal((await session.execute('web_search', { query: 'evidence' })).ok, true);
   assert.equal(requests.length, 1);
@@ -95,7 +95,7 @@ test('private SearXNG allowance never propagates to a page or redirect target', 
   const requested: Array<{ url: string; private: boolean | undefined }> = [];
   const session = new WebResearchSession({ searxngUrl: 'http://searxng:8080', allowPrivateSearxng: true, request: async (url, options) => {
     requested.push({ url, private: options?.allowPrivateAddress });
-    if (url.startsWith('http://searxng:8080/search')) return reply('{"results":[]}');
+    if (url.startsWith('http://searxng:8080/search')) return reply('{"results":[{"title":"Evidence","url":"https://evidence.example/news"}]}');
     if (url === 'https://public.example/news') return reply('', 302, { location: 'http://127.0.0.1/private' });
     return safeOutboundRequest(url, options);
   } });

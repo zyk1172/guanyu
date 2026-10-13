@@ -27,7 +27,7 @@
     "test:analyze-job": "node --test scripts/analyze-job.test.mjs",
     "test:model-runtime": "tsx --test scripts/model-runtime.test.ts",
     "bootstrap:admin": "tsx scripts/bootstrap-admin.ts",
-    "test:web-research": "tsx --test scripts/web-research.test.ts scripts/usage-cost.test.ts"
+    "test:web-research": "tsx --test scripts/web-research.test.ts scripts/free-web-search.test.ts scripts/usage-cost.test.ts"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",

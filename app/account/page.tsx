@@ -127,6 +127,8 @@ export default function AccountPage() {
   const [hasLlmApiKey, setHasLlmApiKey] = useState(false);
   const [enableTavilySearch, setEnableTavilySearch] = useState(false);
   const [tavilyApiKey, setTavilyApiKey] = useState('');
+  const [allowPaidSearch, setAllowPaidSearch] = useState(false);
+  const [customToolsEnabled, setCustomToolsEnabled] = useState(true);
   const [hasTavilyApiKey, setHasTavilyApiKey] = useState(false);
   const [tavilySearchDepth, setTavilySearchDepth] = useState('basic');
   const [enableSerperSearch, setEnableSerperSearch] = useState(false);
@@ -250,6 +252,8 @@ export default function AccountPage() {
             setModelName(data.defaultModelName);
             setLlmBaseUrl(data.llmBaseUrl || 'https://api.openai.com/v1');
             setHasLlmApiKey(Boolean(data.hasLlmApiKey));
+        setAllowPaidSearch(Boolean(data.paidSearchAllowed));
+        setCustomToolsEnabled(data.customWebResearchEnabled !== false);
             setEnableTavilySearch(Boolean(data.enableTavilySearch));
             setHasTavilyApiKey(Boolean(data.hasTavilyApiKey));
             setTavilySearchDepth(data.tavilySearchDepth || 'basic');
@@ -329,6 +333,8 @@ export default function AccountPage() {
         setTavilyApiKey('');
         setSerperApiKey('');
         setHasLlmApiKey(Boolean(data.hasLlmApiKey));
+        setAllowPaidSearch(Boolean(data.paidSearchAllowed));
+        setCustomToolsEnabled(data.customWebResearchEnabled !== false);
         setHasTavilyApiKey(Boolean(data.hasTavilyApiKey));
         setHasSerperApiKey(Boolean(data.hasSerperApiKey));
         setEnableTavilySearch(Boolean(data.enableTavilySearch));
@@ -1509,7 +1515,7 @@ export default function AccountPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {modelSource === 'custom' && (
                 <details open className="rounded-xl border border-[var(--color-border)] p-3 md:col-span-2">
-                <summary className="cursor-pointer text-sm font-bold">{language.startsWith('zh-') ? '高级设置：个人模型与搜索 API' : 'Advanced: personal model and search APIs'}</summary>
+                <summary className="cursor-pointer text-sm font-bold">{language.startsWith('zh-') ? '高级设置：个人模型' : 'Advanced: personal model'}</summary>
                 <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="space-y-1">
                 <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
@@ -1560,6 +1566,8 @@ export default function AccountPage() {
                 </p>
               </div>
 
+              <p className="text-xs leading-relaxed text-[var(--color-text-muted)] md:col-span-2">{language.startsWith('zh-') ? `${customToolsEnabled ? '支持工具调用的个人模型默认可以自主搜索和读取网页。' : '当前部署使用免费固定搜索。'}无需搜索 API Key；模型服务仍可能收费。${allowPaidSearch ? '下方付费搜索为可选配置。' : '当前部署已关闭付费搜索，保存的旧配置不会触发付费搜索请求。'}` : `${customToolsEnabled ? 'Personal models with tool support can search and read web pages.' : 'This deployment uses free fixed search.'} No search API key is required; model service fees may still apply. ${allowPaidSearch ? 'Paid search below is optional.' : 'Paid search is disabled; saved settings will not trigger paid search requests.'}`}</p>
+              {allowPaidSearch && <>
               <div className="space-y-3 rounded-xl border border-sky-100 bg-sky-50/60 p-3 dark:border-sky-900/30 dark:bg-sky-950/10 md:col-span-2">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -1645,6 +1653,7 @@ export default function AccountPage() {
                 </div>
               </div>
 
+              </>}
                 </div>
                 </details>
               )}
