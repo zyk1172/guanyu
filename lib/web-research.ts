@@ -2,7 +2,8 @@ import { Readability } from '@mozilla/readability';
 import { JSDOM } from 'jsdom';
 import * as cheerio from 'cheerio';
 import { safeOutboundRequest, UnsafeOutboundUrlError, type SafeOutboundResponse } from './safe-outbound';
-import { searchWeb, type WebSearchOptions, type WebSearchSource } from './search';
+import type { WebSearchOptions, WebSearchSource } from './search';
+import { searchFreeWeb, parseFreeSearchHtml, FreeSearchError } from './free-web-search';
 
 export const WEB_RESEARCH_TOOLS = [
   {
@@ -32,19 +33,7 @@ function publicLink(value: string, base: string) {
 }
 
 export function parseSearchHtml(html: string, base: string, limit = 5): WebSearchSource[] {
-  const $ = cheerio.load(html);
-  if ($('#challenge-form, .anomaly-modal').length) throw new Error('search_challenge');
-  const results: WebSearchSource[] = [];
-  $('.result').each((_index, element) => {
-    const link = $(element).find('a.result__a').first();
-    const href = link.attr('href');
-    if (!href) return;
-    const target = new URL(href, base);
-    const url = publicLink(target.searchParams.get('uddg') || target.toString(), base);
-    const title = link.text().trim().slice(0, 300);
-    if (url && title && results.length < limit) results.push({ title, url, snippet: $(element).find('.result__snippet').text().trim().slice(0, 800), provider: 'duckduckgo' });
-  });
-  return results;
+  return parseFreeSearchHtml(html, base, 'duckduckgo', limit);
 }
 
 export function extractWebpage(html: string | Buffer, url: string, contentType = 'text/html') {
@@ -114,34 +103,17 @@ export class WebResearchSession {
   }
 
   private async search(query: string) {
-    const searchOptions = this.options.searchOptions;
-    const configured = this.options.searxngUrl ?? process.env.WEB_RESEARCH_SEARXNG_URL;
-    if (configured) {
-      this.searchRequests += 1;
-      searchOptions?.onRequest?.('searxng');
-      // Only this administrator-controlled endpoint may opt into private access.
-      const url = new URL(configured);
-      url.pathname = `${url.pathname.replace(/\/$/, '')}/search`;
-      url.searchParams.set('q', query);
-      url.searchParams.set('format', 'json');
-      url.searchParams.set('language', searchOptions?.locale || 'auto');
-      const response = await this.fetch(url.toString(), this.options.allowPrivateSearxng ?? process.env.WEB_RESEARCH_ALLOW_PRIVATE_SEARXNG === 'true');
-      if (response.status !== 200) throw new Error('search_unavailable');
-      const payload = JSON.parse(response.body.toString('utf8'));
-      return (Array.isArray(payload.results) ? payload.results : []).slice(0, 5).flatMap((item: any) => {
-        const target = publicLink(String(item.url || ''), url.toString());
-        return target ? [{ title: String(item.title || target).slice(0, 300), url: target, snippet: String(item.content || '').slice(0, 800), provider: 'searxng' }] : [];
-      });
-    }
-    this.searchRequests += searchOptions?.provider === 'multi' ? 2 : 1;
-    if (searchOptions?.provider && !['none', 'duckduckgo'].includes(searchOptions.provider)) {
-      return searchWeb(query, 5, { ...searchOptions, timeoutMs: Math.max(1, Math.min(15_000, this.deadline - Date.now())) });
-    }
-    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-    searchOptions?.onRequest?.('duckduckgo');
-    const response = await this.fetch(url);
-    if (response.status !== 200) throw new Error('search_unavailable');
-    return parseSearchHtml(response.body.toString('utf8'), url);
+    return searchFreeWeb(query, 5, {
+      request: (url, options) => this.request(String(url), options),
+      searxngUrl: this.options.searxngUrl,
+      allowPrivateSearxng: this.options.allowPrivateSearxng,
+      locale: this.options.searchOptions?.locale,
+      deadline: Math.min(this.deadline, Date.now() + 15_000),
+      onRequest: (provider) => {
+        this.searchRequests += 1;
+        this.options.searchOptions?.onRequest?.(provider);
+      },
+    });
   }
 
   private async read(url: string) {
@@ -177,15 +149,15 @@ export class WebResearchSession {
       if (!key || !args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).some((item) => item !== key)) throw new Error('invalid_tool_arguments');
       const value = (args as Record<string, unknown>)[key];
       if (typeof value !== 'string' || !value.trim() || value.length > (key === 'query' ? 300 : 2048)) throw new Error('invalid_tool_arguments');
-      const normalized = value.trim();
+      const normalized = key === 'query' ? value.trim().replace(/\s+/g, ' ') : value.trim();
       const cacheKey = `${name}:${normalized}`;
       if (this.cache.has(cacheKey)) return this.cache.get(cacheKey)!;
       let result: ToolResult;
       if (name === 'web_search') {
         if (++this.searches > 4) throw new Error('search_budget_exhausted');
-        const sources = await this.search(normalized);
+        const { sources, attempts } = await this.search(normalized);
         this.remember(sources);
-        result = { ok: true, untrusted: true, query: normalized, results: sources };
+        result = { ok: true, untrusted: true, query: normalized, results: sources, attempts };
       } else {
         if (++this.reads > 4) throw new Error('read_budget_exhausted');
         const page = await this.read(normalized);
@@ -197,7 +169,7 @@ export class WebResearchSession {
     } catch (error) {
       const known = /^(search_challenge|search_unavailable|empty_page|research_timeout|page_redirect_limit|page_unavailable|page_challenge|unsupported_page_type|invalid_tool_arguments|search_budget_exhausted|read_budget_exhausted)$/;
       const message = error instanceof Error ? error.message : '';
-      return { ok: false, untrusted: true, error: error instanceof UnsafeOutboundUrlError ? 'unsafe_url' : known.test(message) ? message : 'tool_request_failed' };
+      return { ok: false, untrusted: true, error: error instanceof UnsafeOutboundUrlError ? 'unsafe_url' : known.test(message) ? message : 'tool_request_failed', ...(error instanceof FreeSearchError ? { attempts: error.attempts } : {}) };
     }
   }
 }

@@ -10,6 +10,7 @@ import { assertPublicOutboundUrl } from '@/lib/safe-outbound';
 import { cacheDel, CACHE_KEYS } from '@/lib/cache';
 import { sameOriginResponse } from '@/lib/request-security';
 import { ensurePlatformModelBaseline } from '@/lib/platform-models';
+import { paidSearchAllowed, customWebResearchEnabled } from '@/lib/web-search-policy';
 
 const VALID_THINKING_DEPTHS = new Set(['none', 'low', 'medium', 'high', 'extreme', 'quick', 'standard', 'deep', 'exhaustive']);
 const VALID_TAVILY_DEPTHS = new Set(['basic', 'advanced']);
@@ -31,6 +32,8 @@ function withSafeModelFields<T extends { llmApiKeyEncrypted?: string | null; tav
   const { llmApiKeyEncrypted, tavilyApiKeyEncrypted, serperApiKeyEncrypted, ...safeSettings } = settings;
   return {
     ...safeSettings,
+    paidSearchAllowed: paidSearchAllowed(),
+    customWebResearchEnabled: customWebResearchEnabled(),
     hasLlmApiKey: Boolean(llmApiKeyEncrypted),
     hasTavilyApiKey: Boolean(tavilyApiKeyEncrypted),
     hasSerperApiKey: Boolean(serperApiKeyEncrypted),

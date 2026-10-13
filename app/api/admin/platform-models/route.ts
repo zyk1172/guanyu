@@ -15,6 +15,7 @@ import {
 } from '@/lib/platform-model-core.mjs';
 import { testModelConnection } from '@/lib/model-runtime';
 import { WebResearchSession } from '@/lib/web-research';
+import { effectiveSearchMode, paidSearchAllowed } from '@/lib/web-search-policy';
 import { sameOriginResponse } from '@/lib/request-security';
 
 const REASONING_DEPTHS = new Set(['none', 'low', 'medium', 'high', 'extreme']);
@@ -155,7 +156,7 @@ export async function GET(request: Request) {
         },
       }),
     ]);
-    return NextResponse.json({ models: models.map(safeAdminPlatformModel), usage: groupedUsage });
+    return NextResponse.json({ models: models.map(safeAdminPlatformModel), usage: groupedUsage, paidSearchAllowed: paidSearchAllowed() });
   } catch (error) {
     console.error('Load platform model admin failed:', error);
     return NextResponse.json({ error: '平台模型管理数据加载失败。' }, { status: 500 });
@@ -203,21 +204,22 @@ export async function PATCH(request: Request) {
     if (action === 'test') {
       const apiKey = decryptSecret(existing.apiKeyEncrypted);
       if (!apiKey) return NextResponse.json({ error: '该模型没有可用的 API Key。' }, { status: 400 });
+      const searchMode = effectiveSearchMode(existing.searchMode);
       const result = await testModelConnection({
         provider: validateProvider(existing.provider),
         baseUrl: existing.baseUrl,
         apiKey,
         modelId: existing.modelId,
         reasoningDepth: existing.reasoningDepth,
-        nativeSearch: existing.searchMode === 'native',
-        webResearch: existing.searchMode === 'agent' ? new WebResearchSession() : undefined,
+        nativeSearch: searchMode === 'native',
+        webResearch: searchMode === 'agent' ? new WebResearchSession() : undefined,
         allowPrivateAddress: process.env.NODE_ENV !== 'production',
       });
       const testMessage = result.passed
-        ? `连接成功 · ${result.durationMs}ms${existing.searchMode === 'agent' ? ' · 自主搜索和网页读取可用' : existing.searchMode === 'native' ? ' · 原生联网可用' : ''} · 输入 ${result.usage.inputTokens} / 输出 ${result.usage.outputTokens} Token`
-        : existing.searchMode === 'agent' && result.ok && !result.webResearchPassed
+        ? `连接成功 · ${result.durationMs}ms${searchMode === 'agent' ? ' · 自主搜索和网页读取可用' : searchMode === 'native' ? ' · 原生联网可用' : ''} · 输入 ${result.usage.inputTokens} / 输出 ${result.usage.outputTokens} Token`
+        : searchMode === 'agent' && result.ok && !result.webResearchPassed
           ? `模型连接成功，但未完成自主搜索和网页读取（${result.durationMs}ms）。请检查搜索服务和模型工具调用能力。`
-          : existing.searchMode === 'native' && result.ok && !result.nativeSearchPassed
+          : searchMode === 'native' && result.ok && !result.nativeSearchPassed
           ? `模型连接成功，但未检测到原生联网结果（${result.durationMs}ms）。请确认模型型号支持联网且已开通搜索服务。`
           : `连接失败（${result.errorCode || result.status}，${result.durationMs}ms）。`;
       const tested = await prisma.platformModelConfig.update({

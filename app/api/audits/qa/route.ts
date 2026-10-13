@@ -10,6 +10,7 @@ import { getReportLanguageRule } from '@/lib/report-language-core.mjs';
 import { resolveOperationModel } from '@/lib/operation-model';
 import { invokeModel } from '@/lib/model-runtime';
 import { WebResearchSession } from '@/lib/web-research';
+import { customWebResearchEnabled, effectiveSearchMode } from '@/lib/web-search-policy';
 import { recordModelUsage } from '@/lib/model-usage';
 import { historicalAuditModelName } from '@/lib/audit-model-display';
 import { sameOriginResponse } from '@/lib/request-security';
@@ -209,8 +210,9 @@ ${recentHistory.map((h) => `${h.role === 'user' ? '用户' : 'AI'}: ${h.content}
     // 5. 请求大模型
     const startedAt = Date.now();
     const externalSearchCounts: Record<string, number> = {};
-    const webResearch = (operationModel.source === 'platform' && operationModel.snapshot?.searchMode === 'agent')
-      || (operationModel.source === 'custom' && process.env.GUANYU_CUSTOM_WEB_RESEARCH === 'true')
+    const searchMode = effectiveSearchMode(operationModel.snapshot?.searchMode || 'platform');
+    const webResearch = (operationModel.source === 'platform' && searchMode === 'agent')
+      || (operationModel.source === 'custom' && customWebResearchEnabled())
       ? new WebResearchSession({ searchOptions: { locale: reportLanguage, onRequest: (provider) => { externalSearchCounts[provider] = (externalSearchCounts[provider] || 0) + 1; } } }) : undefined;
     const response = await invokeModel({
       provider: operationModel.provider,
@@ -223,7 +225,7 @@ ${recentHistory.map((h) => `${h.role === 'user' ? '用户' : 'AI'}: ${h.content}
       timeoutMs: 100_000,
       maxTokens: 8_000,
       jsonMode: false,
-      nativeSearch: operationModel.source === 'platform' && operationModel.snapshot?.searchMode === 'native',
+      nativeSearch: operationModel.source === 'platform' && searchMode === 'native',
       webResearch,
       allowPrivateAddress: operationModel.allowPrivateAddress,
     });

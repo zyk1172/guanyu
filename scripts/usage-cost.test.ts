@@ -32,6 +32,8 @@ test('missing usage, provider counts, cache prices and excessive costs remain in
 
 test('failed multi-engine requests are counted, while absent credentials cause no request', async () => {
   const originalFetch = globalThis.fetch;
+  const originalPolicy = process.env.GUANYU_ALLOW_PAID_SEARCH;
+  process.env.GUANYU_ALLOW_PAID_SEARCH = 'true';
   const calls: string[] = [];
   globalThis.fetch = async () => new Response('{}', { status: 503 });
   try {
@@ -40,12 +42,12 @@ test('failed multi-engine requests are counted, while absent credentials cause n
     calls.length = 0;
     await searchWeb('test', 3, { provider: 'multi', onRequest: (provider) => calls.push(provider) });
     assert.deepEqual(calls, []);
-  } finally { globalThis.fetch = originalFetch; }
+  } finally { globalThis.fetch = originalFetch; if (originalPolicy === undefined) delete process.env.GUANYU_ALLOW_PAID_SEARCH; else process.env.GUANYU_ALLOW_PAID_SEARCH = originalPolicy; }
 });
 
 test('cached agent searches do not add external request charges', async () => {
   const calls: string[] = [];
-  const session = new WebResearchSession({ searxngUrl: 'https://search.example', searchOptions: { onRequest: (provider) => calls.push(provider) }, request: async () => ({ status: 200, headers: new Headers({ 'content-type': 'application/json' }), body: Buffer.from('{"results":[]}') }) });
+  const session = new WebResearchSession({ searxngUrl: 'https://search.example', searchOptions: { onRequest: (provider) => calls.push(provider) }, request: async () => ({ status: 200, headers: new Headers({ 'content-type': 'application/json' }), body: Buffer.from('{"results":[{"title":"Evidence","url":"https://evidence.example/news"}]}') }) });
   await session.execute('web_search', { query: 'evidence' });
   await session.execute('web_search', { query: 'evidence' });
   assert.deepEqual(calls, ['searxng']);

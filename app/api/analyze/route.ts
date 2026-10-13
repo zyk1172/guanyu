@@ -7,6 +7,7 @@ import { buildReportLanguageJsonRepairPrompt, buildReportLanguageSystemGuard, ge
 import { computeReadWorth } from '@/lib/readWorth';
 import { searchWeb, WebSearchOptions } from '@/lib/search';
 import { WebResearchSession } from '@/lib/web-research';
+import { paidSearchAllowed, customWebResearchEnabled, effectiveSearchMode } from '@/lib/web-search-policy';
 import { decryptSecret } from '@/lib/secret';
 import { chooseModelConfig } from '@/lib/model-config';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
@@ -416,6 +417,7 @@ function buildSearchOptions(params: {
   appSetting: any;
   reportLanguage: ReportLanguage;
 }): WebSearchOptions {
+  if (!paidSearchAllowed()) return { provider: 'free', locale: params.reportLanguage };
   const useOwnApi = params.usageSource === 'custom';
   const adminTavilyKey = params.appSetting?.adminTavilyApiKeyEncrypted
     ? decryptSecret(params.appSetting.adminTavilyApiKeyEncrypted)
@@ -457,7 +459,7 @@ function buildSearchOptions(params: {
   if (serperApiKey) {
     return { provider: 'serper', serperApiKey, locale: params.reportLanguage };
   }
-  return { provider: 'none' };
+  return { provider: 'free', locale: params.reportLanguage };
 }
 
 async function buildDeepSearchGroups(base: { title?: string; source?: string; content: string; reportLanguage: ReportLanguage }, searchOptions: WebSearchOptions) {
@@ -602,21 +604,18 @@ async function handleAnalyze(userId: string, body: any, executionContext: Analyz
       && process.env.ALLOW_PRIVATE_ADMIN_LLM === 'true'
       && Boolean(configuredAdminBaseURL)
       && modelConfig.baseURL.replace(/\/$/, '') === configuredAdminBaseURL!.replace(/\/$/, '');
-    const configuredSearchMode = selectedPlatformSnapshot?.searchMode || 'platform';
+    const configuredSearchMode = effectiveSearchMode(selectedPlatformSnapshot?.searchMode || 'platform');
     const agentSearchEnabled = usagePlan.source === 'platform'
       ? configuredSearchMode === 'agent'
-      : process.env.GUANYU_CUSTOM_WEB_RESEARCH === 'true';
+      : customWebResearchEnabled();
     const externalSearchCounts: Record<string, number> = {};
-    const searchOptions: WebSearchOptions = usagePlan.source === 'platform' && !['platform', 'agent'].includes(configuredSearchMode)
+    const searchOptions: WebSearchOptions = agentSearchEnabled
+      ? { provider: 'free', locale: actualReportLanguage }
+      : usagePlan.source === 'platform' && !['platform', 'agent'].includes(configuredSearchMode)
       ? { provider: 'none' as const, locale: actualReportLanguage }
       : buildSearchOptions({ usageSource: usagePlan.source, userSettings, appSetting, reportLanguage: actualReportLanguage });
     searchOptions.onRequest = (provider) => { externalSearchCounts[provider] = (externalSearchCounts[provider] || 0) + 1; };
     const webResearch = agentSearchEnabled ? new WebResearchSession({ searchOptions }) : undefined;
-    if (usagePlan.source === 'custom' && searchOptions.provider === 'none' && !agentSearchEnabled) {
-      await releaseReservation();
-      return NextResponse.json({ error: '自定义 API 模式进行新闻分析时，需要同时配置并启用自己的联网搜索 API；系统不会改用平台搜索。' }, { status: 400 });
-    }
-
     const searchQuery = [title, source, truncatedContent.slice(0, 120)].filter(Boolean).join(' ').slice(0, 240);
     const factCheckSources = searchQuery && !agentSearchEnabled ? await searchWeb(searchQuery, 5, searchOptions) : [];
     const deepSources = actualAnalysisMode === 'deep' && !agentSearchEnabled
@@ -890,7 +889,7 @@ async function handleAnalyze(userId: string, body: any, executionContext: Analyz
           platformModelConfigIdSnapshot: selectedPlatformSnapshot?.configId,
           modelDisplayNameSnapshot: selectedPlatformSnapshot?.displayName || modelConfig.modelName,
           modelProviderSnapshot: selectedPlatformSnapshot?.provider || 'openai_compatible',
-          modelSearchModeSnapshot: selectedPlatformSnapshot?.searchMode || (usagePlan.source === 'custom' ? 'custom' : 'platform'),
+          modelSearchModeSnapshot: usagePlan.source === 'platform' ? configuredSearchMode : 'custom',
           modelMultiplierBpsSnapshot: selectedPlatformSnapshot?.multiplierBps,
           modelConfigVersionSnapshot: selectedPlatformSnapshot?.configVersion,
           modelCreditCostCents: usagePlan.costCents,

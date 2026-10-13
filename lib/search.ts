@@ -1,6 +1,8 @@
 import { buildTavilySearchRequest, normalizeTavilySearchResponse } from './tavily-core.mjs';
 import { buildSerperSearchRequest, normalizeSerperSearchResponse } from './serper-core.mjs';
 import type { ReportLanguage } from './types';
+import { searchFreeWeb, type FreeSearchOptions } from './free-web-search';
+import { paidSearchAllowed } from './web-search-policy';
 
 export interface WebSearchSource {
   title: string;
@@ -10,43 +12,17 @@ export interface WebSearchSource {
 }
 
 export interface WebSearchOptions {
-  provider?: 'none' | 'tavily' | 'serper' | 'multi' | 'duckduckgo';
+  provider?: 'none' | 'free' | 'tavily' | 'serper' | 'multi' | 'duckduckgo';
   tavilyApiKey?: string;
   tavilySearchDepth?: 'basic' | 'advanced' | string;
   serperApiKey?: string;
   locale?: ReportLanguage;
   timeoutMs?: number;
   onRequest?: (provider: string) => void;
+  freeSearchOptions?: FreeSearchOptions;
 }
 
 const SEARCH_TIMEOUT_MS = 15_000;
-
-function decodeHtml(value: string): string {
-  return value
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function stripHtml(value: string): string {
-  return decodeHtml(value.replace(/<[^>]*>/g, ' '));
-}
-
-function normalizeDuckDuckGoUrl(value: string): string {
-  const decoded = decodeHtml(value);
-
-  try {
-    const url = new URL(decoded, 'https://duckduckgo.com');
-    const redirected = url.searchParams.get('uddg');
-    return redirected ? decodeURIComponent(redirected) : url.toString();
-  } catch {
-    return decoded;
-  }
-}
 
 async function searchTavily(query: string, limit: number, options: WebSearchOptions): Promise<WebSearchSource[]> {
   const apiKey = options.tavilyApiKey?.trim();
@@ -76,53 +52,6 @@ async function searchTavily(query: string, limit: number, options: WebSearchOpti
       .map((item: Omit<WebSearchSource, 'provider'>) => ({ ...item, provider: 'tavily' as const }));
   } catch {
     console.error('Tavily search failed');
-    return [];
-  }
-}
-
-async function searchDuckDuckGo(query: string, limit = 5, options: WebSearchOptions = {}): Promise<WebSearchSource[]> {
-  const normalizedQuery = query.trim().replace(/\s+/g, ' ');
-  if (!normalizedQuery) return [];
-
-  try {
-    options.onRequest?.('duckduckgo');
-    const response = await fetch(
-      `https://duckduckgo.com/html/?q=${encodeURIComponent(normalizedQuery)}`,
-      {
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/126 Safari/537.36',
-          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        },
-        cache: 'no-store',
-        signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
-      }
-    );
-
-    if (!response.ok) return [];
-
-    const html = await response.text();
-    const blocks = html.match(/<div class="result results_links[\s\S]*?<\/div>\s*<\/div>/g) || [];
-
-    const results: WebSearchSource[] = [];
-    for (const block of blocks) {
-      const titleMatch = block.match(/<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
-      const snippetMatch = block.match(/<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/);
-      if (!titleMatch) continue;
-
-      const item: WebSearchSource = {
-        title: stripHtml(titleMatch[2]),
-        url: normalizeDuckDuckGoUrl(titleMatch[1]),
-        snippet: snippetMatch ? stripHtml(snippetMatch[1]) : '',
-        provider: 'duckduckgo',
-      };
-      if (item.title && item.url) results.push(item);
-      if (results.length >= limit) break;
-    }
-
-    return results;
-  } catch (error) {
-    console.error('Web search failed:', error);
     return [];
   }
 }
@@ -174,8 +103,13 @@ function dedupeSources(sources: WebSearchSource[]) {
 }
 
 export async function searchWeb(query: string, limit = 5, options: WebSearchOptions = {}): Promise<WebSearchSource[]> {
-  const provider = options.provider || 'none';
+  const provider = options.provider || 'free';
   if (provider === 'none') return [];
+  if (!paidSearchAllowed() || provider === 'free' || provider === 'duckduckgo') {
+    try {
+      return (await searchFreeWeb(query, limit, { ...options.freeSearchOptions, locale: options.locale, onRequest: options.onRequest, deadline: options.freeSearchOptions?.deadline ?? Date.now() + Math.min(15_000, options.timeoutMs || SEARCH_TIMEOUT_MS) })).sources;
+    } catch { return []; }
+  }
   if (provider === 'tavily') return searchTavily(query, limit, options);
   if (provider === 'serper') return searchSerper(query, limit, options);
   if (provider === 'multi') {
@@ -185,5 +119,5 @@ export async function searchWeb(query: string, limit = 5, options: WebSearchOpti
     ]);
     return dedupeSources([...tavilyResults, ...serperResults]).slice(0, limit);
   }
-  return searchDuckDuckGo(query, limit, options);
+  return [];
 }

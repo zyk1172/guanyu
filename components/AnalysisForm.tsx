@@ -187,7 +187,7 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
         </span>
       </div>
 
-      <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">{language.startsWith('zh-') ? '平台模型可直接使用，无需填写个人 API。先查看示例了解结论、证据和核验流程。' : 'Use a platform model without configuring your own API. Explore the example to see conclusions, evidence and verification steps.'} <Link href="/demo" className="font-bold text-[var(--color-primary)] underline">{language.startsWith('zh-') ? '查看完整示例 · 无需注册' : 'View full example · no account required'}</Link></p>
+      <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">{language.startsWith('zh-') ? '平台模型可直接使用，无需填写个人 API；网页搜索默认无需购买搜索 API。先查看示例了解结论、证据和核验流程。' : 'Use a platform model without your own API. Web search requires no paid search API by default. Explore the example to see conclusions, evidence and verification steps.'} <Link href="/demo" className="font-bold text-[var(--color-primary)] underline">{language.startsWith('zh-') ? '查看完整示例 · 无需注册' : 'View full example · no account required'}</Link></p>
       <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
         {/* URL 自动解析区 */}
         <div className="space-y-2">

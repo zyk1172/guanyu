@@ -1,3 +1,4 @@
+import { effectiveSearchMode } from './web-search-policy';
 import type { PlatformModelConfig } from '@/lib/generated/prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getOrCreateAppSetting } from '@/lib/billing';
@@ -75,7 +76,7 @@ export async function ensurePlatformModelBaseline() {
       apiKeyEncrypted: legacy.adminLlmApiKeyEncrypted,
       modelId: legacy.adminModelName || process.env.PLATFORM_DEFAULT_MODEL_ID || process.env.OPENAI_MODEL_DEFAULT || 'deepseek-v4-pro',
       reasoningDepth: 'medium',
-      searchMode: 'platform',
+      searchMode: 'agent',
       creditMultiplierBps: 100,
       isRecommended: true,
       isDefault: true,
@@ -216,7 +217,7 @@ export async function listPublicPlatformModels(params: {
       displayName: localizedModelText(model.displayName, model.displayNameI18nJson, params.locale),
       description: localizedModelText(model.description, model.descriptionI18nJson, params.locale),
       provider: provider(model.provider),
-      searchMode: mode,
+      searchMode: searchMode(effectiveSearchMode(mode)),
       supportsWebSearch: mode !== 'none',
       contentOnlyAnalysis: params.operation === 'analysis' && mode === 'none',
       recommended: model.isRecommended,
