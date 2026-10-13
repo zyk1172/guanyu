@@ -1,0 +1,82 @@
+import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { NextRequest } from 'next/server';
+import { encode } from 'next-auth/jwt';
+import { prisma } from '../lib/prisma';
+import { encryptSecret } from '../lib/secret';
+import { getDemoReport } from '../lib/demo-report';
+import { GET, POST } from '../app/api/audits/compare/route';
+
+async function main() {
+  let calls = 0; let invalid = false;
+  const server = createServer(async (request, response) => {
+    for await (const chunk of request) void chunk;
+    calls++;
+    const finding = { text: '回收问卷仅支持部分受访者的偏好，仍需核对样本方法。', reportRefs: [1, 2] };
+    const content = JSON.stringify(invalid ? {} : { summary: finding, sharedClaims: [finding], differences: [], gaps: [finding], nextChecks: [finding] });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    response.writeHead(200, { 'Content-Type': 'application/json' });
+    response.end(JSON.stringify({ choices: [{ message: { content } }], usage: { prompt_tokens: 100, completion_tokens: 50 } }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const baseUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const originalBase = process.env.OPENAI_BASE_URL; const originalAllow = process.env.ALLOW_PRIVATE_ADMIN_LLM;
+  process.env.OPENAI_BASE_URL = baseUrl; process.env.ALLOW_PRIVATE_ADMIN_LLM = 'true';
+  const suffix = crypto.randomUUID();
+  const model = await prisma.platformModelConfig.create({ data: { configKey: `comparison-smoke-${suffix}`, displayName: 'Local test model', modelId: 'fixture', baseUrl, apiKeyEncrypted: encryptSecret('unused-local-fixture-key'), searchMode: 'none', inputPriceMicrosPerMillion: 100000, outputPriceMicrosPerMillion: 200000 } });
+  const owner = await prisma.user.create({ data: { email: `compare-owner-${suffix}@example.com`, password: 'unused-smoke-fixture', creditBalance: 10, creditBalanceCents: 1000, creditBalanceAmount: 10, settings: { create: { modelSource: 'platform', defaultPlatformModelConfigId: model.id } } } });
+  const other = await prisma.user.create({ data: { email: `compare-other-${suffix}@example.com`, password: 'unused-smoke-fixture' } });
+  try {
+    const fixture = getDemoReport();
+    const audit = (userId: string, title: string, isPublic = false) => prisma.audit.create({ data: { userId, title, isPublic, isSourcePublic: false, source: 'Fictional test fixture', publishedAt: '', originalContent: fixture.originalContent, analysisMode: 'deep', reasoningDepth: 'medium', modelName: 'fixture', newsSummary: fixture.report.newsSummary, auditResultJson: JSON.stringify(fixture.report) } });
+    const [a, b, foreign, publicReport] = await Promise.all([audit(owner.id, 'A'), audit(owner.id, 'B'), audit(other.id, 'Private'), audit(other.id, 'Public', true)]);
+    const token = await encode({ secret: process.env.NEXTAUTH_SECRET!, token: { id: owner.id, sessionVersion: owner.sessionVersion } });
+    const request = (ids: string[], focus = '') => new NextRequest('http://localhost/api/audits/compare', { method: 'POST', headers: { cookie: `next-auth.session-token=${token}`, origin: 'http://localhost', 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, focus, language: 'zh-CN', costCents: 0 }) });
+    assert.equal((await POST(request([a.id, foreign.id]))).status, 404);
+    assert.equal((await POST(request([a.id, a.id]))).status, 400);
+    const getPublic = await GET(new NextRequest(`http://localhost/api/audits/compare?id=${a.id}&id=${publicReport.id}`, { headers: { cookie: `next-auth.session-token=${token}` } }));
+    assert.equal(getPublic.status, 200);
+    const publicData = await getPublic.json();
+    assert.equal(publicData.reports.find((item: { id: string }) => item.id === publicReport.id).findings[0].originalQuote, undefined);
+    const snapshotResponse = await GET(new NextRequest(`http://localhost/api/audits/compare?id=${a.id}&id=${b.id}`, { headers: { cookie: `next-auth.session-token=${token}` } }));
+    const oldFingerprint = (await snapshotResponse.json()).materialFingerprint;
+    await prisma.audit.update({ where: { id: a.id }, data: { reportVersion: { increment: 1 } } });
+    const staleRequest = new NextRequest('http://localhost/api/audits/compare', { method: 'POST', headers: { cookie: `next-auth.session-token=${token}`, origin: 'http://localhost', 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [a.id, b.id], focus: '', language: 'zh-CN', materialFingerprint: oldFingerprint }) });
+    assert.equal((await POST(staleRequest)).status, 409);
+    assert.equal(calls, 0);
+    const generated = await POST(request([a.id, b.id]));
+    assert.equal(generated.status, 200);
+    assert.equal((await generated.json()).cached, false);
+    assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: owner.id } })).creditBalanceCents, 900);
+    await prisma.audit.update({ where: { id: a.id }, data: { viewCount: { increment: 1 } } });
+    const reused = await POST(request([b.id, a.id]));
+    assert.equal((await reused.json()).cached, true);
+    assert.equal(calls, 1);
+    const parallel = await Promise.all([POST(request([a.id, b.id], 'parallel')), POST(request([a.id, b.id], 'parallel'))]);
+    assert.ok(parallel.every((response) => [200, 202].includes(response.status)));
+    assert.equal(calls, 2);
+    assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: owner.id } })).creditBalanceCents, 800);
+    invalid = true;
+    assert.equal((await POST(request([a.id, b.id], 'invalid output'))).status, 502);
+    assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: owner.id } })).creditBalanceCents, 800);
+    invalid = false;
+    assert.equal((await POST(request([a.id, publicReport.id], 'privacy'))).status, 200);
+    await prisma.audit.update({ where: { id: publicReport.id }, data: { isPublic: false } });
+    const before = calls;
+    assert.equal((await POST(request([a.id, publicReport.id], 'privacy'))).status, 404);
+    assert.equal(calls, before);
+    const charged = await prisma.modelUsageEvent.aggregate({ where: { userId: owner.id, status: 'success' }, _sum: { creditCostCents: true } });
+    assert.equal(charged._sum.creditCostCents, 300);
+    console.log('Comparison smoke passed: real HTTP model fixture, ownership and excerpt privacy, server pricing, cache across order/view changes, concurrent single charge, invalid-output refund, access revocation, usage accounting.');
+  } finally {
+    await prisma.modelUsageEvent.deleteMany({ where: { userId: { in: [owner.id, other.id] } } });
+    await prisma.user.deleteMany({ where: { id: { in: [owner.id, other.id] } } });
+    await prisma.platformModelConfig.delete({ where: { id: model.id } });
+    if (originalBase === undefined) delete process.env.OPENAI_BASE_URL; else process.env.OPENAI_BASE_URL = originalBase;
+    if (originalAllow === undefined) delete process.env.ALLOW_PRIVATE_ADMIN_LLM; else process.env.ALLOW_PRIVATE_ADMIN_LLM = originalAllow;
+    await prisma.$disconnect();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+main().catch((error) => { console.error(error); process.exitCode = 1; });

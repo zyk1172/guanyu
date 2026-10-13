@@ -122,6 +122,7 @@ export default function MyAuditsPage() {
       <Header />
 
       <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
+        <Link href="/compare" className="inline-flex rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-4 py-2 text-sm font-bold text-[var(--color-primary)]">{language.startsWith('zh-') ? '多报道对比：选择 2–3 份报告' : 'Compare 2–3 reports'}</Link>
         <div>
           <h2 className="text-lg font-black text-gray-950 dark:text-white leading-tight">{t('myAudits.title')}</h2>
           <p className="text-xs text-gray-500 dark:text-gray-400">{t('myAudits.description')}</p>
