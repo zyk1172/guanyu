@@ -62,10 +62,11 @@ export async function ensurePlatformModelBaseline() {
   const existing = await prisma.platformModelConfig.count({ where: { archivedAt: null } });
   if (existing > 0) return;
   const legacy = await getOrCreateAppSetting();
-  await prisma.platformModelConfig.upsert({
-    where: { configKey: 'deepseek-v4-pro-baseline' },
-    update: {},
-    create: {
+  // Concurrent first visits must use a database-level ON CONFLICT, rather than
+  // Prisma's read-then-create upsert when the update object is empty.
+  await prisma.platformModelConfig.createMany({
+    skipDuplicates: true,
+    data: [{
       configKey: 'deepseek-v4-pro-baseline',
       provider: 'openai_compatible',
       displayName: /deepseek/i.test(legacy.adminModelName || '') ? 'DeepSeek V4 Pro' : (legacy.adminModelName || 'DeepSeek V4 Pro'),
@@ -79,7 +80,7 @@ export async function ensurePlatformModelBaseline() {
       isRecommended: true,
       isDefault: true,
       sortOrder: 0,
-    },
+    }],
   });
 }
 

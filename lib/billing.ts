@@ -35,7 +35,10 @@ export function isByokPlan(planType?: string | null) { return planType === 'byok
 export function hasActivePro(user: { planType?: string | null; proAccessExpiresAt?: Date | null }) { return isByokPlan(user.planType) || Boolean(user.proAccessExpiresAt && user.proAccessExpiresAt > new Date()); }
 
 type AppSettingRecord = Awaited<ReturnType<typeof upsertAppSetting>>;
-function upsertAppSetting() { return prisma.appSetting.upsert({ where: { id: 'global' }, update: {}, create: { id: 'global', adminModelName: process.env.PLATFORM_DEFAULT_MODEL_ID || process.env.OPENAI_MODEL_DEFAULT || 'deepseek-v4-pro', adminLlmBaseUrl: process.env.OPENAI_BASE_URL || 'https://api.deepseek.com' } }); }
+async function upsertAppSetting() {
+  await prisma.appSetting.createMany({ skipDuplicates: true, data: [{ id: 'global', adminModelName: process.env.PLATFORM_DEFAULT_MODEL_ID || process.env.OPENAI_MODEL_DEFAULT || 'deepseek-v4-pro', adminLlmBaseUrl: process.env.OPENAI_BASE_URL || 'https://api.deepseek.com' }] });
+  return prisma.appSetting.findUniqueOrThrow({ where: { id: 'global' } });
+}
 export async function getOrCreateAppSetting() { const cached = await cacheGet<AppSettingRecord>(CACHE_KEYS.appSetting); if (cached) return cached; await ensureRuntimeSchema(); const setting = await upsertAppSetting(); await cacheSet(CACHE_KEYS.appSetting, setting, CACHE_TTL.appSetting); return setting; }
 
 function decimal(cents: number) { return new Prisma.Decimal(cents).div(100); }

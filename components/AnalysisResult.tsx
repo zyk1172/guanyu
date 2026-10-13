@@ -1075,7 +1075,7 @@ function DownloadButton({ report, originalContent, qaMessages, auditId, canGener
       {auditId && <button onClick={downloadWord} disabled={exporting} className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-bold text-[var(--color-text)] transition hover:bg-[var(--color-card-hover)] active:scale-[0.98] disabled:opacity-60">{exporting ? t('export.generating') : `${t('export.word')} · 1 ${t('billing.creditUnit')}`}</button>}
       {auditId && <button onClick={downloadPdf} disabled={exporting} className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-bold text-[var(--color-text)] transition hover:bg-[var(--color-card-hover)] disabled:opacity-60">{exporting ? t('export.generating') : `${t('export.pdf')} · 1 ${t('billing.creditUnit')}`}</button>}
       <button onClick={download} disabled={exporting} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100 active:scale-[0.98] disabled:opacity-60 dark:border-indigo-900/40 dark:bg-indigo-950/20 dark:text-indigo-300">
-        {exporting ? t('export.generating') : `${t('export.markdown', getReportText('exportMarkdown', reportLanguage))} · 1 ${t('billing.creditUnit')}`}
+        {exporting ? t('export.generating') : `${t('export.markdown', getReportText('exportMarkdown', reportLanguage))}${auditId ? ` · 1 ${t('billing.creditUnit')}` : ''}`}
       </button>
       {auditId && <AiCompletionButton auditId={auditId} reportLanguage={reportLanguage} />}
       {auditId && canGenerateCard && <GuanyuCardButton auditId={auditId} title={report.meta.title} reportLanguage={reportLanguage} />}
