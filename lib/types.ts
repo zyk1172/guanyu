@@ -329,6 +329,8 @@ export interface NormalizedReportMeta {
 }
 
 export interface ReportJudgment {
+  originalQuote?: string;
+  sourceUrls?: string[];
   title: string;
   content: string;
   judgmentType: JudgmentType;

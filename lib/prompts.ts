@@ -143,7 +143,9 @@ const DEEP_SCHEMA = `{
       "evidenceGrade": "A | B | C | D | E",
       "verificationStatus": "source_supported | externally_verified | partially_supported | pending_verification | unable_to_verify",
       "speculationRisk": "高 | 中 | 低",
-      "nextVerification": "下一步验证方式"
+      "nextVerification": "下一步验证方式",
+      "originalQuote": "逐字摘录输入原文中的相关句子；无直接依据时留空，不要把改写当作引文",
+      "sourceUrls": ["仅填写本次提供的外部检索材料中、实际支撑这一发现的完整URL；没有对应来源时返回空数组"]
     }
   ],
   "supportingEvidence": [
