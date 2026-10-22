@@ -1,8 +1,12 @@
+'use client';
+
 import React, { useEffect, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { AnalysisMode, ReportLanguage, normalizeReportLanguage } from '../lib/types';
 import { useUiLanguage } from './LanguageProvider';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { getWorkspaceCopy } from '@/lib/workspace-copy';
+import { ANALYSIS_DRAFT_KEY, encodeAnalysisDraft, decodeAnalysisDraft } from '@/lib/analysis-draft';
 import TaskBudget from './TaskBudget';
 
 interface AnalysisFormProps {
@@ -16,6 +20,7 @@ interface AnalysisFormProps {
     sourceUrl?: string;
   }) => void;
   isLoading: boolean;
+  articleUrl?: { url: string; selectedAt: number };
 }
 
 type ParseFailure = { code: string; message: string };
@@ -45,9 +50,13 @@ function explainParseFailure(code: string) {
   }
 }
 
-export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps) {
+export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: AnalysisFormProps) {
   const { status } = useSession();
+  const router = useRouter();
   const { language, t } = useUiLanguage();
+  const c = getWorkspaceCopy(language);
+  const [inputMode, setInputMode] = useState<'text' | 'url'>('text');
+  const [draftNotice, setDraftNotice] = useState<'restored' | 'storageError' | null>(null);
   const [title, setTitle] = useState('');
   const [source, setSource] = useState('');
   const [content, setContent] = useState('');
@@ -58,25 +67,34 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
   const [parsedSourceUrl, setParsedSourceUrl] = useState('');
   const [isParsing, setIsParsing] = useState(false);
   const [parseFailure, setParseFailure] = useState<ParseFailure | null>(null);
-  const [creditBalance, setCreditBalance] = useState<number | null>(null);
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
   const modalRef = useRef<HTMLDivElement | null>(null);
   const closeParseFailureButtonRef = useRef<HTMLButtonElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    if (status !== 'authenticated') {
-      setCreditBalance(null);
-      return;
-    }
-    fetch('/api/billing/status')
-      .then((response) => response.ok ? response.json() : null)
-      .then((data) => {
-        const value = Number(data?.creditBalance);
-        setCreditBalance(Number.isFinite(value) ? value : null);
-      })
-      .catch(() => setCreditBalance(null));
-  }, [status]);
+    try {
+      const draft = decodeAnalysisDraft(window.sessionStorage.getItem(ANALYSIS_DRAFT_KEY));
+      if (draft) {
+        setTitle(draft.title); setSource(draft.source); setContent(draft.content); setFocus(draft.focus);
+        setUrlInput(draft.urlInput); setParsedSourceUrl(draft.parsedSourceUrl); setInputMode(draft.inputMode);
+        setDraftNotice('restored');
+      }
+      window.sessionStorage.removeItem(ANALYSIS_DRAFT_KEY);
+    } catch { /* Storage restrictions must not prevent manual entry. */ }
+  }, []);
+
+  useEffect(() => {
+    if (!articleUrl) return;
+    setUrlInput(articleUrl.url); setInputMode('url'); setParsedSourceUrl(''); setParseFailure(null);
+  }, [articleUrl]);
+
+  const signInWithDraft = () => {
+    try {
+      window.sessionStorage.setItem(ANALYSIS_DRAFT_KEY, encodeAnalysisDraft({ title, source, content, focus, urlInput, parsedSourceUrl, inputMode }));
+      router.push('/login');
+    } catch { setDraftNotice('storageError'); }
+  };
 
   useEffect(() => {
     if (!parseFailure) return;
@@ -123,6 +141,7 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
       return;
     }
 
+    if (status !== 'authenticated') { signInWithDraft(); return; }
     setIsParsing(true);
     setParseFailure(null);
 
@@ -144,6 +163,7 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
       if (data.source) setSource(data.source);
       if (data.content) setContent(data.content);
       setParsedSourceUrl(String(data.url || trimmed));
+      requestAnimationFrame(() => contentRef.current?.focus());
     } catch {
       setParseFailure({ code: 'NETWORK_ERROR', message: '网络错误，请重试' });
     } finally {
@@ -161,6 +181,8 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!content.trim() || content.trim().length < 50) return;
+    if (status !== 'authenticated') { signInWithDraft(); return; }
+    try { window.sessionStorage.removeItem(ANALYSIS_DRAFT_KEY); } catch {}
     onSubmit({ title, source, content, focus, mode, reportLanguage, ...(parsedSourceUrl ? { sourceUrl: parsedSourceUrl } : {}) });
   };
 
@@ -170,155 +192,45 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
   const focusManualContent = () => {
     setParseFailure(null);
     requestAnimationFrame(() => {
-      contentRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setInputMode('text');
+      contentRef.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'center' });
       contentRef.current?.focus();
     });
   };
 
   return (
-    <div data-rss-form-height className="animated-panel space-y-4 bg-white dark:bg-gray-950 p-3 sm:p-4 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-xl hover:shadow-indigo-500/5 transition-shadow duration-300">
-      <div className="flex items-start justify-between gap-3 border-b border-gray-100 dark:border-gray-900 pb-3">
-        <div className="min-w-0">
-          <h2 className="text-base font-black text-gray-950 dark:text-white">{t('form.title')}</h2>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('form.description')}</p>
+    <section id="analysis" className="workspace-panel">
+      <h2>{c.form}</h2>
+      {draftNotice && <p role="status" className="mt-4 rounded-lg bg-[var(--color-primary-soft)] p-3 text-sm">{c[draftNotice]}</p>}
+      <form onSubmit={handleSubmit} className="mt-5 space-y-4">
+        <div className="workspace-tabs" role="group" aria-label={t('form.manualEntry')}>
+          <button type="button" aria-pressed={inputMode === 'text'} onClick={() => setInputMode('text')}>{c.text}</button>
+          <button type="button" aria-pressed={inputMode === 'url'} onClick={() => setInputMode('url')}>{c.url}</button>
         </div>
-        <span className="shrink-0 whitespace-nowrap rounded-full bg-indigo-50 px-2.5 py-1 text-xxs font-bold text-indigo-600 dark:bg-indigo-950/30 dark:text-indigo-300">
-          {status === 'authenticated' ? t('form.signedIn') : t('form.signInRequired')}
-        </span>
-      </div>
-
-      <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">{language.startsWith('zh-') ? '平台模型可直接使用，无需填写个人 API；网页搜索默认无需购买搜索 API。先查看示例了解结论、证据和核验流程。' : 'Use a platform model without your own API. Web search requires no paid search API by default. Explore the example to see conclusions, evidence and verification steps.'} <Link href="/demo" className="font-bold text-[var(--color-primary)] underline">{language.startsWith('zh-') ? '查看完整示例 · 无需注册' : 'View full example · no account required'}</Link></p>
-      <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
-        {/* URL 自动解析区 */}
-        <div className="space-y-2">
-          <label htmlFor="article-url" className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-            {t('form.urlParser')}
-          </label>
+        {inputMode === 'url' && <div className="space-y-2">
+          <label htmlFor="article-url" className="workspace-label">{t('form.urlParser')}</label>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <input
-              id="article-url"
-              type="url"
-              value={urlInput}
-              onChange={(e) => { setUrlInput(e.target.value); setParsedSourceUrl(''); setParseFailure(null); }}
-              onKeyDown={handleKeyDown}
-              placeholder={t('form.urlPlaceholder')}
-              className="interactive-lift min-w-0 flex-1 px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white"
-            />
-            <button
-              type="button"
-              onClick={handleParseUrl}
-              disabled={isParsing || !urlInput.trim()}
-              className="interactive-lift justify-center px-4 py-2 rounded-lg text-sm font-semibold border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 whitespace-nowrap"
-            >
-              {isParsing ? (
-                <>
-                  <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  {t('form.parsing')}
-                </>
-              ) : (
-                t('form.parse')
-              )}
-            </button>
+            <input id="article-url" type="url" value={urlInput} onChange={(e) => { setUrlInput(e.target.value); setParsedSourceUrl(''); setParseFailure(null); }} onKeyDown={handleKeyDown} placeholder="https://…" className="workspace-input min-w-0 flex-1" />
+            <button type="button" onClick={handleParseUrl} disabled={isLoading || isParsing || status === 'loading' || !urlInput.trim()} className="workspace-button workspace-secondary shrink-0 disabled:opacity-50">{isParsing ? t('form.parsing') : status === 'authenticated' ? c.read : c.loginRead}</button>
           </div>
-        </div>
-
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200 dark:border-gray-800" /></div>
-          <div className="relative flex justify-center"><span className="bg-white dark:bg-gray-950 px-3 text-xs text-gray-400">{t('form.manualEntry')}</span></div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div className="space-y-1">
-            <label htmlFor="title" className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-              {t('form.titleLabel')}
-            </label>
-            <input
-              id="title"
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder={t('form.titlePlaceholder')}
-              className="interactive-lift w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label htmlFor="source" className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-              {t('form.sourceLabel')}
-            </label>
-            <input
-              id="source"
-              type="text"
-              value={source}
-              onChange={(e) => setSource(e.target.value)}
-              placeholder={t('form.sourcePlaceholder')}
-              className="interactive-lift w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white"
-            />
-          </div>
-        </div>
-
-        <div className="space-y-1">
-          <label htmlFor="content" className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-            {t('form.contentLabel')} <span className="text-red-500">*</span>
-          </label>
-          <textarea
-            id="content"
-            ref={contentRef}
-            value={content}
-            onChange={(e) => { setContent(e.target.value); setParsedSourceUrl(''); }}
-            rows={8}
-            required
-            placeholder={t('form.contentPlaceholder')}
-            className="interactive-lift w-full px-3 py-2.5 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 text-sm font-sans focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 leading-relaxed dark:text-white"
-          />
-          <div className="flex justify-between text-xs text-gray-400 mt-1">
-            <span>{t('form.minimumLength')}</span>
-            <span>{t('form.characterCount', undefined, { count: content.length })}</span>
-          </div>
-        </div>
-
-        <div className="space-y-1">
-          <label htmlFor="focus" className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-            {t('form.focusLabel')}
-          </label>
-          <input
-            id="focus"
-            type="text"
-            value={focus}
-            onChange={(e) => setFocus(e.target.value)}
-            placeholder={t('form.focusPlaceholder')}
-            className="interactive-lift w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white"
-          />
-        </div>
-
-        <TaskBudget />
-        {creditBalance !== null && <div className="flex justify-end text-xs">
-            <span className="shrink-0 font-black text-[var(--color-primary)]">
-              {t('billing.remainingCredits', undefined, { credits: Number.isInteger(creditBalance) ? String(creditBalance) : creditBalance.toFixed(1) })}
-            </span>
         </div>}
-
-        <button
-          type="submit"
-          disabled={isLoading || !isFormValid}
-          className={`interactive-lift w-full py-2.5 px-4 rounded-lg font-semibold text-sm shadow-sm transition duration-150 flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:bg-gray-300 dark:disabled:bg-gray-800 disabled:cursor-not-allowed disabled:hover:transform-none ${
-            isFormValid
-              ? 'bg-indigo-600 hover:bg-indigo-700 text-white hover:shadow-lg hover:shadow-indigo-500/20'
-              : 'bg-gray-300 text-gray-500 dark:bg-gray-800 dark:text-gray-500'
-          }`}
-        >
-          {isLoading ? (
-            <>
-              <span className="h-1.5 w-1.5 rounded-full bg-white/90 step-pulse" />
-              {t('form.analyzing')}
-            </>
-          ) : (
-            t('form.start')
-          )}
-        </button>
+        <div>
+          <label htmlFor="content" className="workspace-label">{t('form.contentLabel')}</label>
+          <textarea id="content" ref={contentRef} value={content} onChange={(e) => { setContent(e.target.value); setParsedSourceUrl(''); }} rows={7} required minLength={50} maxLength={30000} placeholder={c.placeholder} aria-describedby="content-help" className="workspace-input resize-y" />
+          <div id="content-help" className="mt-1 flex justify-between gap-3 text-xs text-[var(--color-text-muted)]"><span>{t('form.minimumLength')}</span><span>{t('form.characterCount', undefined, { count: content.length })}</span></div>
+        </div>
+        <details className="workspace-disclosure">
+          <summary>{c.optional}</summary>
+          <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div><label htmlFor="title" className="workspace-label">{t('form.titleLabel')}</label><input id="title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={500} placeholder={t('form.titlePlaceholder')} className="workspace-input" /></div>
+              <div><label htmlFor="source" className="workspace-label">{t('form.sourceLabel')}</label><input id="source" value={source} onChange={(e) => setSource(e.target.value)} maxLength={500} placeholder={t('form.sourcePlaceholder')} className="workspace-input" /></div>
+            </div>
+            <div><label htmlFor="focus" className="workspace-label">{t('form.focusLabel')}</label><input id="focus" value={focus} onChange={(e) => setFocus(e.target.value)} maxLength={2000} placeholder={t('form.focusPlaceholder')} className="workspace-input" /></div>
+          </div>
+        </details>
+        <TaskBudget compact />
+        <button type="submit" disabled={isLoading || isParsing || status === 'loading' || !isFormValid} className="workspace-button workspace-primary w-full">{isLoading ? t('form.analyzing') : status === 'authenticated' ? t('form.start') : c.continue}</button>
       </form>
 
       {parseFailure && parseFailureInfo && (
@@ -364,6 +276,6 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
           </div>
         </div>
       )}
-    </div>
+    </section>
   );
 }

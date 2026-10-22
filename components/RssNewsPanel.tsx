@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { getWorkspaceCopy } from '@/lib/workspace-copy';
 import { useUiLanguage } from '@/components/LanguageProvider';
 
 export type RssHeadline = {
@@ -27,28 +28,22 @@ type RssPayload = {
 export default function RssNewsPanel({
   onAnalyzeHeadline,
   isAnalyzing,
-  desktopHeight,
 }: {
   onAnalyzeHeadline: (headline: RssHeadline) => Promise<void> | void;
   isAnalyzing: boolean;
-  desktopHeight?: number;
 }) {
   const { language, t } = useUiLanguage();
+  const c = getWorkspaceCopy(language);
   const [payload, setPayload] = useState<RssPayload | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [activeSourceId, setActiveSourceId] = useState('all');
   const [activeHeadlineId, setActiveHeadlineId] = useState('');
-  const scrollViewportRef = useRef<HTMLDivElement | null>(null);
-  const isPointerInsideRef = useRef(false);
-  const isAutoScrollingRef = useRef(false);
-  const manualPauseUntilRef = useRef(0);
-
   const loadHeadlines = useCallback(async () => {
     setIsLoading(true);
     setError('');
     try {
-      const response = await fetch('/api/rss/headlines', { cache: 'no-store' });
+      const response = await fetch('/api/rss/headlines', { cache: 'no-store', signal: AbortSignal.timeout(12000) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(t('rss.loadFailed'));
       setPayload(data);
@@ -67,39 +62,6 @@ export default function RssNewsPanel({
     return () => window.clearInterval(timer);
   }, [loadHeadlines]);
 
-  useEffect(() => {
-    let frameId = 0;
-    let previousTime = 0;
-
-    const advance = (time: number) => {
-      const viewport = scrollViewportRef.current;
-      const elapsed = Math.min(time - previousTime, 80);
-      previousTime = time;
-
-      if (
-        viewport
-        && viewport.scrollHeight > viewport.clientHeight
-        && !isPointerInsideRef.current
-        && time >= manualPauseUntilRef.current
-      ) {
-        const distanceToEnd = viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop;
-        isAutoScrollingRef.current = true;
-        if (distanceToEnd <= 1) {
-          viewport.scrollTop = 0;
-          manualPauseUntilRef.current = time + 1800;
-        } else {
-          viewport.scrollTop += elapsed * 0.012;
-        }
-        window.requestAnimationFrame(() => { isAutoScrollingRef.current = false; });
-      }
-
-      frameId = window.requestAnimationFrame(advance);
-    };
-
-    frameId = window.requestAnimationFrame(advance);
-    return () => window.cancelAnimationFrame(frameId);
-  }, [activeSourceId, payload?.headlines.length]);
-
   const headlines = useMemo(() => {
     const all = payload?.headlines || [];
     return activeSourceId === 'all' ? all : all.filter((headline) => headline.sourceId === activeSourceId);
@@ -108,7 +70,6 @@ export default function RssNewsPanel({
   const allSourcesUnavailable = Boolean(payload?.sources.length)
     && payload?.sources.every((source) => payload.sourceErrors?.some((error) => error.sourceId === source.id))
     && !payload?.headlines.length;
-  const hasHeadlines = !error && !isLoading && headlines.length > 0;
 
   const sourceName = (source: RssSource) => language === 'zh-CN' ? source.nameZh || source.name : source.name;
 
@@ -122,21 +83,18 @@ export default function RssNewsPanel({
   };
 
   return (
-    <aside
-      style={{ '--rss-panel-height': `${(desktopHeight || 748) + 5}px` } as React.CSSProperties}
-      className={`animated-panel flex w-full flex-col self-start overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--shadow-card)] ${hasHeadlines ? 'h-[34rem] lg:h-[var(--rss-panel-height)]' : ''}`}
-    >
+    <section className="flex w-full flex-col overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-card)]">
       <div className="border-b border-[var(--color-border)] px-3 py-3">
         <div className="flex items-start justify-between gap-2">
           <div>
             <h2 className="text-sm font-black text-[var(--color-text)]">{t('rss.title')}</h2>
-            <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('rss.description')}</p>
+            <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{c.rssDescription}</p>
           </div>
           <button
             type="button"
             onClick={() => void loadHeadlines()}
             disabled={isLoading || isAnalyzing}
-            className="shrink-0 whitespace-nowrap rounded-md border border-[var(--color-border)] px-2 py-1 text-xxs font-bold text-[var(--color-link)] transition hover:bg-[var(--color-card-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+            className="min-h-11 shrink-0 whitespace-nowrap rounded-md border border-[var(--color-border)] px-2 py-1 text-xxs font-bold text-[var(--color-link)] transition hover:bg-[var(--color-card-hover)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isLoading ? t('rss.loading') : t('rss.refresh')}
           </button>
@@ -158,17 +116,7 @@ export default function RssNewsPanel({
 
       </div>
 
-      <div
-        ref={scrollViewportRef}
-        onPointerEnter={() => { isPointerInsideRef.current = true; }}
-        onPointerLeave={() => { isPointerInsideRef.current = false; }}
-        onWheel={() => { manualPauseUntilRef.current = performance.now() + 8000; }}
-        onTouchStart={() => { manualPauseUntilRef.current = performance.now() + 8000; }}
-        onScroll={() => {
-          if (!isAutoScrollingRef.current) manualPauseUntilRef.current = performance.now() + 8000;
-        }}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-2 scrollbar-thin"
-      >
+      <div className="max-h-[28rem] overflow-y-auto overscroll-contain px-2 py-2 scrollbar-thin" tabIndex={0} role="region" aria-label={t('rss.title')}>
         {isLoading ? (
           <div className="px-2 py-8 text-center text-xs font-semibold text-[var(--color-text-muted)]">{t('rss.loading')}</div>
         ) : error ? (
@@ -195,9 +143,9 @@ export default function RssNewsPanel({
                     type="button"
                     onClick={() => void handleAnalyze(headline)}
                     disabled={isActive}
-                    className="mt-1.5 text-xxs font-black text-[var(--color-link)] transition hover:text-[var(--color-primary-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="min-h-11 mt-1.5 text-xs font-black text-[var(--color-link)] transition hover:text-[var(--color-primary-hover)] disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {isActive && activeHeadlineId === headline.id ? t('rss.starting') : t('rss.startAnalysis')}
+                    {isActive && activeHeadlineId === headline.id ? t('rss.starting') : c.read}
                   </button>
                 </article>
               );
@@ -212,6 +160,6 @@ export default function RssNewsPanel({
         </p>
       ) : null}
       <p className="border-t border-[var(--color-border)] px-3 py-2 text-xxs leading-relaxed text-[var(--color-text-subtle)]">{t('rss.termsNotice')}</p>
-    </aside>
+    </section>
   );
 }

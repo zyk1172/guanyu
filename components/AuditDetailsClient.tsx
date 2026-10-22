@@ -48,10 +48,10 @@ export default function AuditDetailsClient({ auditRecord: initialAuditRecord, ca
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 dark:bg-black font-sans text-gray-900 dark:text-gray-100 selection:bg-indigo-500/20 pb-16">
+    <main className="workspace-page">
       <Header />
-      <div className="max-w-6xl mx-auto px-3 sm:px-4 py-4 sm:py-5 space-y-4 sm:space-y-5">
-        <div className="bg-white dark:bg-gray-950 p-3 sm:p-4 rounded-xl border border-gray-150 dark:border-gray-900 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+      <div className="reading-container space-y-5">
+        <div className="reading-heading flex flex-col justify-between gap-5 md:flex-row md:items-start">
           <div className="min-w-0 space-y-1">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xxs font-bold bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded tracking-wide uppercase">
@@ -67,7 +67,7 @@ export default function AuditDetailsClient({ auditRecord: initialAuditRecord, ca
                 {t('audit.source')}: {auditRecord.source} · {new Date(auditRecord.createdAt).toLocaleString(language)}
               </span>
             </div>
-            <h2 className="break-words text-sm md:text-base font-bold text-gray-950 dark:text-white leading-snug">{auditRecord.title}</h2>
+            <h1 className="break-words">{auditRecord.title}</h1>
           </div>
           <div className="flex w-full flex-wrap items-center gap-2 text-xs font-bold md:w-auto md:justify-end">
             {isAuthor && (
@@ -96,7 +96,7 @@ export default function AuditDetailsClient({ auditRecord: initialAuditRecord, ca
                 reasoningDepth: getDepthLabel(auditRecord.reasoningDepth),
                 analysisMode: getModeLabel(auditRecord.analysisMode),
                 reportLanguage: auditRecord.reportLanguage,
-                createdAt: new Date(auditRecord.createdAt).toLocaleString(),
+                createdAt: new Date(auditRecord.createdAt).toLocaleString(language),
                 viewCount: auditRecord.viewCount,
                 isPublic: auditRecord.isPublic,
               }}
@@ -104,7 +104,7 @@ export default function AuditDetailsClient({ auditRecord: initialAuditRecord, ca
             />
           </div>
         ) : (
-          <div className="bg-white dark:bg-gray-950 p-6 rounded-xl border border-gray-150 dark:border-gray-900 shadow-sm text-center text-xs text-gray-400 font-semibold">⚠️ 警告：该条记录的审视 JSON 文件损坏，无法提取博弈多方度量详情。</div>
+          <div className="bg-white dark:bg-gray-950 p-6 rounded-xl border border-gray-150 dark:border-gray-900 shadow-sm text-center text-xs text-gray-400 font-semibold">{language.startsWith('zh-') ? '报告暂时无法显示，请刷新重试。若问题持续，请重新分析原文。' : 'This report could not be displayed. Refresh the page or analyze the original article again.'}</div>
         )}
 
         <div className="flex flex-col justify-between gap-2 pt-2 sm:flex-row sm:items-center">

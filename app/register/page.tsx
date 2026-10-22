@@ -120,7 +120,7 @@ export default function RegisterPage() {
   };
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center bg-[var(--color-bg)] px-4 py-10 font-sans">
+    <main className="auth-page relative flex min-h-screen items-center justify-center bg-[var(--color-bg)] px-4 py-10 font-sans">
       <div className="absolute right-4 top-4 z-20 sm:right-6 sm:top-6"><LanguageSwitcher variant="auth" /></div>
       <div className="animate-fade-up w-full max-w-md space-y-6 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-7 shadow-[var(--shadow-card)]">
         <div className="text-center">
