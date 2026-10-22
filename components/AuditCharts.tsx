@@ -122,18 +122,18 @@ export default function AuditCharts({
         title={text('chartCoreMetrics')}
         note={text('chartStructureScore')}
       >
-        <div className="h-56 w-full">
+        <div className="h-56 w-full min-w-0 overflow-hidden">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={auditMetrics} layout="vertical" margin={{ top: 6, right: 20, left: 8, bottom: 6 }}>
               <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={GRID_STROKE} />
               <XAxis type="number" domain={[0, 100]} hide />
-              <YAxis dataKey="name" type="category" fontSize={11} stroke={AXIS_STROKE} width={86} tickLine={false} axisLine={false} />
+              <YAxis dataKey="name" type="category" fontSize={12} stroke={AXIS_STROKE} width={86} tickLine={false} axisLine={false} />
               <Tooltip content={<MetricTooltip reportLanguage={reportLanguage} />} cursor={{ fill: TOOLTIP_CURSOR }} />
-              <Bar dataKey="value" radius={[0, 5, 5, 0]} barSize={13} isAnimationActive animationDuration={620}>
+              <Bar dataKey="value" radius={[0, 5, 5, 0]} barSize={13} isAnimationActive={false}>
                 {auditMetrics.map((entry) => (
                   <Cell key={entry.name} fill={entry.fill} />
                 ))}
-                <LabelList dataKey="value" position="right" className="fill-gray-500 text-[10px] font-bold" />
+                <LabelList dataKey="value" position="right" fontSize={12} fill="var(--color-text-muted)" className="font-bold" />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -142,18 +142,18 @@ export default function AuditCharts({
       </ChartCard>
 
       <ChartCard title={text('chartElementCounts')} note={text('chartCoverage')}>
-        <div className="h-56 w-full">
+        <div className="h-56 w-full min-w-0 overflow-hidden">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={countsData} margin={{ top: 14, right: 12, left: -18, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={GRID_STROKE} />
-              <XAxis dataKey="name" fontSize={11} stroke={AXIS_STROKE} tickLine={false} axisLine={false} />
-              <YAxis fontSize={10} stroke={AXIS_STROKE} allowDecimals={false} tickLine={false} axisLine={false} />
+              <XAxis dataKey="name" fontSize={12} stroke={AXIS_STROKE} tickLine={false} axisLine={false} />
+              <YAxis fontSize={12} stroke={AXIS_STROKE} allowDecimals={false} tickLine={false} axisLine={false} />
               <Tooltip content={<CountTooltip reportLanguage={reportLanguage} />} cursor={{ fill: TOOLTIP_CURSOR }} />
-              <Bar dataKey="value" radius={[5, 5, 0, 0]} barSize={22} isAnimationActive animationDuration={560}>
+              <Bar dataKey="value" radius={[5, 5, 0, 0]} barSize={22} isAnimationActive={false}>
                 {countsData.map((entry) => (
                   <Cell key={entry.name} fill={entry.fill} />
                 ))}
-                <LabelList dataKey="value" position="top" className="fill-gray-500 text-[10px] font-bold" />
+                <LabelList dataKey="value" position="top" fontSize={12} fill="var(--color-text-muted)" className="font-bold" />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -161,18 +161,18 @@ export default function AuditCharts({
       </ChartCard>
 
       <ChartCard title={text('chartEvidenceDistribution')} note={text('chartEvidenceNote')}>
-        <div className="h-48 w-full">
+        <div className="h-48 w-full min-w-0 overflow-hidden">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={evidenceData} margin={{ top: 12, right: 12, left: -18, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={GRID_STROKE} />
-              <XAxis dataKey="name" fontSize={11} stroke={AXIS_STROKE} tickLine={false} axisLine={false} />
-              <YAxis fontSize={10} stroke={AXIS_STROKE} allowDecimals={false} tickLine={false} axisLine={false} />
+              <XAxis dataKey="name" fontSize={12} stroke={AXIS_STROKE} tickLine={false} axisLine={false} />
+              <YAxis fontSize={12} stroke={AXIS_STROKE} allowDecimals={false} tickLine={false} axisLine={false} />
               <Tooltip content={<CountTooltip reportLanguage={reportLanguage} />} cursor={{ fill: TOOLTIP_CURSOR }} />
-              <Bar dataKey="value" radius={[5, 5, 0, 0]} barSize={22} isAnimationActive animationDuration={520}>
+              <Bar dataKey="value" radius={[5, 5, 0, 0]} barSize={22} isAnimationActive={false}>
                 {evidenceData.map((entry) => (
                   <Cell key={entry.name} fill={entry.fill} />
                 ))}
-                <LabelList dataKey="value" position="top" className="fill-gray-500 text-[10px] font-bold" />
+                <LabelList dataKey="value" position="top" fontSize={12} fill="var(--color-text-muted)" className="font-bold" />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
