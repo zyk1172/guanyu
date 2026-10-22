@@ -79,6 +79,8 @@ model UserSettings {
   defaultModelName             String   @default("gpt-4o")
   llmBaseUrl                   String   @default("https://api.openai.com/v1")
   llmApiKeyEncrypted           String?
+  searchProvider              String   @default("free") // free, deepseek
+  deepseekApiKeyEncrypted     String?
   enableTavilySearch           Boolean  @default(false)
   tavilyApiKeyEncrypted        String?
   tavilySearchDepth            String   @default("basic") // basic, advanced
@@ -252,6 +254,8 @@ model PlatformModelConfig {
   modelId                           String
   reasoningDepth                    String    @default("medium")
   searchMode                        String    @default("platform") // platform, native, agent, none
+  searchProvider                    String    @default("free") // free, deepseek
+  deepseekApiKeyEncrypted           String?
   supportsAnalysis                  Boolean   @default(true)
   supportsCompletion                Boolean   @default(true)
   supportsFollowup                  Boolean   @default(true)

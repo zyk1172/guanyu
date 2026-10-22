@@ -18,6 +18,7 @@ import { useUiLanguage } from '@/components/LanguageProvider';
 import { formatEmailCategory, formatOrderStatus, formatPlanType } from '@/lib/account-display';
 import { PlatformModelSelector } from '@/components/PlatformModelSelector';
 import PlatformModelAdmin from '@/components/PlatformModelAdmin';
+import DeepseekSearchSettings from '@/components/DeepseekSearchSettings';
 import OrderHistory from '@/components/OrderHistory';
 import {
   CheckCircle2,
@@ -126,6 +127,10 @@ export default function AccountPage() {
   const [llmBaseUrl, setLlmBaseUrl] = useState('https://api.openai.com/v1');
   const [llmApiKey, setLlmApiKey] = useState('');
   const [hasLlmApiKey, setHasLlmApiKey] = useState(false);
+  const [searchProvider, setSearchProvider] = useState('free');
+  const [deepseekApiKey, setDeepseekApiKey] = useState('');
+  const [hasDeepseekApiKey, setHasDeepseekApiKey] = useState(false);
+  const [clearDeepseekApiKey, setClearDeepseekApiKey] = useState(false);
   const [enableTavilySearch, setEnableTavilySearch] = useState(false);
   const [tavilyApiKey, setTavilyApiKey] = useState('');
   const [allowPaidSearch, setAllowPaidSearch] = useState(false);
@@ -255,6 +260,8 @@ export default function AccountPage() {
             setHasLlmApiKey(Boolean(data.hasLlmApiKey));
         setAllowPaidSearch(Boolean(data.paidSearchAllowed));
         setCustomToolsEnabled(data.customWebResearchEnabled !== false);
+            setSearchProvider(data.searchProvider === 'deepseek' ? 'deepseek' : 'free');
+            setHasDeepseekApiKey(Boolean(data.hasDeepseekApiKey));
             setEnableTavilySearch(Boolean(data.enableTavilySearch));
             setHasTavilyApiKey(Boolean(data.hasTavilyApiKey));
             setTavilySearchDepth(data.tavilySearchDepth || 'basic');
@@ -313,6 +320,7 @@ export default function AccountPage() {
           defaultModelName: modelName.trim(),
           llmBaseUrl: llmBaseUrl.trim(),
           llmApiKey: llmApiKey.trim(),
+          ...(canUseOwnApi ? { searchProvider, deepseekApiKey: deepseekApiKey.trim(), clearDeepseekApiKey } : {}),
           enableTavilySearch,
           tavilyApiKey: tavilyApiKey.trim(),
           tavilySearchDepth,
@@ -331,6 +339,10 @@ export default function AccountPage() {
       const data = await res.json();
       if (res.ok) {
         setLlmApiKey('');
+        setDeepseekApiKey('');
+        setClearDeepseekApiKey(false);
+        setHasDeepseekApiKey(Boolean(data.hasDeepseekApiKey));
+        setSearchProvider(data.searchProvider === 'deepseek' ? 'deepseek' : 'free');
         setTavilyApiKey('');
         setSerperApiKey('');
         setHasLlmApiKey(Boolean(data.hasLlmApiKey));
@@ -1581,7 +1593,8 @@ export default function AccountPage() {
                 </p>
               </div>
 
-              <p className="text-xs leading-relaxed text-[var(--color-text-muted)] md:col-span-2">{language.startsWith('zh-') ? `${customToolsEnabled ? '支持工具调用的个人模型默认可以自主搜索和读取网页。' : '当前部署使用免费固定搜索。'}无需搜索 API Key；模型服务仍可能收费。${allowPaidSearch ? '下方付费搜索为可选配置。' : '当前部署已关闭付费搜索，保存的旧配置不会触发付费搜索请求。'}` : `${customToolsEnabled ? 'Personal models with tool support can search and read web pages.' : 'This deployment uses free fixed search.'} No search API key is required; model service fees may still apply. ${allowPaidSearch ? 'Paid search below is optional.' : 'Paid search is disabled; saved settings will not trigger paid search requests.'}`}</p>
+              <p className="text-xs leading-relaxed text-[var(--color-text-muted)] md:col-span-2">{language.startsWith('zh-') ? `${customToolsEnabled ? '支持工具调用的个人模型默认可以自主搜索和读取网页；也可在下方选择 DeepSeek 搜索 API。' : '当前部署使用免费固定搜索。'}默认免费搜索无需搜索 API Key；选择 DeepSeek 需填写下方搜索 Key，模型服务仍可能收费。${allowPaidSearch ? '下方付费搜索为可选配置。' : '当前部署已关闭付费搜索，保存的旧配置不会触发付费搜索请求。'}` : `${customToolsEnabled ? 'Personal models with tool support can search and read web pages; DeepSeek Search API is an optional source below.' : 'This deployment uses free fixed search.'} Default free search needs no search API key; DeepSeek requires the search key below. Model service fees may still apply. ${allowPaidSearch ? 'Paid search below is optional.' : 'Paid search is disabled; saved settings will not trigger paid search requests.'}`}</p>
+              <div className="md:col-span-2"><DeepseekSearchSettings provider={searchProvider} apiKey={deepseekApiKey} hasApiKey={hasDeepseekApiKey} clearKey={clearDeepseekApiKey} disabled={apiSettingsLocked} paidAllowed={allowPaidSearch} onProviderChange={setSearchProvider} onKeyChange={(key) => { setDeepseekApiKey(key); setClearDeepseekApiKey(false); }} onClear={() => { setClearDeepseekApiKey(true); setDeepseekApiKey(''); setSearchProvider('free'); }} /></div>
               {allowPaidSearch && <>
               <div className="space-y-3 rounded-xl border border-sky-100 bg-sky-50/60 p-3 dark:border-sky-900/30 dark:bg-sky-950/10 md:col-span-2">
                 <div className="flex items-start justify-between gap-3">

@@ -62,6 +62,12 @@ export function bootstrapPlatformModelSchema() {
           "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
           CONSTRAINT "PlatformModelConfig_pkey" PRIMARY KEY ("id")
         )`,
+        `ALTER TABLE "PlatformModelConfig"
+          ADD COLUMN IF NOT EXISTS "searchProvider" TEXT NOT NULL DEFAULT 'free',
+          ADD COLUMN IF NOT EXISTS "deepseekApiKeyEncrypted" TEXT`,
+        `ALTER TABLE "UserSettings"
+          ADD COLUMN IF NOT EXISTS "searchProvider" TEXT NOT NULL DEFAULT 'free',
+          ADD COLUMN IF NOT EXISTS "deepseekApiKeyEncrypted" TEXT`,
         `CREATE UNIQUE INDEX IF NOT EXISTS "PlatformModelConfig_configKey_key" ON "PlatformModelConfig"("configKey")`,
         `CREATE INDEX IF NOT EXISTS "PlatformModelConfig_enabled_visible_order_idx" ON "PlatformModelConfig"("isEnabled", "isVisibleToUsers", "sortOrder")`,
         `CREATE INDEX IF NOT EXISTS "PlatformModelConfig_isDefault_idx" ON "PlatformModelConfig"("isDefault")`,

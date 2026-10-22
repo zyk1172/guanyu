@@ -3,6 +3,7 @@ import { buildSerperSearchRequest, normalizeSerperSearchResponse } from './serpe
 import type { ReportLanguage } from './types';
 import { searchFreeWeb, type FreeSearchOptions } from './free-web-search';
 import { paidSearchAllowed } from './web-search-policy';
+import { searchDeepseek } from './deepseek-search';
 
 export interface WebSearchSource {
   title: string;
@@ -12,7 +13,9 @@ export interface WebSearchSource {
 }
 
 export interface WebSearchOptions {
-  provider?: 'none' | 'free' | 'tavily' | 'serper' | 'multi' | 'duckduckgo';
+  provider?: 'none' | 'free' | 'deepseek' | 'tavily' | 'serper' | 'multi' | 'duckduckgo';
+  deepseekApiKey?: string;
+  deepseekFetch?: typeof fetch;
   tavilyApiKey?: string;
   tavilySearchDepth?: 'basic' | 'advanced' | string;
   serperApiKey?: string;
@@ -111,6 +114,7 @@ export async function searchWeb(query: string, limit = 5, options: WebSearchOpti
     } catch { return []; }
   }
   if (provider === 'tavily') return searchTavily(query, limit, options);
+  if (provider === 'deepseek') return searchDeepseek(query, limit, { apiKey: options.deepseekApiKey, timeoutMs: options.timeoutMs, onRequest: options.onRequest, fetch: options.deepseekFetch });
   if (provider === 'serper') return searchSerper(query, limit, options);
   if (provider === 'multi') {
     const [tavilyResults, serperResults] = await Promise.all([

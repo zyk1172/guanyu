@@ -10,6 +10,7 @@ import { assertPublicOutboundUrl } from '@/lib/safe-outbound';
 import { cacheDel, CACHE_KEYS } from '@/lib/cache';
 import { sameOriginResponse } from '@/lib/request-security';
 import { ensurePlatformModelBaseline } from '@/lib/platform-models';
+import { deepseekSettingsUpdate } from '@/lib/deepseek-settings';
 import { paidSearchAllowed, customWebResearchEnabled } from '@/lib/web-search-policy';
 
 const VALID_THINKING_DEPTHS = new Set(['none', 'low', 'medium', 'high', 'extreme', 'quick', 'standard', 'deep', 'exhaustive']);
@@ -28,8 +29,8 @@ function normalizeThinkingDepth(depth: unknown) {
   return legacyMap[depth] || depth;
 }
 
-function withSafeModelFields<T extends { llmApiKeyEncrypted?: string | null; tavilyApiKeyEncrypted?: string | null; serperApiKeyEncrypted?: string | null }>(settings: T) {
-  const { llmApiKeyEncrypted, tavilyApiKeyEncrypted, serperApiKeyEncrypted, ...safeSettings } = settings;
+function withSafeModelFields<T extends { llmApiKeyEncrypted?: string | null; tavilyApiKeyEncrypted?: string | null; serperApiKeyEncrypted?: string | null; deepseekApiKeyEncrypted?: string | null }>(settings: T) {
+  const { llmApiKeyEncrypted, tavilyApiKeyEncrypted, serperApiKeyEncrypted, deepseekApiKeyEncrypted, ...safeSettings } = settings;
   return {
     ...safeSettings,
     paidSearchAllowed: paidSearchAllowed(),
@@ -37,6 +38,7 @@ function withSafeModelFields<T extends { llmApiKeyEncrypted?: string | null; tav
     hasLlmApiKey: Boolean(llmApiKeyEncrypted),
     hasTavilyApiKey: Boolean(tavilyApiKeyEncrypted),
     hasSerperApiKey: Boolean(serperApiKeyEncrypted),
+    hasDeepseekApiKey: Boolean(deepseekApiKeyEncrypted),
   };
 }
 
@@ -167,7 +169,7 @@ export async function PATCH(request: Request) {
       getSuperAdminStatus(userId),
       prisma.userSettings.findUnique({
         where: { userId },
-        select: { llmBaseUrl: true },
+        select: { llmBaseUrl: true, searchProvider: true, deepseekApiKeyEncrypted: true },
       }),
     ]);
     const canUseOwnApi = isSuperAdmin || hasActivePro(account || {});
@@ -225,7 +227,7 @@ export async function PATCH(request: Request) {
     const hasOwnApiUpdate = Boolean(
       trimmedApiKey ||
       trimmedTavilyApiKey ||
-      trimmedSerperApiKey
+      trimmedSerperApiKey || body.searchProvider !== undefined || Boolean(body.deepseekApiKey) || body.clearDeepseekApiKey === true
     );
     const hasRssConfigUpdate = rssFeedConfig !== undefined;
     const normalizedRssFeedConfig = normalizeRssSourceConfig(rssFeedConfig);
@@ -259,9 +261,16 @@ export async function PATCH(request: Request) {
       ? { serperApiKeyEncrypted: encryptSecret(trimmedSerperApiKey) }
       : {};
 
+    let deepseekUpdate = {};
+    if (canUseOwnApi) {
+      try { deepseekUpdate = deepseekSettingsUpdate(body, currentSettings); }
+      catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : 'DeepSeek 设置无效。' }, { status: 400 }); }
+    }
+
     const updatedSettings = await prisma.userSettings.upsert({
       where: { userId },
       update: {
+        ...deepseekUpdate,
         ...(canUseOwnApi ? {
           defaultModelName: safeModelName,
           llmBaseUrl: safeLlmBaseUrl,
@@ -286,6 +295,7 @@ export async function PATCH(request: Request) {
       },
       create: {
         userId,
+        ...deepseekUpdate,
         defaultModelName: canUseOwnApi ? safeModelName : (process.env.OPENAI_MODEL_DEFAULT || 'gpt-4o'),
         llmBaseUrl: canUseOwnApi ? safeLlmBaseUrl : (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'),
         llmApiKeyEncrypted: canUseOwnApi && trimmedApiKey ? encryptSecret(trimmedApiKey) : null,

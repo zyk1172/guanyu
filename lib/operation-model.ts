@@ -1,3 +1,4 @@
+import { personalDeepseekSearchOptions, platformDeepseekSearchOptions } from '@/lib/search-config';
 import { prisma } from '@/lib/prisma';
 import { getOrCreateAppSetting, getUsageSource } from '@/lib/billing';
 import { chooseModelConfig } from '@/lib/model-config';
@@ -20,6 +21,7 @@ export async function resolveOperationModel(params: {
     }
     return {
       source,
+      searchOptions: personalDeepseekSearchOptions(settings) || { provider: 'free' as const },
       snapshot: null as PlatformModelSnapshot | null,
       costCents: 0,
       provider: 'openai_compatible' as const,
@@ -41,6 +43,7 @@ export async function resolveOperationModel(params: {
   const configuredAdminBaseUrl = process.env.OPENAI_BASE_URL || '';
   return {
     source,
+    searchOptions: await platformDeepseekSearchOptions(snapshot) || { provider: 'free' as const },
     snapshot,
     costCents: operationCostCents(params.operation, snapshot.multiplierBps),
     provider: snapshot.provider,

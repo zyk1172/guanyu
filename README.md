@@ -169,6 +169,21 @@ Postgres 18 的持久化目录需要挂载到 `/var/lib/postgresql`，真实数�
 /share/SSD/container/guanyu/postgres/18/docker
 ```
 
+## DeepSeek 搜索 API（可选）
+
+默认仍使用免费网页搜索。[DeepSeek 官方 Search API](https://api-docs.deepseek.com/guides/search) 是独立接口，并非 DeepSeek 聊天网页的联网开关，可搭配其他厂商的模型使用。
+
+1. 部署者设置 `GUANYU_ALLOW_PAID_SEARCH=true`，允许显式启用付费搜索；未开启时保存的 Key 不会触发 DeepSeek 请求。
+2. 平台模型：管理员进入「账号管理 → 系统管理 → 平台模型管理 → 编辑」，联网方式选「模型自主查证」或「平台联网核验」，再选择 DeepSeek Search API 并填写 Key。
+3. 个人模型：有效 Pro 用户进入「账号管理 → 模型设置 / 审视偏好 → 自定义 API」，在 DeepSeek Search API 设置中选择搜索来源、填写 Key 并保存。
+4. 模型 Key 和搜索 Key 独立保存。留空保留旧 Key；「清除已保存的搜索密钥」需保存后生效，并切回默认搜索。密钥加密保存，设置接口不会回显。
+
+请求固定发送到 `https://api.deepseek.com/v1/tools/search`；模型自主查证和报告追问会使用所选来源，网页正文读取仍使用现有免费安全抓取工具。关闭联网的模型不会调用搜索。
+
+官方公布价格为每千次成功且返回结果的搜索 $0.75；失败、超时和空结果不计费。模型服务费用另计。成本记录默认使用每次 750 微美元，可通过 `SEARCH_UNIT_COST_MICROS_JSON={"deepseek":750}` 按合同费率覆盖。官方提到的部分 Harness 服务端工具临时免费活动不等同于本项目直接调用 API 免费。
+
+升级前应用仓库迁移 `20261022_deepseek_search_settings`：为个人设置和平台模型新增搜索来源与加密密钥字段，现有记录默认保持免费来源。使用仓库现有的 `npx prisma migrate deploy` 部署流程；已通过 `db push` 建立的环境须先完成迁移历史基线，不应在生产数据库执行重置。
+
 ## 数据库
 
 同步 schema：

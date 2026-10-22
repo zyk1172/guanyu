@@ -213,7 +213,7 @@ ${recentHistory.map((h) => `${h.role === 'user' ? '用户' : 'AI'}: ${h.content}
     const searchMode = effectiveSearchMode(operationModel.snapshot?.searchMode || 'platform');
     const webResearch = (operationModel.source === 'platform' && searchMode === 'agent')
       || (operationModel.source === 'custom' && customWebResearchEnabled())
-      ? new WebResearchSession({ searchOptions: { locale: reportLanguage, onRequest: (provider) => { externalSearchCounts[provider] = (externalSearchCounts[provider] || 0) + 1; } } }) : undefined;
+      ? new WebResearchSession({ searchOptions: { ...operationModel.searchOptions, locale: reportLanguage, onRequest: (provider) => { externalSearchCounts[provider] = (externalSearchCounts[provider] || 0) + 1; } } }) : undefined;
     const response = await invokeModel({
       provider: operationModel.provider,
       baseUrl: operationModel.baseUrl,

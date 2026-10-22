@@ -63,6 +63,8 @@ export async function exportUserData(userId: string) {
       hasLlmApiKey: Boolean(settings.llmApiKeyEncrypted),
       hasTavilyApiKey: Boolean(settings.tavilyApiKeyEncrypted),
       hasSerperApiKey: Boolean(settings.serperApiKeyEncrypted),
+      searchProvider: settings.searchProvider,
+      hasDeepseekApiKey: Boolean(settings.deepseekApiKeyEncrypted),
       rssFeedUrlsJson: settings.rssFeedUrlsJson,
       createdAt: settings.createdAt,
       updatedAt: settings.updatedAt,

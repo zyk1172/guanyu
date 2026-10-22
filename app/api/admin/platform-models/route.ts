@@ -16,6 +16,9 @@ import {
 import { testModelConnection } from '@/lib/model-runtime';
 import { WebResearchSession } from '@/lib/web-research';
 import { effectiveSearchMode, paidSearchAllowed } from '@/lib/web-search-policy';
+import { deepseekSettingsUpdate } from '@/lib/deepseek-settings';
+import { platformDeepseekSearchOptions } from '@/lib/search-config';
+import { platformModelSnapshot } from '@/lib/platform-models';
 import { sameOriginResponse } from '@/lib/request-security';
 
 const REASONING_DEPTHS = new Set(['none', 'low', 'medium', 'high', 'extreme']);
@@ -83,7 +86,7 @@ function validateSearchMode(value: unknown, provider: PlatformModelProvider): Pl
   return selected as PlatformModelSearchMode;
 }
 
-function configData(body: any, existing?: { apiKeyEncrypted: string | null }) {
+function configData(body: any, existing?: { apiKeyEncrypted: string | null; searchProvider?: string; deepseekApiKeyEncrypted?: string | null }) {
   const provider = validateProvider(body.provider);
   const searchMode = validateSearchMode(body.searchMode, provider);
   const apiKey = string(body.apiKey, 5000);
@@ -99,6 +102,7 @@ function configData(body: any, existing?: { apiKeyEncrypted: string | null }) {
   if (!modelId) throw new Error('请填写实际模型 ID。');
   if (!apiKey && !existing?.apiKeyEncrypted) throw new Error('请填写模型 API Key。');
   return {
+    ...deepseekSettingsUpdate(body, existing),
     provider,
     displayName,
     description: string(body.description, 1000),
@@ -212,7 +216,7 @@ export async function PATCH(request: Request) {
         modelId: existing.modelId,
         reasoningDepth: existing.reasoningDepth,
         nativeSearch: searchMode === 'native',
-        webResearch: searchMode === 'agent' ? new WebResearchSession() : undefined,
+        webResearch: searchMode === 'agent' ? new WebResearchSession({ searchOptions: await platformDeepseekSearchOptions(platformModelSnapshot(existing)) || undefined }) : undefined,
         allowPrivateAddress: process.env.NODE_ENV !== 'production',
       });
       const testMessage = result.passed
