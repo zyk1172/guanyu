@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { prisma } from '@/lib/prisma';
 import { releaseAnalyzeJobAdmission, reserveAnalyzeJobAdmission } from '@/lib/rate-limit';
-import { analyzeForUser } from '@/app/api/analyze/route';
+import { analyzeForUser } from '@/lib/analyze-service';
 import { notifyReportCompleted } from '@/lib/email';
 import { normalizeReportLanguage, type ReportLanguage } from '@/lib/types';
 import { buildUsagePlan, getUsageSource } from '@/lib/billing';
