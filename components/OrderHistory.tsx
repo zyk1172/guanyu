@@ -1,9 +1,9 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import { useUiLanguage } from './LanguageProvider';
+import { formatOrderStatus } from '@/lib/account-display';
 
 type Order = { id: string; packageName: string; amountCents: number; currency: string; points: number; status: string; createdAt: string; paidAt?: string | null; fulfilledAt?: string | null; confirmedAt?: string | null };
-const STATUS: Record<string, [string, string]> = { PENDING: ['待人工确认', 'Awaiting confirmation'], pending: ['待人工确认', 'Awaiting confirmation'], PAYMENT_SUBMITTED: ['付款待核对', 'Payment under review'], PAID: ['已确认付款，待到账', 'Payment confirmed, awaiting fulfillment'], FULFILLED: ['点数已到账', 'Credits delivered'], confirmed: ['点数已到账', 'Credits delivered'], CANCELLED: ['已取消', 'Cancelled'], REJECTED: ['未通过核对', 'Rejected'], rejected: ['未通过核对', 'Rejected'], REFUNDED: ['已退款', 'Refunded'] };
 
 export default function OrderHistory({ refreshKey = '' }: { refreshKey?: string }) {
   const { language } = useUiLanguage();
@@ -32,7 +32,7 @@ export default function OrderHistory({ refreshKey = '' }: { refreshKey?: string 
     {error && <p role="alert" className="mt-2 text-xs text-[var(--color-danger)]">{error}</p>}
     {!loading && !orders.length && !error && <p className="mt-3 text-xs">{zh ? '暂无订单。' : 'No orders yet.'}</p>}
     <div className="mt-3 space-y-3">{orders.map((order) => <article key={order.id} className="rounded-lg border border-[var(--color-border)] p-3 text-xs">
-      <div className="flex flex-wrap justify-between gap-2"><strong>{order.packageName} · {order.points} {zh ? '点' : 'credits'}</strong><span>{STATUS[order.status]?.[zh ? 0 : 1] || (zh ? '待核对状态' : 'Status requires review')}</span></div>
+      <div className="flex flex-wrap justify-between gap-2"><strong>{order.packageName} · {order.points} {zh ? '点' : 'credits'}</strong><span>{formatOrderStatus(order.status, language)}</span></div>
       <p className="mt-2 break-all text-[var(--color-text-muted)]">{zh ? '订单' : 'Order'}: {order.id} · {order.currency} {(order.amountCents / 100).toFixed(2)}</p>
       <p className="mt-1 text-[var(--color-text-muted)]">{new Date(order.createdAt).toLocaleString(language)}</p>
       {(order.fulfilledAt || order.confirmedAt) && ['FULFILLED', 'confirmed'].includes(order.status) && <p className="mt-1 font-bold">{zh ? '到账时间' : 'Fulfilled at'}: {new Date(order.fulfilledAt || order.confirmedAt!).toLocaleString(language)}</p>}

@@ -182,7 +182,7 @@ export default function AnalysisForm({ onSubmit, isLoading }: AnalysisFormProps)
           <h2 className="text-base font-black text-gray-950 dark:text-white">{t('form.title')}</h2>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('form.description')}</p>
         </div>
-        <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xxs font-bold text-indigo-600 dark:bg-indigo-950/30 dark:text-indigo-300">
+        <span className="shrink-0 whitespace-nowrap rounded-full bg-indigo-50 px-2.5 py-1 text-xxs font-bold text-indigo-600 dark:bg-indigo-950/30 dark:text-indigo-300">
           {status === 'authenticated' ? t('form.signedIn') : t('form.signInRequired')}
         </span>
       </div>

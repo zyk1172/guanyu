@@ -105,6 +105,11 @@ export default function RssNewsPanel({
     return activeSourceId === 'all' ? all : all.filter((headline) => headline.sourceId === activeSourceId);
   }, [activeSourceId, payload]);
 
+  const allSourcesUnavailable = Boolean(payload?.sources.length)
+    && payload?.sources.every((source) => payload.sourceErrors?.some((error) => error.sourceId === source.id))
+    && !payload?.headlines.length;
+  const hasHeadlines = !error && !isLoading && headlines.length > 0;
+
   const sourceName = (source: RssSource) => language === 'zh-CN' ? source.nameZh || source.name : source.name;
 
   const handleAnalyze = async (headline: RssHeadline) => {
@@ -119,7 +124,7 @@ export default function RssNewsPanel({
   return (
     <aside
       style={{ '--rss-panel-height': `${(desktopHeight || 748) + 5}px` } as React.CSSProperties}
-      className="animated-panel flex min-h-[34rem] flex-col overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--shadow-card)] lg:min-h-0 lg:h-[var(--rss-panel-height)]"
+      className={`animated-panel flex w-full flex-col self-start overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--shadow-card)] ${hasHeadlines ? 'h-[34rem] lg:h-[var(--rss-panel-height)]' : ''}`}
     >
       <div className="border-b border-[var(--color-border)] px-3 py-3">
         <div className="flex items-start justify-between gap-2">
@@ -172,7 +177,7 @@ export default function RssNewsPanel({
             <button type="button" onClick={() => void loadHeadlines()} className="text-xs font-bold text-[var(--color-link)]">{t('common.retry')}</button>
           </div>
         ) : headlines.length === 0 ? (
-          <p className="px-2 py-8 text-center text-xs text-[var(--color-text-muted)]">{t('rss.empty')}</p>
+          <p role="status" className="px-2 py-8 text-center text-xs text-[var(--color-text-muted)]">{t(allSourcesUnavailable ? 'rss.allUnavailable' : 'rss.empty')}</p>
         ) : (
           <div className="space-y-1.5">
             {headlines.map((headline) => {
@@ -201,7 +206,7 @@ export default function RssNewsPanel({
         )}
       </div>
 
-      {payload?.sourceErrors?.length ? (
+      {!error && !isLoading && payload?.sourceErrors?.length && payload.headlines.length ? (
         <p className="border-t border-[var(--color-border)] px-3 py-2 text-xxs leading-relaxed text-[var(--color-text-subtle)]">
           {t('rss.partialUnavailable', undefined, { count: payload.sourceErrors.length })}
         </p>
