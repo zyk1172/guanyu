@@ -101,7 +101,7 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <main className="min-h-screen bg-gray-50 px-4 py-10 font-sans dark:bg-black">
+    <main className="auth-page min-h-screen bg-gray-50 px-4 py-10 font-sans dark:bg-black">
       <div className="mx-auto w-full max-w-md space-y-6 rounded-xl border border-gray-100 bg-white p-7 shadow-sm dark:border-gray-800 dark:bg-gray-950">
         <div className="text-center">
           <Image src="/guanyu-icon.png" alt={brand.name} width={44} height={44} className="mx-auto mb-3 h-11 w-11 rounded-xl object-cover shadow-sm" priority />

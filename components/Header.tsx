@@ -1,82 +1,49 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { usePathname } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
+import { Menu, X } from 'lucide-react';
 import { useUiLanguage } from './LanguageProvider';
 import { getBrandIdentity } from '@/lib/brand-core.mjs';
+import { getWorkspaceCopy } from '@/lib/workspace-copy';
 
 export default function Header() {
   const { data: session } = useSession();
   const { language, t } = useUiLanguage();
+  const pathname = usePathname();
+  const c = getWorkspaceCopy(language);
   const brand = getBrandIdentity(language);
-  const [isScrolled, setIsScrolled] = useState(false);
-
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLElement>(null);
+  const toggle = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    const onScroll = () => setIsScrolled(window.scrollY > 8);
-    onScroll();
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
-
-  return (
-    <header className={`sticky top-0 z-50 border-b py-2.5 backdrop-blur transition-colors duration-200 ${
-      isScrolled
-        ? 'border-[var(--color-border-strong)] bg-[color-mix(in_srgb,var(--color-surface)_94%,transparent)] shadow-sm'
-        : 'border-[var(--color-border)] bg-[color-mix(in_srgb,var(--color-surface)_84%,transparent)]'
-    }`}>
-      <div className="max-w-6xl mx-auto px-3 sm:px-4 flex flex-wrap items-center justify-between gap-2">
-        <Link href="/" className="interactive-lift flex items-center gap-2.5 hover:opacity-95 transition">
-          <Image
-            src="/guanyu-icon.png"
-            alt={brand.name}
-            width={32}
-            height={32}
-            className="h-8 w-8 rounded-lg object-cover shadow-sm sm:h-8 sm:w-8"
-            priority
-          />
-          <div>
-            <h1 className="text-sm font-bold tracking-tight text-[var(--color-text)] leading-none">{brand.name}</h1>
-            <span className="hidden text-xxs text-[var(--color-text-muted)] font-semibold tracking-wider mt-0.5 sm:block">{brand.tagline || t('brand.tagline')}</span>
-          </div>
-        </Link>
-
-        <nav className="flex max-w-full items-center gap-1 overflow-x-auto whitespace-nowrap sm:gap-2">
-          <Link href="/" className="text-xs font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-link)] px-2 py-1.5 rounded transition">
-            {t('nav.home')}
-          </Link>
-          <Link href="/my-audits" className="text-xs font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-link)] px-2 py-1.5 rounded transition">
-            {t('nav.myAudits')}
-          </Link>
-          <Link href="/account" className="text-xs font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-link)] px-2 py-1.5 rounded transition">
-            {t('nav.account')}
-          </Link>
-
-          {session ? (
-            <>
-              <button
-                onClick={() => signOut({ callbackUrl: '/' })}
-                className="text-xs font-semibold text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 px-2 py-1.5 rounded transition"
-              >
-                {t('nav.signOut')}
-              </button>
-            </>
-          ) : (
-            <>
-              <Link href="/login" className="text-xs font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-link)] px-2 py-1.5 rounded transition">
-                {t('nav.signIn')}
-              </Link>
-              <Link
-                href="/register"
-                className="text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg shadow-sm transition"
-              >
-                {t('nav.signUp')}
-              </Link>
-            </>
-          )}
-        </nav>
-      </div>
-    </header>
-  );
+    if (!open) return;
+    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') { setOpen(false); toggle.current?.focus(); } };
+    const outside = (event: PointerEvent) => { if (event.target instanceof Node && !root.current?.contains(event.target)) setOpen(false); };
+    document.addEventListener('keydown', close);
+    document.addEventListener('pointerdown', outside);
+    return () => { document.removeEventListener('keydown', close); document.removeEventListener('pointerdown', outside); };
+  }, [open]);
+  const link = (href: string, label: string) => <Link href={href} aria-current={pathname === href ? 'page' : undefined} onClick={() => setOpen(false)}>{label}</Link>;
+  return <header ref={root} className="workspace-header">
+    <div className="workspace-container workspace-header-inner">
+      <Link href="/" className="workspace-brand" onClick={() => setOpen(false)}>
+        <Image src="/guanyu-icon.png" alt="" width={36} height={36} className="h-9 w-9 rounded-lg" priority />
+        <span>{brand.name}</span>
+      </Link>
+      <button ref={toggle} type="button" className="workspace-button workspace-secondary workspace-menu-toggle" aria-expanded={open} aria-controls="primary-navigation" onClick={() => setOpen(!open)}>
+        {open ? <X size={18} aria-hidden="true" /> : <Menu size={18} aria-hidden="true" />}{open ? c.closeMenu : c.menu}
+      </button>
+      <nav id="primary-navigation" className="workspace-nav" data-open={open} aria-label={c.menu}>
+        {link('/', t('nav.home'))}
+        {session ? <>{link('/my-audits', t('nav.myAudits'))}{link('/compare', c.compare)}{link('/account', t('nav.account'))}<button type="button" onClick={() => signOut({ callbackUrl: '/' })} className="text-[var(--color-text-muted)]">{t('nav.signOut')}</button></> : <>
+          {link('/demo', c.demoNav)}
+          <Link href="/login" className="workspace-secondary">{t('nav.signIn')}</Link><Link href="/register" className="workspace-primary">{t('nav.signUp')}</Link>
+        </>}
+      </nav>
+    </div>
+  </header>;
 }

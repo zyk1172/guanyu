@@ -1,5 +1,6 @@
 'use client';
 
+import { getWorkspaceCopy } from '@/lib/workspace-copy';
 import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -127,7 +128,7 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center bg-[var(--color-bg)] px-4 py-12 font-sans sm:px-6 lg:px-8">
+    <main className="auth-page relative flex min-h-screen items-center justify-center bg-[var(--color-bg)] px-4 py-12 font-sans sm:px-6 lg:px-8">
       <div className="absolute right-4 top-4 z-20 sm:right-6 sm:top-6"><LanguageSwitcher variant="auth" /></div>
       <div className="w-full max-w-md space-y-8 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-8 shadow-[var(--shadow-card)]">
         <div className="text-center">
@@ -139,11 +140,11 @@ export default function LoginPage() {
             className="mx-auto h-12 w-12 rounded-xl object-cover shadow-sm mb-4"
             priority
           />
-          <h2 className="text-2xl font-extrabold text-gray-900 dark:text-white tracking-tight">
+          <h1 className="text-2xl font-extrabold text-gray-900 dark:text-white tracking-tight">
             {t('auth.signInTitle')}
-          </h2>
+          </h1>
           <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-            {t('auth.signInDescription')}
+            {getWorkspaceCopy(language).loginDescription}
           </p>
         </div>
 
@@ -244,7 +245,7 @@ export default function LoginPage() {
             <Link href="/" className="text-gray-500 hover:text-indigo-600 font-medium">
               {t('common.backHome')}
             </Link>
-            <Link href="/register" className="text-indigo-500 hover:text-indigo-600 font-bold">
+            <Link href="/register" className="text-[var(--color-primary)] hover:underline font-bold">
               {t('auth.createAccount')}
             </Link>
           </div>

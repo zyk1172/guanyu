@@ -2,6 +2,7 @@
 
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import Header from '@/components/Header';
+import { getWorkspaceCopy } from '@/lib/workspace-copy';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -841,39 +842,39 @@ export default function AccountPage() {
   });
 
   return (
-    <main className="min-h-screen bg-gray-50 dark:bg-black font-sans text-gray-900 dark:text-gray-100 selection:bg-indigo-500/20 pb-12">
+    <main className="workspace-page min-h-screen bg-gray-50 dark:bg-black font-sans text-gray-900 dark:text-gray-100 selection:bg-indigo-500/20 pb-12">
       <Header />
 
       <div className={`${activeTab === 'system' ? 'max-w-7xl' : 'max-w-5xl'} mx-auto space-y-6 px-4 py-8 transition-[max-width] duration-300`}>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-150 dark:border-gray-900 pb-4">
           <div>
-            <h2 className="text-lg font-black text-gray-950 dark:text-white leading-tight">{t('account.title')}</h2>
+            <h1 className="text-2xl font-bold leading-tight">{t('account.title')}</h1>
             <p className="text-xs text-gray-500 dark:text-gray-400">{t('account.description')}</p>
           </div>
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           <div className="grid w-full grid-cols-2 rounded-lg border border-gray-150 bg-gray-100 p-0.5 dark:border-gray-800 dark:bg-gray-900 sm:flex sm:w-auto">
             <button
               onClick={() => setActiveTab('info')}
-              className={`whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-bold transition ${activeTab === 'info' ? 'bg-white dark:bg-gray-800 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+              className={`min-h-11 whitespace-nowrap rounded-md px-3 py-2 text-sm font-bold transition ${activeTab === 'info' ? 'bg-white dark:bg-gray-800 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
             >
               {t('account.infoTab')}
             </button>
             <button
               onClick={() => setActiveTab('settings')}
-              className={`whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-bold transition ${activeTab === 'settings' ? 'bg-white dark:bg-gray-800 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+              className={`min-h-11 whitespace-nowrap rounded-md px-3 py-2 text-sm font-bold transition ${activeTab === 'settings' ? 'bg-white dark:bg-gray-800 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
             >
               {t('account.settingsTab')}
             </button>
             <button
               onClick={() => setActiveTab('history')}
-              className={`whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-bold transition ${activeTab === 'history' ? 'bg-white dark:bg-gray-800 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+              className={`min-h-11 whitespace-nowrap rounded-md px-3 py-2 text-sm font-bold transition ${activeTab === 'history' ? 'bg-white dark:bg-gray-800 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
             >
               {t('account.historyTab')}
             </button>
             {isSuperAdmin && (
               <button
                 onClick={() => setActiveTab('system')}
-                className={`inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-bold transition ${activeTab === 'system' ? 'bg-[var(--color-surface)] text-[var(--color-primary)] shadow-sm' : 'text-[var(--color-text-muted)] hover:text-[var(--color-text)]'}`}
+                className={`inline-flex items-center justify-center gap-1.5 min-h-11 whitespace-nowrap rounded-md px-3 py-2 text-sm font-bold transition ${activeTab === 'system' ? 'bg-[var(--color-surface)] text-[var(--color-primary)] shadow-sm' : 'text-[var(--color-text-muted)] hover:text-[var(--color-text)]'}`}
               >
                 <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
                 {t('admin.systemTab', '系统管理')}
@@ -1510,7 +1511,7 @@ export default function AccountPage() {
 
         {/* 2. 模型与偏好设置面板 */}
         {activeTab === 'settings' && (
-          <form onSubmit={handleSaveSettings} className="bg-white dark:bg-gray-950 p-6 rounded-xl border border-gray-150 dark:border-gray-900 shadow-sm space-y-6 max-w-2xl mx-auto">
+          <form onSubmit={handleSaveSettings} className="bg-white dark:bg-gray-950 p-6 rounded-xl border border-gray-150 dark:border-gray-900 shadow-sm space-y-6 max-w-4xl mx-auto">
             <h3 className="text-sm font-bold text-gray-900 dark:text-white border-b border-gray-100 dark:border-gray-900 pb-2">
               {t('account.modelSettings')}
             </h3>
@@ -1695,7 +1696,7 @@ export default function AccountPage() {
                 <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <h4 className="text-xs font-black text-[var(--color-text)]">{t('rss.settingsTitle')}</h4>
-                    <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('rss.settingsDescription')}</p>
+                    <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{getWorkspaceCopy(language).rssDescription}</p>
                   </div>
                   <span className="w-fit rounded-full bg-[var(--color-primary-soft)] px-2 py-1 text-xxs font-bold text-[var(--color-link)]">
                     {rssConfigSource === 'admin' ? t('rss.adminDefault') : t('rss.personalConfig')}

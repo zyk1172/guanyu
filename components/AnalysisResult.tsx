@@ -30,6 +30,7 @@ import ReadWorthVerdict from './ReadWorthVerdict';
 import { useActiveModel } from './useActiveModel';
 import VerificationRoadmap from './VerificationRoadmap';
 import ReportBrief from './ReportBrief';
+import ReadingNavigation from './ReadingNavigation';
 import { computeReadWorth } from '../lib/readWorth';
 import {
   formatAnalysisMode,
@@ -166,11 +167,11 @@ function Badge({ children, className, title }: { children: React.ReactNode; clas
   return <span title={title} className={`inline-flex rounded border px-2 py-0.5 text-xxs font-bold ${className}`}>{children}</span>;
 }
 
-function Section({ title, children, aside }: { title: string; children: React.ReactNode; aside?: React.ReactNode }) {
+function Section({ title, children, aside, id }: { title: string; children: React.ReactNode; aside?: React.ReactNode; id?: string }) {
   return (
-    <section data-gsap-reveal className="result-card rounded-xl border border-gray-150 bg-white p-3 shadow-sm dark:border-gray-900 dark:bg-gray-950 sm:p-4">
+    <section id={id} data-gsap-reveal className="result-card rounded-xl border border-gray-150 bg-white p-3 shadow-sm dark:border-gray-900 dark:bg-gray-950 sm:p-4">
       <div className="mb-3 flex flex-col gap-2 border-b border-gray-100 pb-2 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
-        <h3 className="text-sm font-black text-gray-950 dark:text-white">{title}</h3>
+        <h2 className="text-sm font-black text-gray-950 dark:text-white">{title}</h2>
         {aside}
       </div>
       {children}
@@ -492,7 +493,7 @@ function ReadingValueSection({ label, reason, verdict, manualVerifications = [],
     : originalReason;
   const evidenceGuidance = getReadWorthEvidenceGuidance(verdict?.evidencePosture || 'cautious_reading', language);
   return (
-    <Section title={getReportText('readingValue', language)}>
+    <Section id="report-full" title={getReportText('readingValue', language)}>
       <div data-verification-pulse className="grid gap-3 md:grid-cols-[minmax(240px,280px)_minmax(0,1fr)]">
         <ReadWorthVerdict label={label} displayLabel={getReadWorthDisplayLabel(label, language)} reportLanguage={language} />
         <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm leading-relaxed text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300">
@@ -1129,8 +1130,9 @@ function DeepReportView({ report, originalContent, qaMessages, displayLimit, aud
   const questions = limitedItems(report.questionsToAsk, displayLimit);
   return (
     <>
+      <ReadingNavigation language={reportLanguage} />
       <ReportBrief report={report} originalContent={originalContent} />
-      <Section title={text('sourceInterpretation')}>
+      <Section id="report-interpretation" title={text('sourceInterpretation')}>
         <div className="grid gap-3 text-xs md:grid-cols-2">
           <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900 md:col-span-2">
             <div className="font-black text-gray-950 dark:text-white">{text('whatItSays')}</div>
@@ -1175,7 +1177,7 @@ function DeepReportView({ report, originalContent, qaMessages, displayLimit, aud
       <Section title={text('alternatives')} aside={compactAside(report.alternativeExplanations.length, displayLimit, reportLanguage)}>
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2">{alternativeExplanations.map((item, index) => <JudgmentCard key={`${item.explanation}-${index}`} reportLanguage={reportLanguage} item={{ title: item.explanation, content: !reportLanguage.startsWith('zh-') ? `${formatReasonableness(item.reasonableness, reportLanguage)}; ${text('currentEvidence')}: ${item.currentEvidenceStatus}` : `合理性：${item.reasonableness}；当前证据：${item.currentEvidenceStatus}`, speculationRisk: item.speculationRisk, nextVerification: item.neededVerification, verificationStatus: 'pending_verification', evidenceGrade: item.speculationRisk === '高' ? 'E' : 'D' }} />)}</div>
       </Section>
-      <Section title={text('evidenceStatus')}>
+      <Section id="report-evidence" title={text('evidenceStatus')}>
         <div className="grid grid-cols-1 gap-2 text-xs md:grid-cols-2">
           <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><span className="font-bold">{text('strongestEvidence')}: </span>{report.evidenceVerificationSummary.strongestEvidence}</div>
           <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><span className="font-bold">{text('weakestEvidence')}: </span>{report.evidenceVerificationSummary.weakestEvidence}</div>
@@ -1244,7 +1246,7 @@ export default function AnalysisResultView({ result: rawResult, auditId, origina
   }, [rawResult]);
 
   useGSAP(() => {
-    if (!verificationPulse || !rootRef.current) return;
+    if (!verificationPulse || !rootRef.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const targets = Array.from(rootRef.current.querySelectorAll<HTMLElement>('[data-verification-pulse]'));
     const toast = rootRef.current.querySelector<HTMLElement>('[data-verification-toast]');
     const timeline = gsap.timeline({ defaults: { ease: 'power3.out' } });
@@ -1272,7 +1274,7 @@ export default function AnalysisResultView({ result: rawResult, auditId, origina
   };
 
   return (
-    <div ref={rootRef} className="space-y-3">
+    <div ref={rootRef} className="report-reading space-y-5">
       {verificationNotice && <div data-verification-toast role="status" className="rounded-lg border border-[var(--color-success)]/35 bg-[color-mix(in_srgb,var(--color-success)_10%,var(--color-surface))] px-3 py-2 text-xs font-bold text-[var(--color-success)]">{verificationNotice}</div>}
       <GsapReveal className="space-y-4 sm:space-y-5" y={18} stagger={0.055}>
         {isQuick(result)

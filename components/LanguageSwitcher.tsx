@@ -34,7 +34,7 @@ export default function LanguageSwitcher({ variant = 'compact' }: { variant?: 'c
     const selected = UI_LANGUAGE_OPTIONS.find((option) => option.value === language);
     return (
       <details className="group relative">
-        <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-[var(--radius-button)] border border-[var(--color-border)] bg-[color-mix(in_srgb,var(--color-card)_92%,transparent)] px-2.5 py-1.5 text-xxs font-bold text-[var(--color-text-muted)] shadow-[var(--shadow-card)] backdrop-blur transition hover:border-[var(--color-border-strong)] hover:text-[var(--color-text)] [&::-webkit-details-marker]:hidden">
+        <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1.5 rounded-[var(--radius-button)] border border-[var(--color-border)] bg-[color-mix(in_srgb,var(--color-card)_92%,transparent)] px-2.5 py-1.5 text-xxs font-bold text-[var(--color-text-muted)] shadow-[var(--shadow-card)] backdrop-blur transition hover:border-[var(--color-border-strong)] hover:text-[var(--color-text)] [&::-webkit-details-marker]:hidden">
           <Languages className="h-3.5 w-3.5" aria-hidden="true" />
           <span>{selected?.label || t('language.compactLabel')}</span>
           <span className="text-[9px] transition group-open:rotate-180">▾</span>
@@ -60,12 +60,12 @@ export default function LanguageSwitcher({ variant = 'compact' }: { variant?: 'c
   }
 
   return (
-    <label className="relative flex items-center gap-1.5 rounded-[var(--radius-button)] border border-[var(--color-border-strong)] bg-[var(--color-card)] px-2 py-1 text-xxs font-bold text-[var(--color-text-muted)] shadow-[var(--shadow-card)]">
+    <label className="relative flex min-h-11 items-center gap-1.5 rounded-[var(--radius-button)] border border-[var(--color-border-strong)] bg-[var(--color-card)] px-2 py-1 text-xxs font-bold text-[var(--color-text-muted)] shadow-[var(--shadow-card)]">
       <span className="hidden sm:inline">{t('language.compactLabel')}</span>
       <select
         value={language}
         onChange={(event) => setLanguage(event.target.value as UiLanguage)}
-        className="min-w-[72px] appearance-none rounded-[calc(var(--radius-button)-4px)] border-0 bg-[var(--color-card)] py-0 pl-1 pr-5 text-xxs font-bold text-[var(--color-text)] outline-none"
+        className="min-h-10 min-w-[72px] appearance-none rounded-[calc(var(--radius-button)-4px)] border-0 bg-[var(--color-card)] py-0 pl-1 pr-5 text-xxs font-bold text-[var(--color-text)] outline-none"
         aria-label={t('language.interfaceLanguage')}
       >
         {UI_LANGUAGE_OPTIONS.map((option) => (

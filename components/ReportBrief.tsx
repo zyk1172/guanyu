@@ -23,16 +23,15 @@ export default function ReportBrief({ report, originalContent = '' }: { report: 
   const gaps = (report.informationGaps || []).slice(0, 2);
   const tasks = [...(report.verificationRoadmap || [])].sort((a, b) => Number(b.priority === '高') - Number(a.priority === '高')).slice(0, 2);
   return (
-    <section aria-label={c[0]} className="rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-4 sm:p-5">
+    <section id="report-brief" aria-label={c[0]} className="report-brief">
       <h2 className="text-lg font-black text-[var(--color-text)]">{c[0]}</h2>
       <p className="mt-2 text-sm leading-relaxed text-[var(--color-text-muted)]">{report.newsSummary}</p>
-      <h3 className="mt-4 text-xs font-bold text-[var(--color-text-muted)]">{c[1]}</h3>
-      <p className="mt-1 font-bold leading-relaxed text-[var(--color-text)]">{report.oneSentenceConclusion}</p>
-      <div className="mt-4 grid gap-4 text-sm sm:grid-cols-2">
+      <div className="report-conclusion"><h3>{c[1]}</h3><p>{report.oneSentenceConclusion}</p></div>
+      <div className="mt-6 grid gap-6 text-sm sm:grid-cols-2">
         <div><h3 className="font-bold">{c[2]}</h3><ul className="mt-2 list-disc space-y-1 pl-5 text-[var(--color-text-muted)]">{gaps.length ? gaps.map((gap, i) => <li key={i}>{gap.title}: {gap.description}</li>) : <li>{getReportText('insufficientMaterial', language)}</li>}</ul></div>
         <div><h3 className="font-bold">{c[3]}</h3><ul className="mt-2 list-disc space-y-1 pl-5 text-[var(--color-text-muted)]">{tasks.length ? tasks.map((task, i) => <li key={i}>{task.question}</li>) : <li>{getReportText('insufficientMaterial', language)}</li>}</ul></div>
       </div>
-      <details className="mt-4 rounded-lg border border-[var(--color-border)] p-3">
+      <details className="workspace-disclosure mt-6">
         <summary className="cursor-pointer text-sm font-bold focus-visible:outline-2 focus-visible:outline-offset-4">{c[4]}</summary>
         <p className="mt-2 text-xs text-[var(--color-text-muted)]">{c[12]}</p>
         <div className="mt-3 grid gap-3 lg:grid-cols-3">

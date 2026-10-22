@@ -9,7 +9,7 @@ export const APP_THEME_OPTIONS: Array<{
   label: string;
   description: string;
 }> = [
-  { value: 'newspaper', label: '泛黄报纸', description: '温和纸张色，适合长时间阅读。' },
+  { value: 'newspaper', label: '清晰阅读', description: '清爽白底与清晰对比，专注阅读内容。' },
   { value: 'night', label: '黑夜模式', description: '低眩光深色，适合夜间阅读。' },
   { value: 'kids', label: '儿童友好', description: '明亮圆润，但保持专业清晰。' },
 ];
