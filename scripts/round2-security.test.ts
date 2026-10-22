@@ -7,7 +7,7 @@ import { sameOriginResponse } from '../lib/request-security';
 import { assertValidPasswordInput, hashPassword, verifyPassword } from '../lib/password-core.mjs';
 import { DELETE, PATCH } from '../app/api/audits/[id]/route';
 import { requiresBillingAdminStepUp } from '../lib/billing-admin-security';
-import { normalizeOnlineVerification, normalizeSourceUrl, normalizeVerificationStatus } from '../app/api/analyze/route';
+import { normalizeOnlineVerification, normalizeSourceUrl, normalizeVerificationStatus } from '../lib/analyze-service';
 
 test('getClientIp reads record-style headers used by NextAuth authorize', () => {
   const previous = process.env.VERCEL;

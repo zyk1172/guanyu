@@ -12,6 +12,7 @@ html[data-theme="newspaper"] {
   --color-border: #d8c7a8;
   --color-border-strong: #bfa982;
   --color-primary: #7a4f22;
+  --color-on-primary: #ffffff;
   --color-primary-hover: #633f1a;
   --color-primary-soft: #ead8b8;
   --color-accent: #8a6f3d;
@@ -52,6 +53,7 @@ html[data-theme="night"] {
   --color-border: #2a333d;
   --color-border-strong: #3a4652;
   --color-primary: #7aa2f7;
+  --color-on-primary: #0f1419;
   --color-primary-hover: #9ab7ff;
   --color-primary-soft: #1a2a40;
   --color-accent: #8ea4bd;
@@ -89,8 +91,9 @@ html[data-theme="kids"] {
   --color-text-subtle: #8aa0b8;
   --color-border: #dbeafe;
   --color-border-strong: #b9dcff;
-  --color-primary: #3b82f6;
-  --color-primary-hover: #2563eb;
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-on-primary: #ffffff;
   --color-primary-soft: #dbeafe;
   --color-accent: #f1b744;
   --color-danger: #dc6262;
@@ -325,12 +328,19 @@ html {
   will-change: transform;
 }
 
-html[data-theme] a {
-  color: inherit;
+/* Keep defaults below utility classes, including button-style links. */
+@layer base {
+  html[data-theme] a {
+    color: inherit;
+  }
+
+  html[data-theme] a:hover {
+    color: var(--color-link);
+  }
 }
 
-html[data-theme] a:hover {
-  color: var(--color-link);
+html[data-theme] .text-white:is(.bg-indigo-550, .bg-indigo-600, [class~="bg-[var(--color-primary)]"]) {
+  color: var(--color-on-primary);
 }
 
 html[data-theme] input,
@@ -391,6 +401,7 @@ html[data-theme] .border-gray-900 {
   border-color: var(--color-border) !important;
 }
 
+html[data-theme] .bg-indigo-550,
 html[data-theme] .bg-indigo-600 {
   background-color: var(--color-primary) !important;
 }

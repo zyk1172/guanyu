@@ -136,6 +136,7 @@ export default function MyAuditsPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t('myAudits.searchPlaceholder')}
+              aria-label={t('myAudits.searchPlaceholder')}
               className="flex-1 px-3 py-1.5 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white"
             />
             <button
@@ -148,8 +149,9 @@ export default function MyAuditsPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 text-xs">
             <div className="space-y-1">
-              <label className="block text-xxs font-bold text-gray-500 uppercase">{t('myAudits.type')}</label>
+              <label htmlFor="audit-modeFilter" className="block text-xxs font-bold text-gray-500 uppercase">{t('myAudits.type')}</label>
               <select
+                id="audit-modeFilter"
                 value={modeFilter}
                 onChange={(e) => setModeFilter(e.target.value)}
                 className="w-full px-2 py-1.5 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 focus:outline-none"
@@ -161,8 +163,9 @@ export default function MyAuditsPage() {
             </div>
 
             <div className="space-y-1">
-              <label className="block text-xxs font-bold text-gray-500 uppercase">{t('myAudits.thinkingDepth')}</label>
+              <label htmlFor="audit-depthFilter" className="block text-xxs font-bold text-gray-500 uppercase">{t('myAudits.thinkingDepth')}</label>
               <select
+                id="audit-depthFilter"
                 value={depthFilter}
                 onChange={(e) => setDepthFilter(e.target.value)}
                 className="w-full px-2 py-1.5 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 focus:outline-none"
@@ -176,8 +179,9 @@ export default function MyAuditsPage() {
             </div>
 
             <div className="space-y-1">
-              <label className="block text-xxs font-bold text-gray-500 uppercase">{t('myAudits.visibility')}</label>
+              <label htmlFor="audit-publicFilter" className="block text-xxs font-bold text-gray-500 uppercase">{t('myAudits.visibility')}</label>
               <select
+                id="audit-publicFilter"
                 value={publicFilter}
                 onChange={(e) => setPublicFilter(e.target.value)}
                 className="w-full px-2 py-1.5 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 focus:outline-none"

@@ -113,6 +113,7 @@ export function PlatformModelSelector({
       {source === 'platform' ? (
         <div className="mt-2">
           <select
+            aria-label={t('modelSelector.activeTitle', '当前激活模型')}
             value={selected?.id || ''}
             disabled={loading || !models.length}
             onChange={(event) => onSelectedIdChange(event.target.value)}

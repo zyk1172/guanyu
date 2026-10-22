@@ -15,6 +15,7 @@ import {
 import ThemeSwitcher from '@/components/ThemeSwitcher';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { useUiLanguage } from '@/components/LanguageProvider';
+import { formatEmailCategory, formatOrderStatus, formatPlanType } from '@/lib/account-display';
 import { PlatformModelSelector } from '@/components/PlatformModelSelector';
 import PlatformModelAdmin from '@/components/PlatformModelAdmin';
 import OrderHistory from '@/components/OrderHistory';
@@ -677,7 +678,7 @@ export default function AccountPage() {
         user.freeQuotaUsed,
         user._count?.audits || 0,
         user._count?.purchaseOrders || 0,
-        new Date(user.createdAt).toLocaleString(),
+        new Date(user.createdAt).toLocaleString(language),
       ]),
     ];
     const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -969,6 +970,7 @@ export default function AccountPage() {
                   type="password"
                   value={currentPassword}
                   onChange={(event) => setCurrentPassword(event.target.value)}
+                  aria-label={t('account.currentPassword')}
                   placeholder={t('account.currentPassword')}
                   autoComplete="current-password"
                   className="rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] px-3 py-2 text-xs text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-text-subtle)] focus:border-[var(--color-primary)]"
@@ -977,6 +979,7 @@ export default function AccountPage() {
                   type="password"
                   value={newPassword}
                   onChange={(event) => setNewPassword(event.target.value)}
+                  aria-label={t('account.newPassword')}
                   placeholder={t('account.newPassword')}
                   autoComplete="new-password"
                   className="rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] px-3 py-2 text-xs text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-text-subtle)] focus:border-[var(--color-primary)]"
@@ -985,6 +988,7 @@ export default function AccountPage() {
                   type="password"
                   value={confirmNewPassword}
                   onChange={(event) => setConfirmNewPassword(event.target.value)}
+                  aria-label={t('account.confirmNewPassword')}
                   placeholder={t('account.confirmNewPassword')}
                   autoComplete="new-password"
                   className="rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] px-3 py-2 text-xs text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-text-subtle)] focus:border-[var(--color-primary)]"
@@ -1034,6 +1038,7 @@ export default function AccountPage() {
                     <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('backup.createHint')}</p>
                     <input
                       type="password"
+                      aria-label={`${t('backup.createTitle')} · ${t('backup.passphrasePlaceholder')}`}
                       value={backupPassphrase}
                       onChange={(event) => setBackupPassphrase(event.target.value)}
                       autoComplete="new-password"
@@ -1050,12 +1055,14 @@ export default function AccountPage() {
                     <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('backup.restoreHint')}</p>
                     <input
                       type="file"
+                      aria-label={t('backup.restoreTitle')}
                       accept=".guanyu-backup,application/vnd.guanyu.operations-backup+json,application/json"
                       onChange={(event) => setRestoreArchive(event.target.files?.[0] || null)}
                       className="mt-3 block w-full text-xxs text-[var(--color-text-muted)] file:mr-2 file:rounded-md file:border-0 file:bg-[var(--color-surface)] file:px-2 file:py-1.5 file:text-xxs file:font-bold file:text-[var(--color-text)]"
                     />
                     <input
                       type="password"
+                      aria-label={`${t('backup.restoreTitle')} · ${t('backup.passphrasePlaceholder')}`}
                       value={restorePassphrase}
                       onChange={(event) => setRestorePassphrase(event.target.value)}
                       autoComplete="new-password"
@@ -1063,6 +1070,7 @@ export default function AccountPage() {
                       className="mt-2 w-full rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] px-3 py-2 text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-primary)]"
                     />
                     <input
+                      aria-label={t('backup.restoreTitle')}
                       value={restoreConfirmation}
                       onChange={(event) => setRestoreConfirmation(event.target.value)}
                       placeholder={t('backup.confirmationPlaceholder', undefined, { confirmation: language === 'zh-CN' || language === 'zh-TW' ? '恢复全部运营数据' : 'RESTORE ALL OPERATIONS DATA' })}
@@ -1096,7 +1104,8 @@ export default function AccountPage() {
                   </button>
                 </div>
                 <input
-                  value={adminUserSearch}
+                  aria-label={language.startsWith('zh') ? '搜索注册用户' : 'Search registered users'}
+                      value={adminUserSearch}
                   onChange={(event) => setAdminUserSearch(event.target.value)}
                   placeholder="搜索邮箱、用户 ID、套餐或角色..."
                   className="mt-3 w-full rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] px-3 py-2 text-xs font-semibold text-[var(--color-text)] outline-none focus:border-[var(--color-primary)]"
@@ -1114,7 +1123,7 @@ export default function AccountPage() {
                   <div className="mt-2 max-h-48 space-y-1 overflow-y-auto text-xxs">
                     {(adminBilling.emailDeliveries || []).length ? adminBilling.emailDeliveries.map((delivery: any) => (
                       <div key={delivery.id} className="rounded border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-2 py-1.5 text-[var(--color-text-muted)]">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1"><span className={`font-black ${delivery.status === 'sent' ? 'text-[var(--color-success)]' : delivery.status === 'failed' ? 'text-[var(--color-danger)]' : 'text-[var(--color-warning)]'}`}>{delivery.status === 'sent' ? '已发送' : delivery.status === 'failed' ? '发送失败' : '待发送'}</span><span>{delivery.category}</span><span>{delivery.provider || '未选择通道'}</span><span>{new Date(delivery.createdAt).toLocaleString()}</span></div>
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1"><span className={`font-black ${delivery.status === 'sent' ? 'text-[var(--color-success)]' : delivery.status === 'failed' ? 'text-[var(--color-danger)]' : 'text-[var(--color-warning)]'}`}>{delivery.status === 'sent' ? '已发送' : delivery.status === 'failed' ? '发送失败' : '待发送'}</span><span>{formatEmailCategory(delivery.category, language)}</span><span>{delivery.provider || '未选择通道'}</span><span>{new Date(delivery.createdAt).toLocaleString(language)}</span></div>
                         <div className="mt-0.5 break-all">{delivery.recipient} · {delivery.subject}</div>
                         {delivery.error && <div className="mt-0.5 break-all text-[var(--color-danger)]">{delivery.error}</div>}
                       </div>
@@ -1126,7 +1135,7 @@ export default function AccountPage() {
                     const credit = ((user.creditBalanceCents || user.creditBalance * 100 || 0) / 100).toFixed(1);
                     const activities = [
                       ...(user.audits || []).map((audit: any) => ({ type: '报告', text: audit.title, date: audit.createdAt })),
-                      ...(user.purchaseOrders || []).map((order: any) => ({ type: '订单', text: `${order.packageName} · ${order.status} · ${formatOrderAmount(order.amountCents, order.currency)}`, date: order.createdAt })),
+                      ...(user.purchaseOrders || []).map((order: any) => ({ type: '订单', text: `${order.packageName} · ${formatOrderStatus(order.status, language)} · ${formatOrderAmount(order.amountCents, order.currency)}`, date: order.createdAt })),
                       ...(user.pointTransactions || []).map((tx: any) => ({ type: '点数', text: `${tx.reason} · ${(tx.deltaCents || tx.delta * 100 || 0) / 100} 点`, date: tx.createdAt })),
                     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
                     const isExpanded = Boolean(expandedUserIds[user.id]);
@@ -1138,7 +1147,7 @@ export default function AccountPage() {
                             <div className="truncate text-sm font-black text-[var(--color-text)]">{user.email}</div>
                             <div className="mt-1 flex flex-wrap gap-1.5 text-xxs font-bold">
                               <span className="rounded bg-[var(--color-primary-soft)] px-2 py-0.5 text-[var(--color-link)]">{user.role === 'super_admin' ? '超级管理员' : '普通用户'}</span>
-                              <span className="rounded bg-[var(--color-surface-muted)] px-2 py-0.5 text-[var(--color-text-muted)]">{user.planType === 'byok' ? 'Pro 专业权益' : user.planType}</span>
+                              <span className="rounded bg-[var(--color-surface-muted)] px-2 py-0.5 text-[var(--color-text-muted)]">{formatPlanType(user.planType, language)}</span>
                               <span className="rounded bg-[var(--color-surface-muted)] px-2 py-0.5 text-[var(--color-text-muted)]">点数 {credit}</span>
                               <span className="rounded bg-[var(--color-surface-muted)] px-2 py-0.5 text-[var(--color-text-muted)]">报告 {user._count?.audits || 0}</span>
                               <span className={`rounded px-2 py-0.5 ${user.isBanned ? 'bg-[var(--color-danger)] text-white' : 'bg-[var(--color-success)] text-white'}`}>
@@ -1149,6 +1158,7 @@ export default function AccountPage() {
                           </div>
                           <div className="flex flex-wrap gap-1.5">
                             <input
+                              aria-label={language.startsWith('zh') ? `为 ${user.email} 增加的点数` : `Credits to add for ${user.email}`}
                               value={adminGrantDraft[user.id] || ''}
                               onChange={(event) => setAdminGrantDraft((prev) => ({ ...prev, [user.id]: event.target.value }))}
                               placeholder="点数"
@@ -1166,7 +1176,7 @@ export default function AccountPage() {
                             <ul className="mt-2 space-y-1 text-xxs text-[var(--color-text-muted)]">
                               {visibleActivities.length ? visibleActivities.map((activity, index) => (
                                 <li key={`${activity.type}-${activity.date}-${index}`} className="rounded bg-[var(--color-surface-muted)] px-2 py-1">
-                                  <span className="font-black text-[var(--color-text)]">{activity.type}</span> · {activity.text} · {new Date(activity.date).toLocaleString()}
+                                  <span className="font-black text-[var(--color-text)]">{activity.type}</span> · {activity.text} · {new Date(activity.date).toLocaleString(language)}
                                 </li>
                               )) : <li>暂无活动。</li>}
                             </ul>
@@ -1179,6 +1189,7 @@ export default function AccountPage() {
                           <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2">
                             <div className="font-black text-[var(--color-text)]">给用户发邮件</div>
                             <textarea
+                              aria-label={language.startsWith('zh') ? `发送给 ${user.email} 的邮件内容` : `Email message for ${user.email}`}
                               value={adminEmailDraft[user.id] || ''}
                               onChange={(event) => setAdminEmailDraft((prev) => ({ ...prev, [user.id]: event.target.value }))}
                               rows={3}
@@ -1371,6 +1382,7 @@ export default function AccountPage() {
                 <input
                   value={paymentNote}
                   onChange={(e) => setPaymentNote(e.target.value)}
+                  aria-label={t('account.paymentNote')}
                   placeholder={t('account.paymentNote')}
                   className="mt-3 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-gray-800 dark:bg-gray-900 dark:text-white"
                 />
@@ -1439,7 +1451,7 @@ export default function AccountPage() {
                         <div><span className="font-bold text-gray-600 dark:text-gray-300">金额：</span>{formatOrderAmount(order.amountCents, order.currency)}</div>
                         <div><span className="font-bold text-gray-600 dark:text-gray-300">付款方式：</span>{order.paymentMethod === 'paypal_qr' ? 'PayPal 收款码' : '支付宝收款码'}</div>
                         <div><span className="font-bold text-gray-600 dark:text-gray-300">付款备注：</span><span className="font-black text-amber-700 dark:text-amber-300">{order.paymentNote || '无付款备注'}</span></div>
-                        <div><span className="font-bold text-gray-600 dark:text-gray-300">创建时间：</span>{new Date(order.createdAt).toLocaleString()}</div>
+                        <div><span className="font-bold text-gray-600 dark:text-gray-300">创建时间：</span>{new Date(order.createdAt).toLocaleString(language)}</div>
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2">
                         <button
@@ -1492,7 +1504,7 @@ export default function AccountPage() {
             </h3>
 
             {apiSettingsLocked && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold leading-relaxed text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
+              <div className="rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-3 text-xs font-semibold leading-relaxed text-[var(--color-text)]">
                 {t('billing.modelLocked')}
               </div>
             )}
@@ -1518,10 +1530,11 @@ export default function AccountPage() {
                 <summary className="cursor-pointer text-sm font-bold">{language.startsWith('zh-') ? '高级设置：个人模型' : 'Advanced: personal model'}</summary>
                 <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="space-y-1">
-                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                <label htmlFor="account-modelName" className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   {t('account.defaultModel')}
                 </label>
                 <input
+                  id="account-modelName"
                   type="text"
                   required
                   value={modelName}
@@ -1534,10 +1547,11 @@ export default function AccountPage() {
               </div>
 
               <div className="space-y-1">
-                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                <label htmlFor="account-llmBaseUrl" className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   {t('account.baseUrl')}
                 </label>
                 <input
+                  id="account-llmBaseUrl"
                   type="url"
                   required
                   value={llmBaseUrl}
@@ -1550,10 +1564,11 @@ export default function AccountPage() {
               </div>
 
               <div className="space-y-1 md:col-span-2">
-                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                <label htmlFor="account-llmApiKey" className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   {t('account.apiKey')}
                 </label>
                 <input
+                  id="account-llmApiKey"
                   type="password"
                   value={llmApiKey}
                   disabled={apiSettingsLocked}
@@ -1578,6 +1593,7 @@ export default function AccountPage() {
                   </div>
                   <input
                     type="checkbox"
+                    aria-label={t('account.tavilyTitle')}
                     checked={enableTavilySearch}
                     disabled={apiSettingsLocked}
                     onChange={(e) => setEnableTavilySearch(e.target.checked)}
@@ -1592,6 +1608,7 @@ export default function AccountPage() {
                     </label>
                     <input
                       type="password"
+                      aria-label="Tavily API Key"
                       value={tavilyApiKey}
                       disabled={apiSettingsLocked}
                       onChange={(e) => setTavilyApiKey(e.target.value)}
@@ -1603,11 +1620,12 @@ export default function AccountPage() {
                     </p>
                   </div>
                   <div className="space-y-1">
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                    <label htmlFor="account-tavilySearchDepth" className="block text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
                       {t('account.searchDepth')}
                     </label>
                     <select
-                      value={tavilySearchDepth}
+                      id="account-tavilySearchDepth"
+                  value={tavilySearchDepth}
                       disabled={apiSettingsLocked}
                       onChange={(e) => setTavilySearchDepth(e.target.value)}
                       className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/20 dark:border-gray-800 dark:bg-gray-900 dark:text-white disabled:cursor-not-allowed disabled:opacity-60"
@@ -1630,6 +1648,7 @@ export default function AccountPage() {
                   </div>
                   <input
                     type="checkbox"
+                    aria-label={t('account.serperTitle')}
                     checked={enableSerperSearch}
                     disabled={apiSettingsLocked}
                     onChange={(e) => setEnableSerperSearch(e.target.checked)}
@@ -1643,6 +1662,7 @@ export default function AccountPage() {
                   </label>
                   <input
                     type="password"
+                    aria-label="Serper API Key"
                     value={serperApiKey}
                     disabled={apiSettingsLocked}
                     onChange={(e) => setSerperApiKey(e.target.value)}
@@ -1690,6 +1710,7 @@ export default function AccountPage() {
                           <td className="px-2 py-2">
                             <input
                               type="checkbox"
+                              aria-label={`${t('rss.source')}: ${language === 'zh-CN' ? source.nameZh || source.name : source.name}`}
                               checked={rssFeedConfig.catalogIds.includes(source.id)}
                               disabled={apiSettingsLocked}
                               onChange={() => toggleRssCatalogSource(source.id)}
@@ -1725,6 +1746,7 @@ export default function AccountPage() {
                       <input
                         value={rssCustomName}
                         onChange={(event) => setRssCustomName(event.target.value)}
+                        aria-label={t('rss.customName')}
                         placeholder={t('rss.customName')}
                         className="min-w-0 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] px-3 py-2 text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary-soft)]"
                       />
@@ -1732,6 +1754,7 @@ export default function AccountPage() {
                         type="url"
                         value={rssCustomUrl}
                         onChange={(event) => setRssCustomUrl(event.target.value)}
+                        aria-label={t('rss.customUrl')}
                         placeholder={t('rss.customUrl')}
                         className="min-w-0 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] px-3 py-2 text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary-soft)]"
                       />
@@ -1775,10 +1798,11 @@ export default function AccountPage() {
               </div>
 
               <div className="space-y-1">
-                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                <label htmlFor="account-reasoningDepth" className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   {t('account.thinkingDepth')}
                 </label>
                 <select
+                  id="account-reasoningDepth"
                   value={reasoningDepth}
                   onChange={(e) => setReasoningDepth(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white"
@@ -1801,6 +1825,7 @@ export default function AccountPage() {
                 </div>
                 <input
                   type="checkbox"
+                  aria-label={t('account.publicDefault')}
                   checked={isPublic}
                   onChange={(e) => setIsPublic(e.target.checked)}
                   className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
@@ -1814,6 +1839,7 @@ export default function AccountPage() {
                 </div>
                 <input
                   type="checkbox"
+                  aria-label={t('account.chartsDefault')}
                   checked={enableCharts}
                   onChange={(e) => setEnableCharts(e.target.checked)}
                   className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
