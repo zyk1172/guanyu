@@ -23,6 +23,7 @@ export type PlatformModelSnapshot = {
   modelId: string;
   reasoningDepth: string;
   searchMode: PlatformModelSearchMode;
+  searchProvider?: 'free' | 'deepseek';
   multiplierBps: number;
   configVersion: number;
   inputPriceMicrosPerMillion: number;
@@ -95,6 +96,7 @@ export function platformModelSnapshot(config: PlatformModelConfig): PlatformMode
     modelId: config.modelId,
     reasoningDepth: config.reasoningDepth,
     searchMode: searchMode(config.searchMode),
+    searchProvider: config.searchProvider === 'deepseek' ? 'deepseek' : 'free',
     multiplierBps: config.creditMultiplierBps,
     configVersion: config.configVersion,
     inputPriceMicrosPerMillion: config.inputPriceMicrosPerMillion,
@@ -124,6 +126,7 @@ export function decodePlatformModelSnapshot(value: string | null | undefined): P
       modelId: String(parsed.modelId),
       reasoningDepth: String(parsed.reasoningDepth || 'medium'),
       searchMode: searchMode(String(parsed.searchMode)),
+      searchProvider: parsed.searchProvider === 'deepseek' ? 'deepseek' : 'free',
       multiplierBps: Number.isSafeInteger(parsed.multiplierBps) ? parsed.multiplierBps : 100,
       configVersion: Number.isSafeInteger(parsed.configVersion) ? parsed.configVersion : 1,
       inputPriceMicrosPerMillion: Number.isSafeInteger(parsed.inputPriceMicrosPerMillion) ? parsed.inputPriceMicrosPerMillion : 0,
@@ -230,6 +233,6 @@ export async function listPublicPlatformModels(params: {
 }
 
 export function safeAdminPlatformModel(config: PlatformModelConfig) {
-  const { apiKeyEncrypted, ...safe } = config;
-  return { ...safe, hasApiKey: Boolean(apiKeyEncrypted) };
+  const { apiKeyEncrypted, deepseekApiKeyEncrypted, ...safe } = config;
+  return { ...safe, hasApiKey: Boolean(apiKeyEncrypted), hasDeepseekApiKey: Boolean(deepseekApiKeyEncrypted) };
 }

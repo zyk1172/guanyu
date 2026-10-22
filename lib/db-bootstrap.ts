@@ -33,7 +33,9 @@ export function ensureRuntimeSchema() {
       await prisma.$executeRawUnsafe(`
         ALTER TABLE "UserSettings"
         ADD COLUMN IF NOT EXISTS "defaultReportLanguage" TEXT NOT NULL DEFAULT 'zh-CN',
-        ADD COLUMN IF NOT EXISTS "rssFeedUrlsJson" TEXT NOT NULL DEFAULT '[]';
+        ADD COLUMN IF NOT EXISTS "rssFeedUrlsJson" TEXT NOT NULL DEFAULT '[]',
+        ADD COLUMN IF NOT EXISTS "searchProvider" TEXT NOT NULL DEFAULT 'free',
+        ADD COLUMN IF NOT EXISTS "deepseekApiKeyEncrypted" TEXT;
       `);
       await prisma.$executeRawUnsafe(`
         ALTER TABLE "Audit"

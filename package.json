@@ -9,7 +9,7 @@
     "postinstall": "prisma generate",
     "start": "next start",
     "lint": "eslint",
-    "ci": "npm run lint && npm run test:report && npm run test:report-schema && npm run test:round2 && npm run test:backup && npm run test:platform-models && npm run test:analyze-job && npm run test:model-runtime && npm run test:web-research && npm run test:permissions && npm run build",
+    "ci": "npm run lint && npm run test:report && npm run test:report-schema && npm run test:round2 && npm run test:backup && npm run test:platform-models && npm run test:analyze-job && npm run test:model-runtime && npm run test:web-research && npm run test:permissions && npm run test:deepseek-settings && npm run build",
     "test:report": "node --test scripts/report-logic.test.mjs",
     "test:report-schema": "tsx --test scripts/report-schema.test.ts scripts/report-evidence.test.ts scripts/onboarding.test.ts scripts/report-comparison.test.ts",
     "test:task-quote": "tsx scripts/task-quote-smoke.ts",
@@ -21,13 +21,14 @@
     "test:word": "tsx scripts/docx-smoke.ts",
     "test:exports-i18n": "tsx scripts/multilingual-export-smoke.ts",
     "test:backup": "tsx scripts/backup-smoke.ts",
+    "test:deepseek-settings": "tsx scripts/deepseek-settings-smoke.ts",
     "test:permissions": "tsx scripts/ordinary-user-permission-smoke.ts",
     "seed:ci": "tsx scripts/seed-ci.ts",
     "test:platform-models": "node --test scripts/platform-model-core.test.mjs",
     "test:analyze-job": "node --test scripts/analyze-job.test.mjs",
     "test:model-runtime": "tsx --test scripts/model-runtime.test.ts",
     "bootstrap:admin": "tsx scripts/bootstrap-admin.ts",
-    "test:web-research": "tsx --test scripts/web-research.test.ts scripts/free-web-search.test.ts scripts/usage-cost.test.ts"
+    "test:web-research": "tsx --test scripts/web-research.test.ts scripts/free-web-search.test.ts scripts/usage-cost.test.ts scripts/deepseek-search.test.ts"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",

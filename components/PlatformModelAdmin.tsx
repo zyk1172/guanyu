@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import DeepseekSearchSettings from './DeepseekSearchSettings';
 import { useUiLanguage } from '@/components/LanguageProvider';
 
 const LOCALES = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'ko-KR', 'de-DE', 'it-IT'] as const;
@@ -16,6 +17,8 @@ type AdminModel = {
   modelId: string;
   reasoningDepth: string;
   searchMode: string;
+  searchProvider: string;
+  hasDeepseekApiKey?: boolean;
   supportsAnalysis: boolean;
   supportsCompletion: boolean;
   supportsFollowup: boolean;
@@ -56,6 +59,10 @@ type Draft = {
   modelId: string;
   reasoningDepth: string;
   searchMode: string;
+  searchProvider: string;
+  hasDeepseekApiKey?: boolean;
+  deepseekApiKey?: string;
+  clearDeepseekApiKey?: boolean;
   supportsAnalysis: boolean;
   supportsCompletion: boolean;
   supportsFollowup: boolean;
@@ -71,7 +78,7 @@ type Draft = {
 };
 
 const EMPTY: Draft = {
-  id: '', provider: 'openai_compatible', displayName: '', description: '', displayNameI18n: {}, descriptionI18n: {}, baseUrl: 'https://api.deepseek.com', apiKey: '', modelId: '', reasoningDepth: 'medium', searchMode: 'agent', supportsAnalysis: true, supportsCompletion: true, supportsFollowup: true, creditMultiplier: '1', inputPriceMicrosPerMillion: '0', outputPriceMicrosPerMillion: '0', nativeSearchPriceMicrosPerRequest: '0', isEnabled: true, isVisibleToUsers: true, isRecommended: false, isDefault: false, sortOrder: '0',
+  id: '', provider: 'openai_compatible', displayName: '', description: '', displayNameI18n: {}, descriptionI18n: {}, baseUrl: 'https://api.deepseek.com', apiKey: '', modelId: '', reasoningDepth: 'medium', searchMode: 'agent', searchProvider: 'free', deepseekApiKey: '', clearDeepseekApiKey: false, supportsAnalysis: true, supportsCompletion: true, supportsFollowup: true, creditMultiplier: '1', inputPriceMicrosPerMillion: '0', outputPriceMicrosPerMillion: '0', nativeSearchPriceMicrosPerRequest: '0', isEnabled: true, isVisibleToUsers: true, isRecommended: false, isDefault: false, sortOrder: '0',
 };
 
 const PROVIDER_DEFAULTS: Record<string, { baseUrl: string; modelId: string; searchMode: string }> = {
@@ -102,6 +109,10 @@ function toDraft(model: AdminModel): Draft {
     modelId: model.modelId,
     reasoningDepth: model.reasoningDepth,
     searchMode: model.searchMode,
+    searchProvider: model.searchProvider || 'free',
+    hasDeepseekApiKey: model.hasDeepseekApiKey,
+    deepseekApiKey: '',
+    clearDeepseekApiKey: false,
     supportsAnalysis: model.supportsAnalysis,
     supportsCompletion: model.supportsCompletion,
     supportsFollowup: model.supportsFollowup,
@@ -226,7 +237,8 @@ export default function PlatformModelAdmin() {
           <Field wide label={draft.id ? t('platformAdmin.apiKeyOptional', 'API Key（留空则保留原密钥）') : 'API Key'}><input type="password" className={inputClass} value={draft.apiKey} onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })} /></Field>
           <Field label={t('platformAdmin.reasoning', '思考强度')}><select className={inputClass} value={draft.reasoningDepth} onChange={(e) => setDraft({ ...draft, reasoningDepth: e.target.value })}><option value="none">None</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="extreme">Extreme</option></select></Field>
           <Field label={t('platformAdmin.searchMode', '联网方式')}><select className={inputClass} value={draft.searchMode} onChange={(e) => setDraft({ ...draft, searchMode: e.target.value })}><option value="platform">{t('modelSelector.platformSearch', '平台联网核验')}</option>{draft.provider !== 'openai_compatible' && <option value="native" disabled={!allowPaidSearch}>{t('modelSelector.nativeSearch', '模型原生联网')}</option>}<option value="agent">{t('modelSelector.agentSearch', '模型自主查证')}</option><option value="none">{t('modelSelector.noSearch', '不联网')}</option></select></Field>
-          <p className="text-xxs leading-relaxed text-[var(--color-text-muted)] sm:col-span-2">{language.startsWith('zh-') ? (allowPaidSearch ? '付费搜索已由部署者启用；模型自主查证仍只使用免费网页搜索。' : '默认免费网页搜索，无需 Tavily/Serper Key。旧的原生联网配置会使用自主网页工具；不联网模式保持关闭。') : (allowPaidSearch ? 'Paid search is enabled by the deployment. Model-led research still uses free web search.' : 'Free web search by default; no Tavily/Serper key needed. Saved native-search modes use web tools. Offline mode stays disabled.')}</p>
+          <p className="text-xxs leading-relaxed text-[var(--color-text-muted)] sm:col-span-2">{language.startsWith('zh-') ? (allowPaidSearch ? '付费搜索已由部署者启用；下方可选择免费搜索或 DeepSeek 搜索 API。' : '默认免费网页搜索，无需 Tavily/Serper Key。旧的原生联网配置会使用自主网页工具；不联网模式保持关闭。') : (allowPaidSearch ? 'Paid search is enabled. Choose free search or DeepSeek Search API below.' : 'Free web search by default; no Tavily/Serper key needed. Saved native-search modes use web tools. Offline mode stays disabled.')}</p>
+          {['agent', 'platform'].includes(draft.searchMode) && <div className="sm:col-span-2"><DeepseekSearchSettings provider={draft.searchProvider} apiKey={draft.deepseekApiKey || ''} hasApiKey={Boolean(draft.hasDeepseekApiKey)} clearKey={Boolean(draft.clearDeepseekApiKey)} paidAllowed={allowPaidSearch} onProviderChange={(searchProvider) => setDraft({ ...draft, searchProvider })} onKeyChange={(deepseekApiKey) => setDraft({ ...draft, deepseekApiKey, clearDeepseekApiKey: false })} onClear={() => setDraft({ ...draft, deepseekApiKey: '', clearDeepseekApiKey: true, searchProvider: 'free' })} /></div>}
           <Field label={t('platformAdmin.multiplierLabel', '点数倍率')}><input className={inputClass} inputMode="decimal" value={draft.creditMultiplier} onChange={(e) => setDraft({ ...draft, creditMultiplier: e.target.value })} /></Field>
           <Field label={t('platformAdmin.sortOrder', '排序')}><input className={inputClass} inputMode="numeric" value={draft.sortOrder} onChange={(e) => setDraft({ ...draft, sortOrder: e.target.value })} /></Field>
           <Field label={t('platformAdmin.inputPrice', '输入成本微美元/百万 Token')}><input className={inputClass} inputMode="numeric" value={draft.inputPriceMicrosPerMillion} onChange={(e) => setDraft({ ...draft, inputPriceMicrosPerMillion: e.target.value })} /></Field>

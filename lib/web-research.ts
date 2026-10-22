@@ -4,6 +4,8 @@ import * as cheerio from 'cheerio';
 import { safeOutboundRequest, UnsafeOutboundUrlError, type SafeOutboundResponse } from './safe-outbound';
 import type { WebSearchOptions, WebSearchSource } from './search';
 import { searchFreeWeb, parseFreeSearchHtml, FreeSearchError } from './free-web-search';
+import { searchWeb } from './search';
+import { paidSearchAllowed } from './web-search-policy';
 
 export const WEB_RESEARCH_TOOLS = [
   {
@@ -103,6 +105,17 @@ export class WebResearchSession {
   }
 
   private async search(query: string) {
+    if (this.options.searchOptions?.provider === 'deepseek' && paidSearchAllowed()) {
+      const sources = await searchWeb(query, 5, {
+        ...this.options.searchOptions,
+        timeoutMs: Math.max(1, Math.min(15_000, this.deadline - Date.now())),
+        onRequest: (provider) => {
+          this.searchRequests += 1;
+          this.options.searchOptions?.onRequest?.(provider);
+        },
+      });
+      return { sources, attempts: [{ provider: 'deepseek', outcome: sources.length ? 'success' : 'empty' }] };
+    }
     return searchFreeWeb(query, 5, {
       request: (url, options) => this.request(String(url), options),
       searxngUrl: this.options.searxngUrl,
@@ -167,7 +180,7 @@ export class WebResearchSession {
       this.cache.set(cacheKey, result);
       return result;
     } catch (error) {
-      const known = /^(search_challenge|search_unavailable|empty_page|research_timeout|page_redirect_limit|page_unavailable|page_challenge|unsupported_page_type|invalid_tool_arguments|search_budget_exhausted|read_budget_exhausted)$/;
+      const known = /^(deepseek_search_unavailable|search_challenge|search_unavailable|empty_page|research_timeout|page_redirect_limit|page_unavailable|page_challenge|unsupported_page_type|invalid_tool_arguments|search_budget_exhausted|read_budget_exhausted)$/;
       const message = error instanceof Error ? error.message : '';
       return { ok: false, untrusted: true, error: error instanceof UnsafeOutboundUrlError ? 'unsafe_url' : known.test(message) ? message : 'tool_request_failed', ...(error instanceof FreeSearchError ? { attempts: error.attempts } : {}) };
     }

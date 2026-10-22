@@ -22,8 +22,8 @@ export type OperationsBackupSnapshot = {
   tables: BackupTables;
   portableSecrets: {
     appSettings: Array<{ id: string; adminLlmApiKey?: string; adminTavilyApiKey?: string; adminSerperApiKey?: string }>;
-    userSettings: Array<{ id: string; llmApiKey?: string; tavilyApiKey?: string; serperApiKey?: string }>;
-    platformModels?: Array<{ id: string; apiKey?: string }>;
+    userSettings: Array<{ id: string; llmApiKey?: string; tavilyApiKey?: string; serperApiKey?: string; deepseekApiKey?: string }>;
+    platformModels?: Array<{ id: string; apiKey?: string; deepseekApiKey?: string }>;
   };
 };
 
@@ -125,8 +125,8 @@ export async function createOperationsBackup() {
     prisma.appSetting.findMany(), prisma.user.findMany(), prisma.userSettings.findMany(), prisma.audit.findMany(), prisma.pointTransaction.findMany(), prisma.purchaseOrder.findMany(), prisma.rssFeed.findMany(), prisma.rssItem.findMany(), prisma.reportDiscussionMessage.findMany(), prisma.discussionReport.findMany(), prisma.exportArtifact.findMany(), prisma.emailDelivery.findMany(), prisma.platformModelConfig.findMany(), prisma.modelUsageEvent.findMany(), prisma.savedArticle.findMany(),
   ]);
   const appSettingsRows = appSettings.map((row) => removeSecretFields(row as unknown as BackupRecord, ['adminLlmApiKeyEncrypted', 'adminTavilyApiKeyEncrypted', 'adminSerperApiKeyEncrypted']));
-  const userSettingsRows = userSettings.map((row) => removeSecretFields(row as unknown as BackupRecord, ['llmApiKeyEncrypted', 'tavilyApiKeyEncrypted', 'serperApiKeyEncrypted']));
-  const platformModelRows = platformModelConfigs.map((row) => removeSecretFields(row as unknown as BackupRecord, ['apiKeyEncrypted']));
+  const userSettingsRows = userSettings.map((row) => removeSecretFields(row as unknown as BackupRecord, ['llmApiKeyEncrypted', 'tavilyApiKeyEncrypted', 'serperApiKeyEncrypted', 'deepseekApiKeyEncrypted']));
+  const platformModelRows = platformModelConfigs.map((row) => removeSecretFields(row as unknown as BackupRecord, ['apiKeyEncrypted', 'deepseekApiKeyEncrypted']));
   const tables: BackupTables = {
     appSettings: appSettingsRows,
     users: users as unknown as BackupRecord[],
@@ -157,8 +157,8 @@ export async function createOperationsBackup() {
     tables,
     portableSecrets: {
       appSettings: appSettings.map((row) => ({ id: row.id, adminLlmApiKey: secretValue(row.adminLlmApiKeyEncrypted), adminTavilyApiKey: secretValue(row.adminTavilyApiKeyEncrypted), adminSerperApiKey: secretValue(row.adminSerperApiKeyEncrypted) })),
-      userSettings: userSettings.map((row) => ({ id: row.id, llmApiKey: secretValue(row.llmApiKeyEncrypted), tavilyApiKey: secretValue(row.tavilyApiKeyEncrypted), serperApiKey: secretValue(row.serperApiKeyEncrypted) })),
-      platformModels: platformModelConfigs.map((row) => ({ id: row.id, apiKey: secretValue(row.apiKeyEncrypted) })),
+      userSettings: userSettings.map((row) => ({ id: row.id, llmApiKey: secretValue(row.llmApiKeyEncrypted), tavilyApiKey: secretValue(row.tavilyApiKeyEncrypted), serperApiKey: secretValue(row.serperApiKeyEncrypted), deepseekApiKey: secretValue(row.deepseekApiKeyEncrypted) })),
+      platformModels: platformModelConfigs.map((row) => ({ id: row.id, apiKey: secretValue(row.apiKeyEncrypted), deepseekApiKey: secretValue(row.deepseekApiKeyEncrypted) })),
     },
   };
   return { snapshot, filename: `guanyu-operations-backup-${filenameDate(new Date())}.guanyu-backup` };
@@ -182,11 +182,11 @@ function hydrateSecretFields(snapshot: OperationsBackupSnapshot) {
   });
   const userSettings = safeRows(snapshot.tables.userSettings).map((row) => {
     const secret = settingSecrets.get(String(row.id));
-    return { ...row, llmApiKeyEncrypted: secret?.llmApiKey ? encryptSecret(secret.llmApiKey) : null, tavilyApiKeyEncrypted: secret?.tavilyApiKey ? encryptSecret(secret.tavilyApiKey) : null, serperApiKeyEncrypted: secret?.serperApiKey ? encryptSecret(secret.serperApiKey) : null };
+    return { ...row, llmApiKeyEncrypted: secret?.llmApiKey ? encryptSecret(secret.llmApiKey) : null, tavilyApiKeyEncrypted: secret?.tavilyApiKey ? encryptSecret(secret.tavilyApiKey) : null, serperApiKeyEncrypted: secret?.serperApiKey ? encryptSecret(secret.serperApiKey) : null, deepseekApiKeyEncrypted: secret?.deepseekApiKey ? encryptSecret(secret.deepseekApiKey) : null };
   });
   const platformModelConfigs = safeRows(snapshot.tables.platformModelConfigs).map((row) => {
     const secret = platformModelSecrets.get(String(row.id));
-    return { ...row, apiKeyEncrypted: secret?.apiKey ? encryptSecret(secret.apiKey) : null };
+    return { ...row, apiKeyEncrypted: secret?.apiKey ? encryptSecret(secret.apiKey) : null, deepseekApiKeyEncrypted: secret?.deepseekApiKey ? encryptSecret(secret.deepseekApiKey) : null };
   });
   return { appSettings, userSettings, platformModelConfigs };
 }

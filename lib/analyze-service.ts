@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { buildCompactFallbackPrompt, buildPrompt } from '@/lib/prompts';
 import { buildReportLanguageJsonRepairPrompt, buildReportLanguageSystemGuard, getLanguageRepairErrorMessage, hasUnexpectedReportProse } from '@/lib/report-language-core.mjs';
 import { computeReadWorth } from '@/lib/readWorth';
+import { personalDeepseekSearchOptions, platformDeepseekSearchOptions } from '@/lib/search-config';
 import { searchWeb, WebSearchOptions } from '@/lib/search';
 import { WebResearchSession } from '@/lib/web-research';
 import { paidSearchAllowed, customWebResearchEnabled, effectiveSearchMode } from '@/lib/web-search-policy';
@@ -415,6 +416,8 @@ function buildSearchOptions(params: {
 }): WebSearchOptions {
   if (!paidSearchAllowed()) return { provider: 'free', locale: params.reportLanguage };
   const useOwnApi = params.usageSource === 'custom';
+  const deepseek = useOwnApi ? personalDeepseekSearchOptions(params.userSettings, params.reportLanguage) : null;
+  if (deepseek) return deepseek;
   const adminTavilyKey = params.appSetting?.adminTavilyApiKeyEncrypted
     ? decryptSecret(params.appSetting.adminTavilyApiKeyEncrypted)
     : (process.env.TAVILY_API_KEY || '');
@@ -605,7 +608,12 @@ export async function handleAnalyze(userId: string, body: any, executionContext:
       ? configuredSearchMode === 'agent'
       : customWebResearchEnabled();
     const externalSearchCounts: Record<string, number> = {};
-    const searchOptions: WebSearchOptions = agentSearchEnabled
+    const deepseekOptions = selectedPlatformSnapshot
+      ? await platformDeepseekSearchOptions(selectedPlatformSnapshot, actualReportLanguage)
+      : personalDeepseekSearchOptions(userSettings, actualReportLanguage);
+    const searchOptions: WebSearchOptions = deepseekOptions && (agentSearchEnabled || configuredSearchMode === 'platform')
+      ? deepseekOptions
+      : agentSearchEnabled
       ? { provider: 'free', locale: actualReportLanguage }
       : usagePlan.source === 'platform' && !['platform', 'agent'].includes(configuredSearchMode)
       ? { provider: 'none' as const, locale: actualReportLanguage }
