@@ -543,7 +543,6 @@ html[data-audience-theme="mature"] .ambient-glow {
 .workspace-hero { padding-block: 44px 28px; }
 .workspace-hero h1 { font-size: clamp(28px, 3vw, 40px); line-height: 1.4; font-weight: 800; letter-spacing: -.035em; text-wrap: balance; }
 .workspace-hero p { margin-top: 12px; color: var(--color-text-muted); font-size: 16px; line-height: 1.8; }
-.workspace-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; gap: 24px; }
 .workspace-panel { border: 1px solid var(--color-border); border-radius: var(--radius-card); background: var(--color-surface); padding: 24px; box-shadow: var(--shadow-card); }
 .workspace-panel h2 { font-size: 20px; line-height: 1.5; font-weight: 750; }
 .workspace-input { width: 100%; border: 1px solid var(--color-input-border); border-radius: 8px; padding: 11px 14px; font-size: 15px; line-height: 1.7; outline: none; }
@@ -643,7 +642,6 @@ html[data-theme] a.workspace-primary:hover, .workspace-primary:hover { backgroun
   #analysis textarea { height: 168px; min-height: 130px; }
   .workspace-hero h1 { font-size: 28px; line-height: 1.5; }
   .workspace-hero p { font-size: 15px; }
-  .workspace-grid { grid-template-columns: minmax(0, 1fr); gap: 20px; }
   .workspace-panel { padding: 20px; }
   .workspace-panel h2 { font-size: 19px; }
   .reading-container { padding: 24px 16px 48px; }

@@ -53,6 +53,7 @@ export default function Home() {
   const { language, t } = useUiLanguage();
   const c = getWorkspaceCopy(language);
   const [selectedArticle, setSelectedArticle] = useState<{ url: string; selectedAt: number }>();
+  const [rssPickerOpen, setRssPickerOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastSubmittedData, setLastSubmittedData] = useState<AuditSubmitData | null>(null);
@@ -162,6 +163,7 @@ export default function Home() {
   }, []);
 
   const handleAnalyze = async (data: AuditSubmitData) => {
+    setRssPickerOpen(false);
     setIsLoading(true);
     setError(null);
     setLastSubmittedData(data);
@@ -193,6 +195,7 @@ export default function Home() {
   };
 
   const handleAnalyzeRssHeadline = (headline: RssHeadline) => {
+    setRssPickerOpen(false);
     setSelectedArticle({ url: headline.url, selectedAt: Date.now() });
     document.getElementById('analysis')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });
   };
@@ -215,16 +218,23 @@ export default function Home() {
           <h1>{language.startsWith('zh-') ? <><span className="inline-block">{c.headline.split('，')[0]}，</span><wbr /><span className="inline-block">{c.headline.split('，')[1]}</span></> : c.headline}</h1>
           <p>{c.subtitle}</p>
         </section>
-        <div className="workspace-grid">
-          <div data-gsap-reveal className="space-y-5">
-            <AnalysisForm onSubmit={handleAnalyze} isLoading={isLoading} articleUrl={selectedArticle} />
-            {isLoading && <LoadingState />}
-            {activeJobId && !isLoading && <p role="status" className="text-sm text-[var(--color-text-muted)]">{t('home.backgroundJob')}</p>}
-            {error && <ErrorMessage message={error} onRetry={handleRetry} />}
-          </div>
-          <aside data-gsap-reveal className="space-y-5">
-            <RssNewsPanel onAnalyzeHeadline={handleAnalyzeRssHeadline} isAnalyzing={isLoading} />
-          </aside>
+        <div data-gsap-reveal className="space-y-5">
+          <AnalysisForm
+            onSubmit={handleAnalyze}
+            isLoading={isLoading}
+            articleUrl={selectedArticle}
+            newsPicker={<details
+              className="workspace-disclosure mt-4"
+              open={rssPickerOpen}
+              onToggle={event => setRssPickerOpen(event.currentTarget.open)}
+            >
+              <summary>{c.rssPicker}</summary>
+              <div>{rssPickerOpen && <RssNewsPanel onAnalyzeHeadline={handleAnalyzeRssHeadline} isAnalyzing={isLoading} />}</div>
+            </details>}
+          />
+          {isLoading && <LoadingState />}
+          {activeJobId && !isLoading && <p role="status" className="text-sm text-[var(--color-text-muted)]">{t('home.backgroundJob')}</p>}
+          {error && <ErrorMessage message={error} onRetry={handleRetry} />}
         </div>
         <section className="workspace-panel mt-7">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">

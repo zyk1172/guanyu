@@ -22,6 +22,7 @@ interface AnalysisFormProps {
   }) => void;
   isLoading: boolean;
   articleUrl?: { url: string; selectedAt: number };
+  newsPicker?: React.ReactNode;
 }
 
 type ParseFailure = { code: string; message: string };
@@ -51,7 +52,7 @@ function explainParseFailure(code: string) {
   }
 }
 
-export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: AnalysisFormProps) {
+export default function AnalysisForm({ onSubmit, isLoading, articleUrl, newsPicker }: AnalysisFormProps) {
   const { status } = useSession();
   const router = useRouter();
   const { language, t } = useUiLanguage();
@@ -69,6 +70,7 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
   const [isParsing, setIsParsing] = useState(false);
   const [parseFailure, setParseFailure] = useState<ParseFailure | null>(null);
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
+  const urlRef = useRef<HTMLInputElement | null>(null);
   const modalRef = useRef<HTMLDivElement | null>(null);
   const closeParseFailureButtonRef = useRef<HTMLButtonElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -89,6 +91,10 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
     if (!articleUrl) return;
     setUrlInput(articleUrl.url); setInputMode('url'); setParsedSourceUrl(''); setParseFailure(null);
   }, [articleUrl]);
+
+  useEffect(() => {
+    if (articleUrl && inputMode === 'url') urlRef.current?.focus({ preventScroll: true });
+  }, [articleUrl, inputMode]);
 
   const signInWithDraft = () => {
     try {
@@ -203,6 +209,7 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
     <section id="analysis" className="workspace-panel">
       <div className="flex flex-wrap items-center justify-between gap-3"><h2>{c.form}</h2><Link href="/demo" className="inline-flex min-h-11 items-center text-sm font-medium text-[var(--color-link)] underline">{c.demoNav}</Link></div>
       {draftNotice && <p role="status" className="mt-4 rounded-lg bg-[var(--color-primary-soft)] p-3 text-sm">{c[draftNotice]}</p>}
+      {newsPicker}
       <form onSubmit={handleSubmit} className="mt-5 space-y-4">
         <div className="workspace-tabs" role="group" aria-label={t('form.manualEntry')}>
           <button type="button" aria-pressed={inputMode === 'text'} onClick={() => setInputMode('text')}>{c.text}</button>
@@ -211,7 +218,7 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
         {inputMode === 'url' && <div className="space-y-2">
           <label htmlFor="article-url" className="workspace-label">{t('form.urlParser')}</label>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <input id="article-url" type="url" value={urlInput} onChange={(e) => { setUrlInput(e.target.value); setParsedSourceUrl(''); setParseFailure(null); }} onKeyDown={handleKeyDown} placeholder="https://…" className="workspace-input min-w-0 flex-1" />
+            <input id="article-url" ref={urlRef} type="url" value={urlInput} onChange={(e) => { setUrlInput(e.target.value); setParsedSourceUrl(''); setParseFailure(null); }} onKeyDown={handleKeyDown} placeholder="https://…" className="workspace-input min-w-0 flex-1" />
             <button type="button" onClick={handleParseUrl} disabled={isLoading || isParsing || status === 'loading' || !urlInput.trim()} className="workspace-button workspace-secondary shrink-0 disabled:opacity-50">{isParsing ? t('form.parsing') : status === 'authenticated' ? c.read : c.loginRead}</button>
           </div>
         </div>}
