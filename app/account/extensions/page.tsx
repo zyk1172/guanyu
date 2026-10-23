@@ -69,7 +69,7 @@ export default function ExtensionSettingsPage() {
   return (
     <main className="workspace-page min-h-screen bg-gray-50 text-gray-950 dark:bg-gray-980 dark:text-white">
       <Header />
-      <section className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6">
+      <section className="workspace-container py-6">
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-xl font-black sm:text-2xl">{t('extension.title')}</h1>

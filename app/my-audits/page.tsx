@@ -122,7 +122,7 @@ export default function MyAuditsPage() {
     <main className="workspace-page min-h-screen bg-gray-50 dark:bg-black font-sans text-gray-900 dark:text-gray-100 selection:bg-indigo-500/20 pb-12">
       <Header />
 
-      <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
+      <div className="workspace-container py-8 space-y-6">
         <p className="text-sm text-[var(--color-text-muted)]">{relatedCoverageCopy(language).listHint}</p>
         <div>
           <h1 className="text-2xl font-bold leading-tight">{t('myAudits.title')}</h1>

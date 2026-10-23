@@ -129,10 +129,10 @@ function toDraft(model: AdminModel): Draft {
 }
 
 function Field({ label, children, wide = false }: { label: string; children: React.ReactNode; wide?: boolean }) {
-  return <label className={`block space-y-1 ${wide ? 'sm:col-span-2' : ''}`}><span className="text-xxs font-black text-[var(--color-text-muted)]">{label}</span>{children}</label>;
+  return <label className={`settings-field ${wide ? 'sm:col-span-2' : ''}`}><span className="text-[var(--color-text-muted)]">{label}</span>{children}</label>;
 }
 
-const inputClass = 'w-full rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] px-3 py-2 text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary-soft)]';
+const inputClass = 'settings-control';
 
 export default function PlatformModelAdmin() {
   const { language, t } = useUiLanguage();
@@ -200,7 +200,7 @@ export default function PlatformModelAdmin() {
   };
 
   return (
-    <section className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 shadow-[var(--shadow-card)] sm:p-5">
+    <section className="settings-form rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 shadow-[var(--shadow-card)] sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--color-border)] pb-3">
         <div><h3 className="text-sm font-black text-[var(--color-text)]">{t('platformAdmin.title', '平台模型管理')}</h3><p className="mt-1 text-xs text-[var(--color-text-muted)]">{t('platformAdmin.description', '集中配置用户可选模型、联网方式、思考强度、点数倍率及成本统计。')}</p></div>
         <button type="button" onClick={() => { setDraft(EMPTY); setExpanded(true); }} className="rounded-lg bg-[var(--color-primary)] px-3 py-2 text-xs font-black text-white hover:bg-[var(--color-primary-hover)]">{t('platformAdmin.add', '新增模型')}</button>
@@ -228,25 +228,34 @@ export default function PlatformModelAdmin() {
 
       {expanded && <div className="mt-4 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface-muted)] p-4">
         <div className="mb-3 flex items-center justify-between"><h4 className="text-sm font-black text-[var(--color-text)]">{draft.id ? t('platformAdmin.editTitle', '编辑平台模型') : t('platformAdmin.addTitle', '新增平台模型')}</h4><button type="button" onClick={() => setExpanded(false)} className="text-xs font-bold text-[var(--color-text-muted)]">{t('common.close', '关闭')}</button></div>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="settings-grid">
           <Field label={t('platformAdmin.provider', '服务商')}><select className={inputClass} value={draft.provider} onChange={(e) => { const provider = e.target.value; const preset = PROVIDER_DEFAULTS[provider] || PROVIDER_DEFAULTS.openai_compatible; setDraft({ ...draft, provider, baseUrl: preset.baseUrl, modelId: draft.id ? draft.modelId : preset.modelId, searchMode: preset.searchMode }); }}><option value="openai_compatible">通用 OpenAI-compatible</option><option value="xiaomi_mimo">小米 MiMo（专用）</option><option value="qwen">阿里云千问 / Qwen（专用）</option><option value="moonshot">月之暗面 Kimi（专用）</option><option value="zhipu">智谱 GLM（专用）</option><option value="openai">OpenAI 原生（Responses API）</option><option value="gemini">Gemini</option><option value="anthropic">Claude / Anthropic</option></select></Field>
           <Field label={t('platformAdmin.displayName', '显示名称')}><input className={inputClass} value={draft.displayName} onChange={(e) => setDraft({ ...draft, displayName: e.target.value })} /></Field>
           <Field wide label={t('platformAdmin.descriptionLabel', '用户说明')}><textarea className={inputClass} rows={2} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} /></Field>
           <Field label="Base URL"><input className={inputClass} value={draft.baseUrl} onChange={(e) => setDraft({ ...draft, baseUrl: e.target.value })} /></Field>
           <Field label="Model ID"><input className={inputClass} value={draft.modelId} onChange={(e) => setDraft({ ...draft, modelId: e.target.value })} /></Field>
-          <Field wide label={draft.id ? t('platformAdmin.apiKeyOptional', 'API Key（留空则保留原密钥）') : 'API Key'}><input type="password" className={inputClass} value={draft.apiKey} onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })} /></Field>
+          <Field label={draft.id ? t('platformAdmin.apiKeyOptional', 'API Key（留空则保留原密钥）') : 'API Key'}><input type="password" className={inputClass} value={draft.apiKey} onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })} /></Field>
+          <Field label={t('platformAdmin.multiplierLabel', '点数倍率')}><input className={inputClass} inputMode="decimal" value={draft.creditMultiplier} onChange={(e) => setDraft({ ...draft, creditMultiplier: e.target.value })} /></Field>
           <Field label={t('platformAdmin.reasoning', '思考强度')}><select className={inputClass} value={draft.reasoningDepth} onChange={(e) => setDraft({ ...draft, reasoningDepth: e.target.value })}><option value="none">None</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="extreme">Extreme</option></select></Field>
           <Field label={t('platformAdmin.searchMode', '联网方式')}><select className={inputClass} value={draft.searchMode} onChange={(e) => setDraft({ ...draft, searchMode: e.target.value })}><option value="platform">{t('modelSelector.platformSearch', '平台联网核验')}</option>{draft.provider !== 'openai_compatible' && <option value="native" disabled={!allowPaidSearch}>{t('modelSelector.nativeSearch', '模型原生联网')}</option>}<option value="agent">{t('modelSelector.agentSearch', '模型自主查证')}</option><option value="none">{t('modelSelector.noSearch', '不联网')}</option></select></Field>
           <p className="text-xxs leading-relaxed text-[var(--color-text-muted)] sm:col-span-2">{language.startsWith('zh-') ? (allowPaidSearch ? '付费搜索已由部署者启用；下方可选择免费搜索或 DeepSeek 搜索 API。' : '默认免费网页搜索，无需 Tavily/Serper Key。旧的原生联网配置会使用自主网页工具；不联网模式保持关闭。') : (allowPaidSearch ? 'Paid search is enabled. Choose free search or DeepSeek Search API below.' : 'Free web search by default; no Tavily/Serper key needed. Saved native-search modes use web tools. Offline mode stays disabled.')}</p>
           {['agent', 'platform'].includes(draft.searchMode) && <div className="sm:col-span-2"><DeepseekSearchSettings provider={draft.searchProvider} apiKey={draft.deepseekApiKey || ''} hasApiKey={Boolean(draft.hasDeepseekApiKey)} clearKey={Boolean(draft.clearDeepseekApiKey)} paidAllowed={allowPaidSearch} onProviderChange={(searchProvider) => setDraft({ ...draft, searchProvider })} onKeyChange={(deepseekApiKey) => setDraft({ ...draft, deepseekApiKey, clearDeepseekApiKey: false })} onClear={() => setDraft({ ...draft, deepseekApiKey: '', clearDeepseekApiKey: true, searchProvider: 'free' })} /></div>}
-          <Field label={t('platformAdmin.multiplierLabel', '点数倍率')}><input className={inputClass} inputMode="decimal" value={draft.creditMultiplier} onChange={(e) => setDraft({ ...draft, creditMultiplier: e.target.value })} /></Field>
           <Field label={t('platformAdmin.sortOrder', '排序')}><input className={inputClass} inputMode="numeric" value={draft.sortOrder} onChange={(e) => setDraft({ ...draft, sortOrder: e.target.value })} /></Field>
+          <Field label={t('platformAdmin.searchPrice', '原生搜索成本微美元/次')}><input className={inputClass} inputMode="numeric" value={draft.nativeSearchPriceMicrosPerRequest} onChange={(e) => setDraft({ ...draft, nativeSearchPriceMicrosPerRequest: e.target.value })} /></Field>
           <Field label={t('platformAdmin.inputPrice', '输入成本微美元/百万 Token')}><input className={inputClass} inputMode="numeric" value={draft.inputPriceMicrosPerMillion} onChange={(e) => setDraft({ ...draft, inputPriceMicrosPerMillion: e.target.value })} /></Field>
           <Field label={t('platformAdmin.outputPrice', '输出成本微美元/百万 Token')}><input className={inputClass} inputMode="numeric" value={draft.outputPriceMicrosPerMillion} onChange={(e) => setDraft({ ...draft, outputPriceMicrosPerMillion: e.target.value })} /></Field>
-          <Field wide label={t('platformAdmin.searchPrice', '原生搜索成本微美元/次')}><input className={inputClass} inputMode="numeric" value={draft.nativeSearchPriceMicrosPerRequest} onChange={(e) => setDraft({ ...draft, nativeSearchPriceMicrosPerRequest: e.target.value })} /></Field>
         </div>
         <div className="mt-3 grid gap-2 sm:grid-cols-3">{(['supportsAnalysis', 'supportsCompletion', 'supportsFollowup', 'isEnabled', 'isVisibleToUsers', 'isRecommended', 'isDefault'] as const).map((key) => <label key={key} className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-xs font-bold text-[var(--color-text)]"><input type="checkbox" checked={draft[key]} onChange={(e) => setDraft({ ...draft, [key]: e.target.checked })} />{t(`platformAdmin.${key}`, key)}</label>)}</div>
-        <details className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3"><summary className="cursor-pointer text-xs font-black text-[var(--color-text)]">{t('platformAdmin.translations', '多语言名称与说明')}</summary><div className="mt-3 grid gap-3 sm:grid-cols-2">{LOCALES.map((locale) => <div key={locale} className="space-y-1"><b className="text-xxs text-[var(--color-text-muted)]">{locale}</b><input className={inputClass} placeholder={t('platformAdmin.localizedName', '名称')} value={draft.displayNameI18n[locale] || ''} onChange={(e) => setDraft({ ...draft, displayNameI18n: { ...draft.displayNameI18n, [locale]: e.target.value } })} /><textarea className={inputClass} rows={2} placeholder={t('platformAdmin.localizedDescription', '说明')} value={draft.descriptionI18n[locale] || ''} onChange={(e) => setDraft({ ...draft, descriptionI18n: { ...draft.descriptionI18n, [locale]: e.target.value } })} /></div>)}</div></details>
+        <details className="mt-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+          <summary className="cursor-pointer text-sm font-semibold text-[var(--color-text)]">{t('platformAdmin.translations', '多语言名称与说明')}</summary>
+          <div className="settings-grid mt-4">
+            {LOCALES.map((locale) => <fieldset key={locale} className="min-w-0 space-y-4 rounded-lg border border-[var(--color-border)] p-4">
+              <legend className="px-2 text-sm font-semibold text-[var(--color-text-muted)]">{locale}</legend>
+              <Field label={t('platformAdmin.localizedName', '名称')}><input className={inputClass} value={draft.displayNameI18n[locale] || ''} onChange={(e) => setDraft({ ...draft, displayNameI18n: { ...draft.displayNameI18n, [locale]: e.target.value } })} /></Field>
+              <Field label={t('platformAdmin.localizedDescription', '说明')}><textarea className={inputClass} rows={3} value={draft.descriptionI18n[locale] || ''} onChange={(e) => setDraft({ ...draft, descriptionI18n: { ...draft.descriptionI18n, [locale]: e.target.value } })} /></Field>
+            </fieldset>)}
+          </div>
+        </details>
         <div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setExpanded(false)} className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-xs font-bold text-[var(--color-text)]">{t('common.cancel', '取消')}</button><button type="button" disabled={busy === 'save'} onClick={() => void submit()} className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-xs font-black text-white disabled:opacity-50">{busy === 'save' ? t('platformAdmin.saving', '保存中…') : t('common.save', '保存')}</button></div>
       </div>}
     </section>
