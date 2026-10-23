@@ -11,7 +11,7 @@ interface ErrorMessageProps {
 export default function ErrorMessage({ message, onRetry }: ErrorMessageProps) {
   const { t } = useUiLanguage();
   return (
-    <div className="animate-fade-up bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/30 rounded-xl p-6 max-w-2xl mx-auto my-8 space-y-4">
+    <div role="alert" className="animate-fade-up bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/30 rounded-xl p-6 space-y-4">
       <div className="flex items-start gap-3">
         <div className="p-1 bg-red-100 dark:bg-red-900/40 rounded-full text-red-600 dark:text-red-400">
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
