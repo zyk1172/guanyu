@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 import { getWorkspaceCopy } from '@/lib/workspace-copy';
 import { ANALYSIS_DRAFT_KEY, encodeAnalysisDraft, decodeAnalysisDraft } from '@/lib/analysis-draft';
 import TaskBudget from './TaskBudget';
+import Link from 'next/link';
 
 interface AnalysisFormProps {
   onSubmit: (data: {
@@ -200,7 +201,7 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
 
   return (
     <section id="analysis" className="workspace-panel">
-      <h2>{c.form}</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3"><h2>{c.form}</h2><Link href="/demo" className="inline-flex min-h-11 items-center text-sm font-medium text-[var(--color-link)] underline">{c.demoNav}</Link></div>
       {draftNotice && <p role="status" className="mt-4 rounded-lg bg-[var(--color-primary-soft)] p-3 text-sm">{c[draftNotice]}</p>}
       <form onSubmit={handleSubmit} className="mt-5 space-y-4">
         <div className="workspace-tabs" role="group" aria-label={t('form.manualEntry')}>

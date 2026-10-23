@@ -39,7 +39,7 @@ export default function Header() {
       </button>
       <nav id="primary-navigation" className="workspace-nav" data-open={open} aria-label={c.menu}>
         {link('/', t('nav.home'))}
-        {session ? <>{link('/my-audits', t('nav.myAudits'))}{link('/compare', c.compare)}{link('/account', t('nav.account'))}<button type="button" onClick={() => signOut({ callbackUrl: '/' })} className="text-[var(--color-text-muted)]">{t('nav.signOut')}</button></> : <>
+        {session ? <>{link('/my-audits', t('nav.myAudits'))}{link('/account', t('nav.account'))}<button type="button" onClick={() => signOut({ callbackUrl: '/' })} className="text-[var(--color-text-muted)]">{t('nav.signOut')}</button></> : <>
           {link('/demo', c.demoNav)}
           <Link href="/login" className="workspace-secondary">{t('nav.signIn')}</Link><Link href="/register" className="workspace-primary">{t('nav.signUp')}</Link>
         </>}

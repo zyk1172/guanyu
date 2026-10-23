@@ -52,6 +52,7 @@ gsap.registerPlugin(useGSAP);
 
 interface AnalysisResultProps {
   result: AnalysisResult;
+  relatedCoverage?: React.ReactNode;
   auditId?: string;
   canUpdateVerification?: boolean;
   originalContent?: string;
@@ -1118,7 +1119,7 @@ function QuickReportView({ report, originalContent, qaMessages }: { report: Quic
   );
 }
 
-function DeepReportView({ report, originalContent, qaMessages, displayLimit, auditId, canUpdateVerification, onVerificationUpdated }: { report: DeepAnalysisResult; originalContent?: string; qaMessages: ChatMessage[]; displayLimit: number; auditId?: string; canUpdateVerification?: boolean; onVerificationUpdated?: (result: unknown, outcome: ManualVerificationOutcome) => void }) {
+function DeepReportView({ relatedCoverage, report, originalContent, qaMessages, displayLimit, auditId, canUpdateVerification, onVerificationUpdated }: { report: DeepAnalysisResult; originalContent?: string; qaMessages: ChatMessage[]; displayLimit: number; auditId?: string; canUpdateVerification?: boolean; onVerificationUpdated?: (result: unknown, outcome: ManualVerificationOutcome) => void; relatedCoverage?: React.ReactNode }) {
   const reportLanguage = normalizeReportLanguage(report.meta.reportLanguage);
   const text = (key: string) => getReportText(key, reportLanguage);
   const keyFindings = limitedItems(report.keyFindings, displayLimit);
@@ -1130,8 +1131,9 @@ function DeepReportView({ report, originalContent, qaMessages, displayLimit, aud
   const questions = limitedItems(report.questionsToAsk, displayLimit);
   return (
     <>
-      <ReadingNavigation language={reportLanguage} />
+      <ReadingNavigation language={reportLanguage} hasRelated={Boolean(relatedCoverage)} />
       <ReportBrief report={report} originalContent={originalContent} />
+      {relatedCoverage}
       <Section id="report-interpretation" title={text('sourceInterpretation')}>
         <div className="grid gap-3 text-xs md:grid-cols-2">
           <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900 md:col-span-2">
@@ -1231,7 +1233,7 @@ function DeepReportView({ report, originalContent, qaMessages, displayLimit, aud
   );
 }
 
-export default function AnalysisResultView({ result: rawResult, auditId, originalContent, auditMeta, canUpdateVerification = false }: AnalysisResultProps) {
+export default function AnalysisResultView({ result: rawResult, relatedCoverage, auditId, originalContent, auditMeta, canUpdateVerification = false }: AnalysisResultProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [workingResult, setWorkingResult] = useState<AnalysisResult>(rawResult);
   const [verificationPulse, setVerificationPulse] = useState(0);
@@ -1279,8 +1281,9 @@ export default function AnalysisResultView({ result: rawResult, auditId, origina
       <GsapReveal className="space-y-4 sm:space-y-5" y={18} stagger={0.055}>
         {isQuick(result)
           ? <QuickReportView report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} />
-          : <DeepReportView report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} displayLimit={readingLimit} auditId={auditId} canUpdateVerification={canUpdateVerification} onVerificationUpdated={handleVerificationUpdated} />}
+          : <DeepReportView relatedCoverage={relatedCoverage} report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} displayLimit={readingLimit} auditId={auditId} canUpdateVerification={canUpdateVerification} onVerificationUpdated={handleVerificationUpdated} />}
 
+        {isQuick(result) && relatedCoverage}
         {auditId && <InteractiveQA auditId={auditId} messages={qaMessages} onMessagesChange={setQaMessages} />}
         {auditId && <DiscussionBoard auditId={auditId} />}
       </GsapReveal>

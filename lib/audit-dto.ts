@@ -1,7 +1,6 @@
 function publicReportJson(audit: any) {
-  if (audit.isSourcePublic) return audit.auditResultJson;
   try {
-    return JSON.stringify(JSON.parse(audit.auditResultJson), (key, value) => key === 'originalQuote' ? undefined : value);
+    return JSON.stringify(JSON.parse(audit.auditResultJson), (key, value) => key === 'relatedCoverage' || (!audit.isSourcePublic && key === 'originalQuote') ? undefined : value);
   } catch { return 'null'; }
 }
 

@@ -1,22 +1,31 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import Header from '@/components/Header';
 import AnalysisResultView from '@/components/AnalysisResult';
 import { getReportLanguageLabel, getThinkingDepthLabel } from '@/lib/types';
 import { useUiLanguage } from '@/components/LanguageProvider';
 import ReanalyzeControl from '@/components/ReanalyzeControl';
+import RelatedCoverage from '@/components/RelatedCoverage';
+
+// Use a stable timezone during hydration, then display the reader's local time.
+const subscribeToTimezone = () => () => {};
+const browserTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+const serverTimezone = () => 'UTC';
 
 interface AuditDetailsClientProps {
   auditRecord: any;
   canManage: boolean;
   isAuthor: boolean;
+  isOwner?: boolean;
 }
 
-export default function AuditDetailsClient({ auditRecord: initialAuditRecord, canManage, isAuthor }: AuditDetailsClientProps) {
+export default function AuditDetailsClient({ auditRecord: initialAuditRecord, canManage, isAuthor, isOwner = false }: AuditDetailsClientProps) {
   const { language, t } = useUiLanguage();
   const [auditRecord, setAuditRecord] = useState(initialAuditRecord);
+  const timeZone = useSyncExternalStore(subscribeToTimezone, browserTimezone, serverTimezone);
+  const createdAtText = new Date(auditRecord.createdAt).toLocaleString(language, { timeZone, timeZoneName: 'short' });
 
   const getDepthLabel = (depth: string) => getThinkingDepthLabel(depth, language);
   const getModeLabel = (mode: string) => {
@@ -64,7 +73,7 @@ export default function AuditDetailsClient({ auditRecord: initialAuditRecord, ca
                 {getReportLanguageLabel(auditRecord.reportLanguage, language)}
               </span>
               <span className="text-xxs text-gray-400 dark:text-gray-500 font-semibold">
-                {t('audit.source')}: {auditRecord.source} · {new Date(auditRecord.createdAt).toLocaleString(language)}
+                {t('audit.source')}: {auditRecord.source} · {createdAtText}
               </span>
             </div>
             <h1 className="break-words">{auditRecord.title}</h1>
@@ -83,6 +92,7 @@ export default function AuditDetailsClient({ auditRecord: initialAuditRecord, ca
         {auditResultParsed ? (
           <div className="space-y-4 sm:space-y-5">
             <AnalysisResultView
+              relatedCoverage={isOwner ? <RelatedCoverage auditId={auditRecord.id} /> : undefined}
               result={auditResultParsed}
               auditId={auditRecord.id}
               originalContent={auditRecord.originalContent}
@@ -96,7 +106,7 @@ export default function AuditDetailsClient({ auditRecord: initialAuditRecord, ca
                 reasoningDepth: getDepthLabel(auditRecord.reasoningDepth),
                 analysisMode: getModeLabel(auditRecord.analysisMode),
                 reportLanguage: auditRecord.reportLanguage,
-                createdAt: new Date(auditRecord.createdAt).toLocaleString(language),
+                createdAt: createdAtText,
                 viewCount: auditRecord.viewCount,
                 isPublic: auditRecord.isPublic,
               }}

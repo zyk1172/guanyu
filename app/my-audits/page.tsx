@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import Header from '@/components/Header';
+import { relatedCoverageCopy } from '@/lib/related-coverage-copy';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -122,7 +123,7 @@ export default function MyAuditsPage() {
       <Header />
 
       <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
-        <Link href="/compare" className="inline-flex rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-4 py-2 text-sm font-bold text-[var(--color-primary)]">{language.startsWith('zh-') ? '多报道对比：选择 2–3 份报告' : 'Compare 2–3 reports'}</Link>
+        <p className="text-sm text-[var(--color-text-muted)]">{relatedCoverageCopy(language).listHint}</p>
         <div>
           <h1 className="text-2xl font-bold leading-tight">{t('myAudits.title')}</h1>
           <p className="text-xs text-gray-500 dark:text-gray-400">{t('myAudits.description')}</p>
