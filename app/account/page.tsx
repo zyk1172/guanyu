@@ -845,7 +845,7 @@ export default function AccountPage() {
     <main className="workspace-page min-h-screen bg-gray-50 dark:bg-black font-sans text-gray-900 dark:text-gray-100 selection:bg-indigo-500/20 pb-12">
       <Header />
 
-      <div className={`${activeTab === 'system' ? 'max-w-7xl' : 'max-w-5xl'} mx-auto space-y-6 px-4 py-8 transition-[max-width] duration-300`}>
+      <div className="workspace-container space-y-6 py-8">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-150 dark:border-gray-900 pb-4">
           <div>
             <h1 className="text-2xl font-bold leading-tight">{t('account.title')}</h1>
@@ -1511,7 +1511,7 @@ export default function AccountPage() {
 
         {/* 2. 模型与偏好设置面板 */}
         {activeTab === 'settings' && (
-          <form onSubmit={handleSaveSettings} className="bg-white dark:bg-gray-950 p-6 rounded-xl border border-gray-150 dark:border-gray-900 shadow-sm space-y-6 max-w-4xl mx-auto">
+          <form onSubmit={handleSaveSettings} className="settings-form bg-white dark:bg-gray-950 p-6 rounded-xl border border-gray-150 dark:border-gray-900 shadow-sm space-y-6">
             <h3 className="text-sm font-bold text-gray-900 dark:text-white border-b border-gray-100 dark:border-gray-900 pb-2">
               {t('account.modelSettings')}
             </h3>

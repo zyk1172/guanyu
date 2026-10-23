@@ -117,7 +117,7 @@ export function PlatformModelSelector({
             value={selected?.id || ''}
             disabled={loading || !models.length}
             onChange={(event) => onSelectedIdChange(event.target.value)}
-            className="w-full rounded-[var(--radius-button)] border border-[var(--color-input-border)] bg-[var(--color-input-bg)] px-3 py-2 text-xs font-semibold text-[var(--color-text)] outline-none transition focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary-soft)]"
+            className="settings-control"
           >
             {models.map((model) => (
               <option key={model.id} value={model.id}>

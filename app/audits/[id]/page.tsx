@@ -58,6 +58,7 @@ async function loadAudit(id: string) {
       heatScore: currentAudit.heatScore + (shouldCountView ? 1 : 0),
     },
     canManage,
+    isOwner: currentAudit.userId === userId,
     isAuthor: currentAudit.userId === userId || isSuperAdmin,
   };
 }
@@ -93,5 +94,5 @@ export default async function AuditDetailsPage({ params }: { params: Promise<{ i
       </main>
     );
   }
-  return <AuditDetailsClient auditRecord={loaded.audit} canManage={loaded.canManage} isAuthor={loaded.isAuthor} />;
+  return <AuditDetailsClient auditRecord={loaded.audit} canManage={loaded.canManage} isOwner={loaded.isOwner} isAuthor={loaded.isAuthor} />;
 }

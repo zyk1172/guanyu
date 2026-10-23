@@ -13,7 +13,6 @@ import { useUiLanguage } from '../components/LanguageProvider';
 import RssNewsPanel, { RssHeadline } from '../components/RssNewsPanel';
 import { AnalysisMode, ReportLanguage } from '../lib/types';
 import { getWorkspaceCopy } from '@/lib/workspace-copy';
-import { getDemoReport } from '@/lib/demo-report';
 import SiteFooter from '@/components/SiteFooter';
 import { ArrowUpRight } from 'lucide-react';
 import {
@@ -53,7 +52,6 @@ export default function Home() {
   const { status: sessionStatus } = useSession();
   const { language, t } = useUiLanguage();
   const c = getWorkspaceCopy(language);
-  const demo = getDemoReport(language).report;
   const [selectedArticle, setSelectedArticle] = useState<{ url: string; selectedAt: number }>();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -216,7 +214,6 @@ export default function Home() {
         <section data-gsap-reveal className="workspace-hero">
           <h1>{language.startsWith('zh-') ? <><span className="inline-block">{c.headline.split('，')[0]}，</span><wbr /><span className="inline-block">{c.headline.split('，')[1]}</span></> : c.headline}</h1>
           <p>{c.subtitle}</p>
-          <Link href="/demo" className="workspace-link workspace-demo-shortcut mt-1">{c.demoLink}<ArrowUpRight size={16} aria-hidden="true" /></Link>
         </section>
         <div className="workspace-grid">
           <div data-gsap-reveal className="space-y-5">
@@ -226,15 +223,6 @@ export default function Home() {
             {error && <ErrorMessage message={error} onRetry={handleRetry} />}
           </div>
           <aside data-gsap-reveal className="space-y-5">
-            <section className="workspace-panel">
-              <h2>{c.demo}</h2>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--color-text-muted)]">{c.demoNote}</p>
-              <div className="mt-4 rounded-lg bg-[var(--color-surface-muted)] p-4">
-                <h3 className="text-base font-bold leading-relaxed">{demo.meta.title.replace(/^示例[：:]\s*/, '')}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-[var(--color-text-muted)]">{demo.newsSummary}</p>
-                <Link href="/demo" className="workspace-link mt-2">{c.demoLink}<ArrowUpRight size={16} aria-hidden="true" /></Link>
-              </div>
-            </section>
             <RssNewsPanel onAnalyzeHeadline={handleAnalyzeRssHeadline} isAnalyzing={isLoading} />
           </aside>
         </div>

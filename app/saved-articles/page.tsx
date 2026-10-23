@@ -45,7 +45,7 @@ export default function SavedArticlesPage() {
   return (
     <main className="workspace-page min-h-screen bg-gray-50 dark:bg-black font-sans">
       <Header />
-      <section className="mx-auto w-full max-w-4xl px-4 py-6">
+      <section className="workspace-container py-6">
         <div className="mb-4 flex items-center justify-between">
           <h1 className="text-xl font-black text-gray-950 dark:text-white">{t('saved.title')}</h1>
           <div className="flex gap-2">
