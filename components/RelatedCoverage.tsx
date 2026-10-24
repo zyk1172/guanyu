@@ -81,7 +81,7 @@ export default function RelatedCoverage({ auditId }: { auditId: string }) {
       })}</div>
     </details>
   </div>;
-  return <section id="report-related" className="workspace-panel" aria-labelledby="related-coverage-title">
+  return <section id="report-related" data-reading-section={c.title} className="workspace-panel" aria-labelledby="related-coverage-title">
     <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 id="related-coverage-title">{c.title}</h2><p className="mt-2 text-sm leading-relaxed text-[var(--color-text-muted)]">{c.intro}</p></div>
       {!expanded && !busy && <button type="button" className="workspace-button workspace-secondary" onClick={() => setExpanded(true)}><Search size={16} aria-hidden="true" />{result ? c.adjust : c.open}</button>}
     </div>

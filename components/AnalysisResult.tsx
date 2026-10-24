@@ -170,7 +170,7 @@ function Badge({ children, className, title }: { children: React.ReactNode; clas
 
 function Section({ title, children, aside, id }: { title: string; children: React.ReactNode; aside?: React.ReactNode; id?: string }) {
   return (
-    <section id={id} data-gsap-reveal className="result-card rounded-xl border border-gray-150 bg-white p-3 shadow-sm dark:border-gray-900 dark:bg-gray-950 sm:p-4">
+    <section id={id} data-reading-section={id ? title : undefined} data-gsap-reveal className="result-card rounded-xl border border-gray-150 bg-white p-3 shadow-sm dark:border-gray-900 dark:bg-gray-950 sm:p-4">
       <div className="mb-3 flex flex-col gap-2 border-b border-gray-100 pb-2 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-sm font-black text-gray-950 dark:text-white">{title}</h2>
         {aside}
@@ -461,7 +461,7 @@ function OriginalContentPanel({ originalContent, reportLanguage = 'zh-CN' }: { o
   if (!originalContent?.trim()) return null;
   const text = (key: string) => getReportText(key, reportLanguage);
   return (
-    <Section title={text('articleOriginal')} aside={<button type="button" onClick={() => setOpen((value) => !value)} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-bold text-gray-700 transition hover:bg-gray-100 active:scale-[0.98] dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">{open ? text('hideOriginal') : text('showOriginal')}</button>}>
+    <Section id="report-original" title={text('articleOriginal')} aside={<button type="button" onClick={() => setOpen((value) => !value)} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-bold text-gray-700 transition hover:bg-gray-100 active:scale-[0.98] dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">{open ? text('hideOriginal') : text('showOriginal')}</button>}>
       {!open ? (
         <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400">{text('originalCollapsed')}</p>
       ) : (
@@ -536,7 +536,7 @@ function ScoresSection({ report, quick = false }: { report: QuickAnalysisResult 
       ];
 
   return (
-    <Section title={text('coreScores')} aside={<span className="text-xxs font-semibold text-gray-400">{text('scoreDisclaimer')}</span>}>
+    <Section id="report-scores" title={text('coreScores')} aside={<span className="text-xxs font-semibold text-gray-400">{text('scoreDisclaimer')}</span>}>
       <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
         {rows.map(([name, value, help]) => (
           <div key={String(name)} data-verification-pulse className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">
@@ -1131,7 +1131,6 @@ function DeepReportView({ relatedCoverage, report, originalContent, qaMessages, 
   const questions = limitedItems(report.questionsToAsk, displayLimit);
   return (
     <>
-      <ReadingNavigation language={reportLanguage} hasRelated={Boolean(relatedCoverage)} />
       <ReportBrief report={report} originalContent={originalContent} />
       {relatedCoverage}
       <Section id="report-interpretation" title={text('sourceInterpretation')}>
@@ -1148,11 +1147,11 @@ function DeepReportView({ relatedCoverage, report, originalContent, qaMessages, 
         </div>
       </Section>
       <ReadingValueSection label={report.readingValue} reason={report.readingValueReason} verdict={report.read_worth} manualVerifications={report.manualVerifications} reportLanguage={report.meta.reportLanguage} />
-      <Section title={text('readerGuide')}><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{report.normalReaderGuide}</p></Section>
-      <Section title={text('oneSentence')}><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.oneSentenceConclusion}</p></Section>
+      <Section id="report-guide" title={text('readerGuide')}><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{report.normalReaderGuide}</p></Section>
+      <Section id="report-conclusion" title={text('oneSentence')}><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.oneSentenceConclusion}</p></Section>
       <ScoresSection report={report} />
       <div data-verification-pulse><AuditCharts {...chartProps(report)} reportLanguage={reportLanguage} /></div>
-      <Section title={text('conclusionLayers')}>
+      <Section id="report-conclusion-layers" title={text('conclusionLayers')}>
         <div className="grid gap-2 md:grid-cols-3">
           {[
             [text('confirmed'), report.conclusionLayers.confirmed],
@@ -1166,17 +1165,17 @@ function DeepReportView({ relatedCoverage, report, originalContent, qaMessages, 
           ))}
         </div>
       </Section>
-      <Section title={text('findings')} aside={compactAside(report.keyFindings.length, displayLimit, reportLanguage)}><div className="grid grid-cols-1 gap-3 lg:grid-cols-3">{keyFindings.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} reportLanguage={reportLanguage} />)}</div></Section>
-      <Section title={text('supportingEvidence')} aside={compactAside(report.supportingEvidence.length, displayLimit, reportLanguage) || <span className="text-xxs font-semibold text-gray-400">{text('supportingEvidence')}</span>}>
+      <Section id="report-findings" title={text('findings')} aside={compactAside(report.keyFindings.length, displayLimit, reportLanguage)}><div className="grid grid-cols-1 gap-3 lg:grid-cols-3">{keyFindings.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} reportLanguage={reportLanguage} />)}</div></Section>
+      <Section id="report-supporting" title={text('supportingEvidence')} aside={compactAside(report.supportingEvidence.length, displayLimit, reportLanguage) || <span className="text-xxs font-semibold text-gray-400">{text('supportingEvidence')}</span>}>
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2">{supportingEvidence.map((item, index) => <JudgmentCard key={`${item.content}-${index}`} reportLanguage={reportLanguage} item={{ title: item.supportsNarrative, content: item.content, evidenceGrade: item.evidenceGrade, verificationStatus: item.verificationStatus, nextVerification: item.limitation }} />)}</div>
       </Section>
-      <Section title={text('informationGaps')} aside={compactAside(report.informationGaps.length, displayLimit, reportLanguage)}><div className="grid grid-cols-1 gap-2 md:grid-cols-2">{informationGaps.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} reportLanguage={reportLanguage} />)}</div></Section>
-      <Section title={text('interests')} aside={compactAside(report.stakeholderRelations.length, displayLimit, reportLanguage)}>
+      <Section id="report-gaps" title={text('informationGaps')} aside={compactAside(report.informationGaps.length, displayLimit, reportLanguage)}><div className="grid grid-cols-1 gap-2 md:grid-cols-2">{informationGaps.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} reportLanguage={reportLanguage} />)}</div></Section>
+      <Section id="report-stakeholders" title={text('interests')} aside={compactAside(report.stakeholderRelations.length, displayLimit, reportLanguage)}>
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
           {stakeholderRelations.map((item, index) => <JudgmentCard key={`${item.role}-${index}`} reportLanguage={reportLanguage} item={{ title: item.role, content: !reportLanguage.startsWith('zh-') ? `${text('possibleBenefit')}: ${item.possibleBenefit || 'Not disclosed in the article; needs verification.'}; ${text('possibleCost')}: ${item.possibleCost || 'Not disclosed in the article; needs verification.'}` : `可能利益：${item.possibleBenefit || '原文未披露，需进一步核验。'}；可能代价：${item.possibleCost || '原文未披露，需进一步核验。'}`, judgmentType: item.judgmentType, speculationRisk: item.speculationRisk, nextVerification: item.pendingVerification, verificationStatus: 'pending_verification', evidenceGrade: 'D' }} />)}
         </div>
       </Section>
-      <Section title={text('alternatives')} aside={compactAside(report.alternativeExplanations.length, displayLimit, reportLanguage)}>
+      <Section id="report-alternatives" title={text('alternatives')} aside={compactAside(report.alternativeExplanations.length, displayLimit, reportLanguage)}>
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2">{alternativeExplanations.map((item, index) => <JudgmentCard key={`${item.explanation}-${index}`} reportLanguage={reportLanguage} item={{ title: item.explanation, content: !reportLanguage.startsWith('zh-') ? `${formatReasonableness(item.reasonableness, reportLanguage)}; ${text('currentEvidence')}: ${item.currentEvidenceStatus}` : `合理性：${item.reasonableness}；当前证据：${item.currentEvidenceStatus}`, speculationRisk: item.speculationRisk, nextVerification: item.neededVerification, verificationStatus: 'pending_verification', evidenceGrade: item.speculationRisk === '高' ? 'E' : 'D' }} />)}</div>
       </Section>
       <Section id="report-evidence" title={text('evidenceStatus')}>
@@ -1196,7 +1195,7 @@ function DeepReportView({ relatedCoverage, report, originalContent, qaMessages, 
           ))}
         </div>
       </Section>
-      <Section title={text('roadmap')} aside={compactAside(report.verificationRoadmap.length, displayLimit, reportLanguage)}>
+      <Section id="report-roadmap" title={text('roadmap')} aside={compactAside(report.verificationRoadmap.length, displayLimit, reportLanguage)}>
         <VerificationRoadmap
           auditId={auditId}
           canUpdate={canUpdateVerification}
@@ -1208,11 +1207,11 @@ function DeepReportView({ relatedCoverage, report, originalContent, qaMessages, 
           onUpdated={onVerificationUpdated}
         />
       </Section>
-      <Section title={text('webVerification')}><WebVerificationView report={report} /></Section>
-      <Section title={text('questions')} aside={compactAside(report.questionsToAsk.length, displayLimit, reportLanguage)}><ul className="grid grid-cols-1 gap-2 md:grid-cols-2">{questions.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs font-semibold leading-relaxed text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300">{item}</li>)}</ul></Section>
-      <Section title={text('notConcluded')}><ul className="space-y-2 text-xs leading-relaxed text-gray-700 dark:text-gray-300">{report.cannotConclude.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">- {item}</li>)}</ul></Section>
-      <Section title={text('riskNotice')}><p className="text-xs leading-relaxed text-gray-600 dark:text-gray-300">{report.riskNotice}</p></Section>
-      <Section title={text('meta')}>
+      <Section id="report-web-verification" title={text('webVerification')}><WebVerificationView report={report} /></Section>
+      <Section id="report-questions" title={text('questions')} aside={compactAside(report.questionsToAsk.length, displayLimit, reportLanguage)}><ul className="grid grid-cols-1 gap-2 md:grid-cols-2">{questions.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs font-semibold leading-relaxed text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300">{item}</li>)}</ul></Section>
+      <Section id="report-limits" title={text('notConcluded')}><ul className="space-y-2 text-xs leading-relaxed text-gray-700 dark:text-gray-300">{report.cannotConclude.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">- {item}</li>)}</ul></Section>
+      <Section id="report-risk" title={text('riskNotice')}><p className="text-xs leading-relaxed text-gray-600 dark:text-gray-300">{report.riskNotice}</p></Section>
+      <Section id="report-metadata" title={text('meta')}>
         <div className="grid gap-2 text-xs md:grid-cols-2">
           {[
             [text('articleTitle'), report.meta.title],
@@ -1235,6 +1234,7 @@ function DeepReportView({ relatedCoverage, report, originalContent, qaMessages, 
 
 export default function AnalysisResultView({ result: rawResult, relatedCoverage, auditId, originalContent, auditMeta, canUpdateVerification = false }: AnalysisResultProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
   const [workingResult, setWorkingResult] = useState<AnalysisResult>(rawResult);
   const [verificationPulse, setVerificationPulse] = useState(0);
   const [verificationNotice, setVerificationNotice] = useState<string | null>(null);
@@ -1278,15 +1278,19 @@ export default function AnalysisResultView({ result: rawResult, relatedCoverage,
   return (
     <div ref={rootRef} className="report-reading space-y-5">
       {verificationNotice && <div data-verification-toast role="status" className="rounded-lg border border-[var(--color-success)]/35 bg-[color-mix(in_srgb,var(--color-success)_10%,var(--color-surface))] px-3 py-2 text-xs font-bold text-[var(--color-success)]">{verificationNotice}</div>}
-      <GsapReveal className="space-y-4 sm:space-y-5" y={18} stagger={0.055}>
-        {isQuick(result)
-          ? <QuickReportView report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} />
-          : <DeepReportView relatedCoverage={relatedCoverage} report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} displayLimit={readingLimit} auditId={auditId} canUpdateVerification={canUpdateVerification} onVerificationUpdated={handleVerificationUpdated} />}
-
-        {isQuick(result) && relatedCoverage}
-        {auditId && <InteractiveQA auditId={auditId} messages={qaMessages} onMessagesChange={setQaMessages} />}
-        {auditId && <DiscussionBoard auditId={auditId} />}
-      </GsapReveal>
+      <div className={isQuick(result) ? undefined : 'report-layout'}>
+        <div ref={contentRef} className="report-content min-w-0">
+          <GsapReveal className="space-y-4 sm:space-y-5" y={18} stagger={0.055}>
+            {isQuick(result)
+              ? <QuickReportView report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} />
+              : <DeepReportView relatedCoverage={relatedCoverage} report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} displayLimit={readingLimit} auditId={auditId} canUpdateVerification={canUpdateVerification} onVerificationUpdated={handleVerificationUpdated} />}
+            {isQuick(result) && relatedCoverage}
+          </GsapReveal>
+        </div>
+        {!isQuick(result) && <ReadingNavigation language={result.meta.reportLanguage} contentRef={contentRef} />}
+      </div>
+      {auditId && <InteractiveQA auditId={auditId} messages={qaMessages} onMessagesChange={setQaMessages} />}
+      {auditId && <DiscussionBoard auditId={auditId} />}
     </div>
   );
 }
