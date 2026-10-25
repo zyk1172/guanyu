@@ -2,6 +2,7 @@
 
 import AccountProfile from '@/components/AccountProfile';
 import TrafficAdmin from '@/components/TrafficAdmin';
+import NewsSearchAdmin from '@/components/NewsSearchAdmin';
 
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import Header from '@/components/Header';
@@ -942,6 +943,7 @@ export default function AccountPage() {
             </section>
           )}
           {activeTab === 'system' && isSuperAdmin && <TrafficAdmin />}
+          {activeTab === 'system' && isSuperAdmin && <NewsSearchAdmin />}
           {activeTab === 'system' && isSuperAdmin && (
             <div className="col-span-full">
               <PlatformModelAdmin />

@@ -16,7 +16,7 @@ export function normalizeDeepseekSearchResponse(payload: unknown): WebSearchSour
       if (seen.has(url.href)) return [];
       seen.add(url.href);
       const text = [row.summary, row.snippet].find((value) => typeof value === 'string' && value.trim());
-      return [{ title: typeof row.title === 'string' && row.title.trim() ? row.title.trim().slice(0, 300) : url.hostname, url: url.href, snippet: typeof text === 'string' ? text.trim().slice(0, 2000) : '', provider: 'deepseek' }];
+      return [{ title: typeof row.title === 'string' && row.title.trim() ? row.title.trim().slice(0, 300) : url.hostname, url: url.href, snippet: typeof text === 'string' ? text.trim().slice(0, 2000) : '', ...(typeof row.published_date === 'string' ? { publishedAt: row.published_date } : {}), provider: 'deepseek' }];
     } catch { return []; }
   });
 }

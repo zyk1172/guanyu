@@ -272,6 +272,9 @@ model AppSetting {
   enableAdminTavilySearch    Boolean  @default(false)
   enableAdminSerperSearch    Boolean  @default(false)
   adminRssFeedIdsJson        String   @default("[]")
+  newsSearchProvider        String   @default("free")
+  newsSearchModelConfigId   String?
+  newsSearchDailyLimit      Int      @default(200)
   alipayQrImageUrl           String   @default("/alipay-qr.jpg")
   alipayPointsQrImageUrl     String   @default("/alipay-points.jpg")
   alipayByokQrImageUrl       String   @default("/alipay-byok.jpg")
@@ -323,6 +326,19 @@ model PlatformModelConfig {
   @@index([isEnabled, isVisibleToUsers, sortOrder])
   @@index([isDefault])
   @@index([archivedAt])
+}
+
+model NewsSearchCache {
+  id           String   @id @default(cuid())
+  cacheKey     String   @unique
+  status       String
+  resultJson   String?
+  leaseUntil   DateTime
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([expiresAt])
 }
 
 model ModelUsageEvent {

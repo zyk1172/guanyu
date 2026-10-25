@@ -14,6 +14,7 @@
 - 新闻原文解析、新闻总结、审视报告保存
 - 联网线索、继续提问、Markdown 导出
 - 模型自主调用网页搜索与正文读取工具（SearXNG / Mozilla Readability）
+- 首页关键词新闻检索：免费工具／可用的 DeepSeek API、正文提取和登录后恢复，见 [功能与部署说明](docs/homepage-news-search.md)
 - 热门审视、我的审视、公开/私有切换
 - Recharts 图形化核心指数和证据结构
 - PostgreSQL 持久化数据库

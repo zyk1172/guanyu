@@ -10,7 +10,6 @@ import ErrorMessage from '../components/ErrorMessage';
 import Header from '../components/Header';
 import { GsapReveal } from '../components/GsapMotion';
 import { useUiLanguage } from '../components/LanguageProvider';
-import RssNewsPanel, { RssHeadline } from '../components/RssNewsPanel';
 import { AnalysisMode, ReportLanguage } from '../lib/types';
 import { getWorkspaceCopy } from '@/lib/workspace-copy';
 import SiteFooter from '@/components/SiteFooter';
@@ -52,13 +51,13 @@ export default function Home() {
   const { status: sessionStatus } = useSession();
   const { language, t } = useUiLanguage();
   const c = getWorkspaceCopy(language);
-  const [selectedArticle, setSelectedArticle] = useState<{ url: string; selectedAt: number }>();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastSubmittedData, setLastSubmittedData] = useState<AuditSubmitData | null>(null);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [hotAudits, setHotAudits] = useState<HotAudit[]>([]);
   const [isLoadingHotAudits, setIsLoadingHotAudits] = useState(true);
+  const submitting = useRef(false);
   const activePollingJobRef = useRef<string | null>(null);
   const pageIsMountedRef = useRef(true);
 
@@ -162,6 +161,8 @@ export default function Home() {
   }, []);
 
   const handleAnalyze = async (data: AuditSubmitData) => {
+    if (submitting.current) return;
+    submitting.current = true;
     setIsLoading(true);
     setError(null);
     setLastSubmittedData(data);
@@ -188,13 +189,9 @@ export default function Home() {
       console.error(err);
       setError(err?.message || '网络连接或请求处理出错，请重试。');
     } finally {
+      submitting.current = false;
       setIsLoading(false);
     }
-  };
-
-  const handleAnalyzeRssHeadline = (headline: RssHeadline) => {
-    setSelectedArticle({ url: headline.url, selectedAt: Date.now() });
-    document.getElementById('analysis')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });
   };
 
   const handleRetry = () => {
@@ -215,16 +212,11 @@ export default function Home() {
           <h1>{language.startsWith('zh-') ? <><span className="inline-block">{c.headline.split('，')[0]}，</span><wbr /><span className="inline-block">{c.headline.split('，')[1]}</span></> : c.headline}</h1>
           <p>{c.subtitle}</p>
         </section>
-        <div className="workspace-grid">
-          <div data-gsap-reveal className="space-y-5">
-            <AnalysisForm onSubmit={handleAnalyze} isLoading={isLoading} articleUrl={selectedArticle} />
+        <div data-gsap-reveal className="space-y-5">
+            <AnalysisForm onSubmit={handleAnalyze} isLoading={isLoading} />
             {isLoading && <LoadingState />}
             {activeJobId && !isLoading && <p role="status" className="text-sm text-[var(--color-text-muted)]">{t('home.backgroundJob')}</p>}
             {error && <ErrorMessage message={error} onRetry={handleRetry} />}
-          </div>
-          <aside data-gsap-reveal className="space-y-5">
-            <RssNewsPanel onAnalyzeHeadline={handleAnalyzeRssHeadline} isAnalyzing={isLoading} />
-          </aside>
         </div>
         <section className="workspace-panel mt-7">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
