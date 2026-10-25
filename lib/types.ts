@@ -315,6 +315,7 @@ export interface TimeAssessment {
 export interface NormalizedReportMeta {
   title: string;
   source: string;
+  sourceUrl?: string;
   publishedAt: string;
   publishedAtSource: PublishedAtSource;
   publishedAtConfidence: PublishedAtConfidence;

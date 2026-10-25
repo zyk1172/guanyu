@@ -15,7 +15,7 @@ const COPY = {
   'en-US': ['Task and follow-up costs', 'Analysis', 'AI completion', 'Each question', 'Each export', 'credits', 'Unavailable', 'Confirming costs…', 'Costs unavailable. Check model settings and retry.', 'Insufficient credits. View the example or purchase credits.', 'Analysis is charged after a report is saved. Failed analysis is not charged. Questions, completions and exports are charged separately; reserved credits are refunded on failure.', 'Your API provider charges model usage separately. Exports still use platform credits.', 'View example', 'Model and credit settings'],
 };
 
-export default function TaskBudget({ compact = false }: { compact?: boolean }) {
+export default function TaskBudget({ compact = false, onAvailabilityChange }: { compact?: boolean; onAvailabilityChange?: (ready: boolean) => void }) {
   const { language, t } = useUiLanguage();
   const { status } = useSession();
   const w = getWorkspaceCopy(language);
@@ -34,6 +34,9 @@ export default function TaskBudget({ compact = false }: { compact?: boolean }) {
     return () => controller.abort();
   }, [status]);
   const analysis = quote?.prices.find((price) => price.operation === 'analysis');
+  useEffect(() => {
+    onAvailabilityChange?.(Boolean(!loading && !failed && analysis?.available && analysis.costCents !== null && (quote?.balanceCents === null || (quote?.balanceCents ?? 0) >= analysis.costCents)));
+  }, [loading, failed, analysis, quote?.balanceCents, onAvailabilityChange]);
   const price = (operation: string) => {
     const item = quote?.prices.find((entry) => entry.operation === operation);
     return item?.costCents !== null && item?.costCents !== undefined ? `${formatCreditCents(item.costCents)} ${c[5]}${item.available ? '' : ` · ${c[6]}`}` : c[6];

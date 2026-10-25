@@ -6,17 +6,21 @@
 
 ## 功能概览
 
-- 多用户注册、登录、退出
+- 邮箱验证码登录／首次自动注册、通行密钥（Passkey）登录，并保留密码登录
+- 个人资料与头像编辑、验证后修改邮箱；管理员访问统计（PV/UV、趋势与热门页面）
 - 账号管理和个人模型设置
 - OpenAI-compatible Chat Completions API
 - 观隅九镜审读法报告
 - 新闻原文解析、新闻总结、审视报告保存
 - 联网线索、继续提问、Markdown 导出
 - 模型自主调用网页搜索与正文读取工具（SearXNG / Mozilla Readability）
+- 首页关键词新闻检索：免费工具／可用的 DeepSeek API、正文提取和登录后恢复，见 [功能与部署说明](docs/homepage-news-search.md)
 - 热门审视、我的审视、公开/私有切换
 - Recharts 图形化核心指数和证据结构
 - PostgreSQL 持久化数据库
 - Docker 和 QNAP NAS 部署配置
+
+上述登录、资料和统计功能的部署前提、数据库迁移及统计口径见 [部署说明](docs/access-profile-traffic.md)。
 
 ## 技术栈
 

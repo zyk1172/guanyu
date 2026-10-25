@@ -15,7 +15,7 @@ DATABASE_URL="postgresql://USER:PASSWORD@HOST/DB?sslmode=require&connection_limi
 
 ## 2. 配置 Vercel 环境变量
 
-在 Vercel 项目的 Environment Variables 中配置 `.env.vercel.example` 里的变量。
+在 Vercel 项目的 **Settings → Environment Variables** 中配置 `.env.vercel.example` 里的变量。生产发布勾选 **Production**；如果需要 Preview 部署，也为 **Preview** 配置对应的测试数据库。变量名称必须是 `DATABASE_URL`，不要加 `NEXT_PUBLIC_`；变量值只填完整连接串，不要包含 `DATABASE_URL=` 或外层引号。保存后重新部署（Redeploy），已有部署不会自动获得新变量。
 
 必填项：
 
@@ -23,6 +23,8 @@ DATABASE_URL="postgresql://USER:PASSWORD@HOST/DB?sslmode=require&connection_limi
 DATABASE_URL=
 NEXTAUTH_SECRET=
 APP_ENCRYPTION_KEY=
+HASH_PEPPER=
+CRON_SECRET=
 NEXTAUTH_URL=
 SUPER_ADMIN_EMAILS=admin@example.com
 ADMIN_NOTIFY_EMAILS=admin@example.com
@@ -61,19 +63,21 @@ ADMIN_NOTIFY_EMAILS=admin@example.com
 
 也可以改用阿里云 DirectMail 的 `ALIYUN_ACCESS_KEY_ID`、`ALIYUN_ACCESS_KEY_SECRET` 与 `ALIYUN_DM_ACCOUNT_NAME`。两个通道同时存在时，系统先尝试 SMTP，再回退 DirectMail；每封邮件失败会重试一次，并在超级管理员账号管理页显示通道、失败原因和重试次数。仅创建了空环境变量不算完成配置。
 
-## 3. 初始化 Neon 表结构
+## 3. 数据库初始化与升级
 
-在本机项目目录执行：
+仅对全新、空的 Neon 数据库，在本机项目目录执行初始化：
 
 ```bash
 DATABASE_URL='你的 Neon 连接串' npx prisma db push
 ```
 
-如果使用 Vercel CLI 管理环境变量，也可以先拉取生产环境变量：
+仓库迁移历史不含完整初始建表迁移。初始化后须先核对并建立迁移历史基线，再使用 `prisma migrate deploy`；不要对已有业务数据执行 reset 或无审查的 db push。已有受迁移管理的部署在 Vercel 构建时自动执行 `prisma migrate deploy`。本次新增账号、密钥与访问统计的迁移细节见 [迁移说明](access-profile-traffic.md)。
+
+如果使用 Vercel CLI，可以先在本地拉取生产变量；Prisma CLI 默认通过 dotenv 读取 `.env`，拉取为其他文件时需显式指定：
 
 ```bash
-vercel env pull .env.local --environment=production --yes
-npx prisma db push
+vercel env pull .env.production.local --environment=production --yes
+DOTENV_CONFIG_PATH=.env.production.local npx prisma migrate deploy
 ```
 
 ## 4. 本地构建检查
@@ -122,5 +126,13 @@ vercel --prod
 
 - Vercel 不能访问 NAS 局域网地址，例如 `http://192.168.x.x:3000/v1`，模型 Base URL 必须是公网可访问地址。
 - 当前分析接口最长执行时间配置为 300 秒，追问接口为 120 秒。
-- Vercel 不会执行 Dockerfile 里的 `prisma db push`，数据库表结构需要手动执行或放入 CI 流程。
+- Vercel 不执行 Dockerfile。仓库 `vercel.json` 指定 `npm run vercel-build`，顺序为配置检查 → 生成 Prisma Client → 数据库迁移 → Next.js 构建。首次建库和迁移历史基线须提前完成。
 - 新闻网页抓取在 Vercel 海外网络环境下可能遇到目标站限制，失败时应让用户手动粘贴正文。
+
+## 8. 安装阶段 DATABASE_URL 报错
+
+若日志出现 `npm install` → `prisma generate` → `PrismaConfigEnvError: Cannot resolve environment variable: DATABASE_URL`，说明该次安装进程没有读到数据库变量。旧配置使用 `env('DATABASE_URL')`，在读取 Prisma 配置时便中止了无需连接数据库的客户端生成。
+
+修复后的配置允许在缺少 URL 时执行安装和客户端生成，不使用占位数据库地址；真正的 Vercel 构建在迁移前检查 `DATABASE_URL`，缺失或为空时提示具体配置位置并停止。请仍按第 2 节配置真实连接串，核对 Production/Preview 范围并 Redeploy。
+
+若下一步出现数据库连接或迁移错误，说明已通过这次安装阶段，需要检查 Neon 状态、连接串和迁移基线。缺少数据库时不会跳过迁移继续发布。

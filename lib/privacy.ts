@@ -19,6 +19,7 @@ export async function exportUserData(userId: string) {
     auditJobs,
     discussionReports,
     extensionLinkCodes,
+    passkeys,
   ] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId } }),
     prisma.userSettings.findUnique({ where: { userId } }),
@@ -36,16 +37,21 @@ export async function exportUserData(userId: string) {
     prisma.auditJob.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
     prisma.discussionReport.findMany({ where: { reporterUserId: userId }, orderBy: { createdAt: 'desc' } }),
     prisma.extensionLinkCode.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
+    prisma.passkey.findMany({ where: { userId }, select: { name: true, createdAt: true, lastUsedAt: true } }),
   ]);
 
   if (!user) throw new Error('账号不存在。');
 
   return {
     exportedAt: new Date().toISOString(),
+    passkeys,
     user: {
       id: user.id,
       email: user.email,
       name: user.name,
+      image: user.image,
+      gender: user.gender,
+      country: user.country,
       role: user.role,
       isBanned: user.isBanned,
       planType: user.planType,
@@ -224,6 +230,9 @@ export async function cleanupExpiredAuditJobInputs() {
 }
 
 export async function runPrivacyCleanup() {
+  const newsSearchCaches = await prisma.newsSearchCache.deleteMany({ where: { expiresAt: { lt: new Date() } } });
+  const traffic = await prisma.pageView.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 90 * 86400_000) } } });
+  const passkeyChallenges = await prisma.passkeyChallenge.deleteMany({ where: { expiresAt: { lt: new Date() } } });
   const retentionDays = Number(process.env.EMAIL_DELIVERY_RETENTION_DAYS || 90);
   const emails = await anonymizeExpiredEmailDeliveries(retentionDays);
   const jobs = await cleanupExpiredAuditJobInputs();
@@ -253,5 +262,5 @@ export async function runPrivacyCleanup() {
     },
     data: { resultJson: null },
   });
-  return { emails, jobs, verificationCodes, extensionLinkCodes, serviceOperations };
+  return { emails, jobs, verificationCodes, extensionLinkCodes, serviceOperations, traffic, passkeyChallenges, newsSearchCaches };
 }

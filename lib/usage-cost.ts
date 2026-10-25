@@ -20,6 +20,7 @@ export function usageCostBreakdown(params: {
   searchCounts?: Record<string, number>;
   fallbackSearchCount: number;
   rates: Record<string, number>;
+  searchOnly?: boolean;
 }) {
   const missing: string[] = [];
   const unitRatesMicros: Record<string, number> = {};
@@ -34,13 +35,15 @@ export function usageCostBreakdown(params: {
   }
   const snapshot = params.snapshot;
   const usage = params.usage;
-  if (!snapshot) missing.push('external_model_pricing');
-  else {
-    if (usage.inputTokens > 0 && snapshot.inputPriceMicrosPerMillion <= 0) missing.push('input_token_pricing');
-    if (usage.outputTokens > 0 && snapshot.outputPriceMicrosPerMillion <= 0) missing.push('output_token_pricing');
-    if (usage.nativeSearchRequests > 0 && snapshot.nativeSearchPriceMicrosPerRequest <= 0) missing.push('native_search_pricing');
+  if (!params.searchOnly) {
+    if (!snapshot) missing.push('external_model_pricing');
+    else {
+      if (usage.inputTokens > 0 && snapshot.inputPriceMicrosPerMillion <= 0) missing.push('input_token_pricing');
+      if (usage.outputTokens > 0 && snapshot.outputPriceMicrosPerMillion <= 0) missing.push('output_token_pricing');
+      if (usage.nativeSearchRequests > 0 && snapshot.nativeSearchPriceMicrosPerRequest <= 0) missing.push('native_search_pricing');
+    }
+    if (!usage.inputTokens && !usage.outputTokens) missing.push('token_usage');
   }
-  if (!usage.inputTokens && !usage.outputTokens) missing.push('token_usage');
   if (usage.cacheReadTokens) missing.push('cache_token_pricing');
   const searchCostFits = Number.isSafeInteger(knownSearchMicros) && knownSearchMicros <= 2_147_483_647;
   if (!searchCostFits) missing.push('search_cost_out_of_range');
@@ -48,6 +51,6 @@ export function usageCostBreakdown(params: {
     searchRequestCount: params.searchCounts ? count : params.fallbackSearchCount,
     estimatedSearchCostMicros: searchCostFits ? knownSearchMicros : null,
     costCoverage: missing.length ? 'partial' : 'recorded_components',
-    details: { version: 1, currency: 'USD', scope: 'model_and_search_estimate', counts, unitRatesMicros, knownSearchMicros: Number.isSafeInteger(knownSearchMicros) ? knownSearchMicros : null, modelRates: snapshot ? { input: snapshot.inputPriceMicrosPerMillion, output: snapshot.outputPriceMicrosPerMillion, nativeSearch: snapshot.nativeSearchPriceMicrosPerRequest } : null, missing },
+    details: { version: 1, currency: 'USD', scope: params.searchOnly ? 'search_only_estimate' : 'model_and_search_estimate', counts, unitRatesMicros, knownSearchMicros: Number.isSafeInteger(knownSearchMicros) ? knownSearchMicros : null, modelRates: snapshot ? { input: snapshot.inputPriceMicrosPerMillion, output: snapshot.outputPriceMicrosPerMillion, nativeSearch: snapshot.nativeSearchPriceMicrosPerRequest } : null, missing },
   };
 }

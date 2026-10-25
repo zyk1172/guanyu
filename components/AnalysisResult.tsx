@@ -456,12 +456,13 @@ function chartProps(report: QuickAnalysisResult | DeepAnalysisResult) {
   };
 }
 
-function OriginalContentPanel({ originalContent, reportLanguage = 'zh-CN' }: { originalContent?: string; reportLanguage?: string }) {
+function OriginalContentPanel({ originalContent, reportLanguage = 'zh-CN', sourceUrl }: { originalContent?: string; reportLanguage?: string; sourceUrl?: string }) {
   const [open, setOpen] = useState(false);
   if (!originalContent?.trim()) return null;
   const text = (key: string) => getReportText(key, reportLanguage);
   return (
     <Section id="report-original" title={text('articleOriginal')} aside={<button type="button" onClick={() => setOpen((value) => !value)} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-bold text-gray-700 transition hover:bg-gray-100 active:scale-[0.98] dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">{open ? text('hideOriginal') : text('showOriginal')}</button>}>
+      {sourceUrl && /^https?:\/\//i.test(sourceUrl) && <a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="mb-3 inline-flex min-h-11 items-center text-sm text-[var(--color-link)] underline">{reportLanguage.startsWith('zh') ? '查看报道原文 ↗' : 'Open original article ↗'}</a>}
       {!open ? (
         <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400">{text('originalCollapsed')}</p>
       ) : (
@@ -1226,7 +1227,7 @@ function DeepReportView({ relatedCoverage, report, originalContent, qaMessages, 
           ].map(([key, value]) => <div key={key} className="rounded-lg bg-gray-50 p-2 dark:bg-gray-900"><span className="font-bold text-gray-500">{key}{!reportLanguage.startsWith('zh-') ? ': ' : '：'}</span>{value}</div>)}
         </div>
       </Section>
-      <OriginalContentPanel originalContent={originalContent} reportLanguage={reportLanguage} />
+      <OriginalContentPanel originalContent={originalContent} reportLanguage={reportLanguage} sourceUrl={report.meta.sourceUrl} />
       <DownloadButton report={report} originalContent={originalContent} qaMessages={qaMessages} auditId={auditId} canGenerateCard={canUpdateVerification} />
     </>
   );

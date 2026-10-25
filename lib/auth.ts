@@ -15,6 +15,7 @@ export interface CurrentUser {
   id: string;
   email?: string | null;
   sessionVersion: number;
+  authTime?: number;
 }
 
 export const authOptions: NextAuthOptions = {
@@ -85,5 +86,6 @@ export async function getCurrentUser(request: Request): Promise<CurrentUser | nu
     id: account.id,
     email: account.email,
     sessionVersion: account.sessionVersion,
+    authTime: typeof token.authTime === 'number' ? token.authTime : undefined,
   };
 }

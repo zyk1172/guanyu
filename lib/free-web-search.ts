@@ -11,6 +11,8 @@ export type FreeSearchOptions = {
   locale?: string;
   deadline?: number;
   onRequest?: (provider: string) => void;
+  category?: 'news';
+  timeRange?: 'day' | 'week' | 'month';
 };
 
 export function resultUrl(value: string, base: string) {
@@ -72,6 +74,20 @@ export class FreeSearchError extends Error {
   constructor(message: string, readonly attempts: SearchAttempt[]) { super(message); }
 }
 
+export function parseBingNewsHtml(html: string): WebSearchSource[] {
+  if (challenge(html)) throw new Error('search_challenge');
+  const $ = cheerio.load(html);
+  return $('.news-card').toArray().flatMap(element => {
+    const card = $(element);
+    const link = card.find('a.title').first();
+    const url = resultUrl(link.attr('href') || '', 'https://www.bing.com');
+    if (!url || new URL(url).hostname.endsWith('bing.com') || !link.text().trim()) return [];
+    // Only explicit machine-readable dates; relative labels are not guessed.
+    const publishedAt = card.find('time[datetime]').first().attr('datetime') || null;
+    return [{ title: link.text().trim().slice(0, 300), url, snippet: card.find('.snippet').first().text().trim().slice(0, 800), sourceName: link.attr('data-author') || card.find('.source img[title]').first().attr('title') || card.find('.source a').first().text().trim(), publishedAt, provider: 'bing' }];
+  });
+}
+
 function matchesQuerySites(source: WebSearchSource, query: string) {
   const sites = [...query.matchAll(/(?:^|\s)site:([a-z0-9.-]+)(\/[^\s]*)?/gi)];
   if (!sites.length) return true;
@@ -99,15 +115,19 @@ export async function searchFreeWeb(query: string, limit = 5, options: FreeSearc
       url.searchParams.set('q', normalized); url.searchParams.set('format', 'json');
       url.searchParams.set('language', options.locale || 'auto');
       url.searchParams.set('safesearch', '1');
+      if (options.category === 'news') url.searchParams.set('categories', 'news');
+      if (options.timeRange) url.searchParams.set('time_range', options.timeRange);
       targets.push({ url: url.toString(), provider: 'searxng', private: options.allowPrivateSearxng ?? process.env.WEB_RESEARCH_ALLOW_PRIVATE_SEARXNG === 'true' });
     } catch { /* Invalid deployment configuration can still use public engines. */ }
   }
-  const bing = new URL('https://www.bing.com/search');
+  const bing = new URL(options.category === 'news' ? 'https://www.bing.com/news/search' : 'https://www.bing.com/search');
   bing.searchParams.set('q', normalized);
   if (options.locale) bing.searchParams.set('setlang', options.locale);
+  if (options.timeRange) bing.searchParams.set('qft', `interval="${{ day: 7, week: 8, month: 9 }[options.timeRange]}"`);
   targets.push({ url: bing.toString(), provider: 'bing', private: false });
-  for (const endpoint of ['https://html.duckduckgo.com/html/', 'https://lite.duckduckgo.com/lite/']) {
-    const url = new URL(endpoint); url.searchParams.set('q', normalized);
+  // General-web fallbacks cannot promise a news date filter.
+  for (const endpoint of options.timeRange ? [] : ['https://html.duckduckgo.com/html/', 'https://lite.duckduckgo.com/lite/']) {
+    const url = new URL(endpoint); url.searchParams.set('q', options.category === 'news' ? `${normalized} news` : normalized);
     targets.push({ url: url.toString(), provider: 'duckduckgo', private: false });
   }
   const attempts: SearchAttempt[] = [];
@@ -144,9 +164,9 @@ export async function searchFreeWeb(query: string, limit = 5, options: FreeSearc
           if (!item || typeof item !== 'object' || typeof item.url !== 'string') return [];
           const link = resultUrl(item.url, url);
           const title = typeof item.title === 'string' ? item.title.trim() : '';
-          return link && title ? [{ url: link, title: title.slice(0, 300), snippet: typeof item.content === 'string' ? cheerio.load(item.content.slice(0, 5000)).text().trim().slice(0, 800) : '', provider: 'searxng' }] : [];
+          return link && title ? [{ url: link, title: title.slice(0, 300), snippet: typeof item.content === 'string' ? cheerio.load(item.content.slice(0, 5000)).text().trim().slice(0, 800) : '', publishedAt: typeof item.publishedDate === 'string' ? item.publishedDate : null, provider: 'searxng' }] : [];
         }).filter((item: WebSearchSource, i: number, all: WebSearchSource[]) => all.findIndex(other => other.url === item.url) === i);
-      } else sources = parseFreeSearchHtml(body, url, target.provider, 30);
+      } else sources = options.category === 'news' && target.provider === 'bing' ? parseBingNewsHtml(body) : parseFreeSearchHtml(body, url, target.provider, 30);
       sources = sources.filter(source => matchesQuerySites(source, normalized)).slice(0, Math.min(10, Math.max(1, limit)));
       attempts.push({ provider: target.provider, outcome: sources.length ? 'results' : 'empty' });
       if (sources.length) return { sources, attempts };
@@ -156,5 +176,6 @@ export async function searchFreeWeb(query: string, limit = 5, options: FreeSearc
       } else attempts.push({ provider: target.provider, outcome: error instanceof Error && error.message === 'search_challenge' ? 'challenge' : 'unavailable' });
     }
   }
+  if (options.category === 'news' && attempts.some(attempt => attempt.outcome === 'empty')) return { sources: [], attempts };
   throw new FreeSearchError(attempts.length && attempts.every(a => a.outcome === 'challenge') ? 'search_challenge' : 'search_unavailable', attempts);
 }
