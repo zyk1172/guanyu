@@ -9,6 +9,8 @@ import { getWorkspaceCopy } from '@/lib/workspace-copy';
 import { ANALYSIS_DRAFT_KEY, encodeAnalysisDraft, decodeAnalysisDraft } from '@/lib/analysis-draft';
 import TaskBudget from './TaskBudget';
 import Link from 'next/link';
+import NewsSearch from './NewsSearch';
+import type { NewsArticle } from '@/lib/news-search-types';
 
 interface AnalysisFormProps {
   onSubmit: (data: {
@@ -56,7 +58,7 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
   const router = useRouter();
   const { language, t } = useUiLanguage();
   const c = getWorkspaceCopy(language);
-  const [inputMode, setInputMode] = useState<'text' | 'url'>('text');
+  const [inputMode, setInputMode] = useState<'search' | 'text' | 'url'>('search');
   const [draftNotice, setDraftNotice] = useState<'restored' | 'storageError' | null>(null);
   const [title, setTitle] = useState('');
   const [source, setSource] = useState('');
@@ -68,6 +70,9 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
   const [parsedSourceUrl, setParsedSourceUrl] = useState('');
   const [isParsing, setIsParsing] = useState(false);
   const [parseFailure, setParseFailure] = useState<ParseFailure | null>(null);
+  const [canAnalyze, setCanAnalyze] = useState(false);
+  const parseController = useRef<AbortController | null>(null);
+  const parseNumber = useRef(0);
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
   const modalRef = useRef<HTMLDivElement | null>(null);
   const closeParseFailureButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -92,8 +97,8 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
 
   const signInWithDraft = () => {
     try {
-      window.sessionStorage.setItem(ANALYSIS_DRAFT_KEY, encodeAnalysisDraft({ title, source, content, focus, urlInput, parsedSourceUrl, inputMode }));
-      router.push('/login');
+      window.sessionStorage.setItem(ANALYSIS_DRAFT_KEY, encodeAnalysisDraft({ title, source, content, focus, urlInput, parsedSourceUrl, inputMode: inputMode === 'url' ? 'url' : 'text' }));
+      router.push('/login?callbackUrl=/');
     } catch { setDraftNotice('storageError'); }
   };
 
@@ -129,12 +134,13 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
     return () => {
       document.removeEventListener('keydown', onKeyDown);
       document.body.style.overflow = previousOverflow;
-      previousFocusRef.current?.focus({ preventScroll: true });
+      if (previousFocusRef.current?.getClientRects().length) previousFocusRef.current.focus({ preventScroll: true });
+      else document.getElementById('article-url')?.focus({ preventScroll: true });
     };
   }, [parseFailure]);
 
-  const handleParseUrl = async () => {
-    const trimmed = urlInput.trim();
+  const handleParseUrl = async (selectedUrl?: string) => {
+    const trimmed = (selectedUrl ?? urlInput).trim();
     if (!trimmed) return;
 
     try { new URL(trimmed); } catch {
@@ -143,6 +149,10 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
     }
 
     if (status !== 'authenticated') { signInWithDraft(); return; }
+    parseController.current?.abort();
+    const controller = new AbortController();
+    parseController.current = controller;
+    const current = ++parseNumber.current;
     setIsParsing(true);
     setParseFailure(null);
 
@@ -151,9 +161,11 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: trimmed }),
+        signal: controller.signal,
       });
 
       const data = await res.json();
+      if (current !== parseNumber.current) return;
 
       if (!res.ok) {
         setParseFailure({ code: String(data.code || 'PARSE_FAILED'), message: data.error || '解析失败' });
@@ -164,12 +176,29 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
       if (data.source) setSource(data.source);
       if (data.content) setContent(data.content);
       setParsedSourceUrl(String(data.url || trimmed));
-      requestAnimationFrame(() => contentRef.current?.focus());
+      if (!selectedUrl) requestAnimationFrame(() => contentRef.current?.focus());
     } catch {
+      if (controller.signal.aborted || current !== parseNumber.current) return;
       setParseFailure({ code: 'NETWORK_ERROR', message: '网络错误，请重试' });
     } finally {
-      setIsParsing(false);
+      if (current === parseNumber.current) setIsParsing(false);
     }
+  };
+
+  useEffect(() => () => { parseController.current?.abort(); }, []);
+
+  const handleNewsSelect = (article: NewsArticle) => {
+    setTitle(article.title); setSource(article.source); setContent(''); setFocus('');
+    setUrlInput(article.url); setParsedSourceUrl(''); setInputMode('url'); setParseFailure(null);
+    document.getElementById('analysis')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });
+    if (status !== 'authenticated') {
+      try {
+        sessionStorage.setItem(ANALYSIS_DRAFT_KEY, encodeAnalysisDraft({ title: article.title, source: article.source, content: '', focus: '', urlInput: article.url, parsedSourceUrl: '', inputMode: 'url' }));
+        router.push('/login?callbackUrl=/');
+      } catch { setDraftNotice('storageError'); }
+      return;
+    }
+    void handleParseUrl(article.url);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -201,23 +230,26 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
 
   return (
     <section id="analysis" className="workspace-panel">
-      <div className="flex flex-wrap items-center justify-between gap-3"><h2>{c.form}</h2><Link href="/demo" className="inline-flex min-h-11 items-center text-sm font-medium text-[var(--color-link)] underline">{c.demoNav}</Link></div>
+      <div className="flex flex-wrap items-center justify-between gap-3"><h2>{language.startsWith('zh') ? '查找并分析新闻' : 'Find and analyze news'}</h2><Link href="/demo" className="inline-flex min-h-11 items-center text-sm font-medium text-[var(--color-link)] underline">{c.demoNav}</Link></div>
       {draftNotice && <p role="status" className="mt-4 rounded-lg bg-[var(--color-primary-soft)] p-3 text-sm">{c[draftNotice]}</p>}
-      <form onSubmit={handleSubmit} className="mt-5 space-y-4">
-        <div className="workspace-tabs" role="group" aria-label={t('form.manualEntry')}>
+      <div className="workspace-tabs my-5" role="group" aria-label={language.startsWith('zh') ? '新闻输入方式' : 'Article input method'}>
+          <button type="button" aria-pressed={inputMode === 'search'} onClick={() => setInputMode('search')}>{language.startsWith('zh') ? '搜索新闻' : 'Search news'}</button>
           <button type="button" aria-pressed={inputMode === 'text'} onClick={() => setInputMode('text')}>{c.text}</button>
           <button type="button" aria-pressed={inputMode === 'url'} onClick={() => setInputMode('url')}>{c.url}</button>
         </div>
+      <div hidden={inputMode !== 'search'}><NewsSearch onSelect={handleNewsSelect} busy={isLoading || isParsing} /></div>
+      <form onSubmit={handleSubmit} hidden={inputMode === 'search'} className="space-y-4">
+        {inputMode === 'url' && title && <div className="rounded-lg bg-[var(--color-surface-muted)] p-4"><p className="text-xs text-[var(--color-text-muted)]">{isParsing ? (language.startsWith('zh') ? '正在读取报道正文…' : 'Reading article text…') : (language.startsWith('zh') ? '已选报道' : 'Selected article')}</p><h3 className="mt-1 break-words text-base font-semibold">{title}</h3><p className="mt-1 text-xs text-[var(--color-text-muted)]">{source}</p></div>}
         {inputMode === 'url' && <div className="space-y-2">
           <label htmlFor="article-url" className="workspace-label">{t('form.urlParser')}</label>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <input id="article-url" type="url" value={urlInput} onChange={(e) => { setUrlInput(e.target.value); setParsedSourceUrl(''); setParseFailure(null); }} onKeyDown={handleKeyDown} placeholder="https://…" className="workspace-input min-w-0 flex-1" />
-            <button type="button" onClick={handleParseUrl} disabled={isLoading || isParsing || status === 'loading' || !urlInput.trim()} className="workspace-button workspace-secondary shrink-0 disabled:opacity-50">{isParsing ? t('form.parsing') : status === 'authenticated' ? c.read : c.loginRead}</button>
+            <input id="article-url" type="url" disabled={isParsing || isLoading} value={urlInput} onChange={(e) => { setUrlInput(e.target.value); setParsedSourceUrl(''); setContent(''); setTitle(''); setSource(''); setParseFailure(null); }} onKeyDown={handleKeyDown} placeholder="https://…" className="workspace-input min-w-0 flex-1" />
+            <button type="button" onClick={() => void handleParseUrl()} disabled={isLoading || isParsing || status === 'loading' || !urlInput.trim()} className="workspace-button workspace-secondary shrink-0 disabled:opacity-50">{isParsing ? t('form.parsing') : status === 'authenticated' ? c.read : c.loginRead}</button>
           </div>
         </div>}
         <div>
           <label htmlFor="content" className="workspace-label">{t('form.contentLabel')}</label>
-          <textarea id="content" ref={contentRef} value={content} onChange={(e) => { setContent(e.target.value); setParsedSourceUrl(''); }} rows={7} required minLength={50} maxLength={30000} placeholder={c.placeholder} aria-describedby="content-help" className="workspace-input resize-y" />
+          <textarea id="content" ref={contentRef} disabled={isParsing || isLoading} value={content} onChange={(e) => { setContent(e.target.value); setParsedSourceUrl(''); }} rows={7} required minLength={50} maxLength={30000} placeholder={c.placeholder} aria-describedby="content-help" className="workspace-input resize-y" />
           <div id="content-help" className="mt-1 flex justify-between gap-3 text-xs text-[var(--color-text-muted)]"><span>{t('form.minimumLength')}</span><span>{t('form.characterCount', undefined, { count: content.length })}</span></div>
         </div>
         <details className="workspace-disclosure">
@@ -230,8 +262,8 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
             <div><label htmlFor="focus" className="workspace-label">{t('form.focusLabel')}</label><input id="focus" value={focus} onChange={(e) => setFocus(e.target.value)} maxLength={2000} placeholder={t('form.focusPlaceholder')} className="workspace-input" /></div>
           </div>
         </details>
-        <TaskBudget compact />
-        <button type="submit" disabled={isLoading || isParsing || status === 'loading' || !isFormValid} className="workspace-button workspace-primary w-full">{isLoading ? t('form.analyzing') : status === 'authenticated' ? t('form.start') : c.continue}</button>
+        {inputMode !== 'search' && <TaskBudget compact onAvailabilityChange={setCanAnalyze} />}
+        <button type="submit" disabled={isLoading || isParsing || status === 'loading' || !isFormValid || (status === 'authenticated' && !canAnalyze)} className="workspace-button workspace-primary w-full">{isLoading ? t('form.analyzing') : status === 'authenticated' ? t('form.start') : c.continue}</button>
       </form>
 
       {parseFailure && parseFailureInfo && (
@@ -267,7 +299,7 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
               </div>
             </div>
             <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <button type="button" onClick={handleParseUrl} className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-xs font-bold text-[var(--color-text)] transition hover:bg-[var(--color-surface-muted)]">
+              <button type="button" onClick={() => void handleParseUrl()} className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-xs font-bold text-[var(--color-text)] transition hover:bg-[var(--color-surface-muted)]">
                 {t('common.retry')}
               </button>
               <button type="button" onClick={focusManualContent} className="rounded-lg bg-[var(--color-primary)] px-3 py-2 text-xs font-bold text-white transition hover:bg-[var(--color-primary-hover)] active:scale-[0.98]">

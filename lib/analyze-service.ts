@@ -265,6 +265,7 @@ function normalizeReport(params: {
   const baseMeta = {
     title: meta.title,
     source: meta.source,
+    ...(meta.sourceUrl ? { sourceUrl: meta.sourceUrl } : {}),
     publishedAt: timeAssessment.publishedAt,
     publishedAtSource: 'ai_assessed' as const,
     publishedAtConfidence: timeAssessment.confidence,
@@ -831,6 +832,7 @@ export async function handleAnalyze(userId: string, body: any, executionContext:
       meta: {
         title: title || '未命名新闻标题',
         source: source || '未知来源',
+        ...(sourceContentIsWeb ? { sourceUrl: String(sourceUrl).trim().slice(0, 2048) } : {}),
         modelName: selectedPlatformSnapshot?.displayName || modelConfig.modelName,
         reasoningDepth: actualReasoningDepth,
         reportLanguage: actualReportLanguage,

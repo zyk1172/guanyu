@@ -10,6 +10,8 @@ export interface WebSearchSource {
   url: string;
   snippet: string;
   provider?: string;
+  publishedAt?: string | null;
+  sourceName?: string;
 }
 
 export interface WebSearchOptions {

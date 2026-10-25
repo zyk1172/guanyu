@@ -8,7 +8,7 @@ export async function recordModelUsage(params: {
   userId?: string | null;
   auditId?: string | null;
   jobId?: string | null;
-  operation: PlatformModelOperation | 'comparison';
+  operation: PlatformModelOperation | 'comparison' | 'news_search';
   status: 'success' | 'failed';
   source: 'platform' | 'custom';
   snapshot?: PlatformModelSnapshot | null;
@@ -21,7 +21,7 @@ export async function recordModelUsage(params: {
 }) {
   const snapshot = params.snapshot || null;
   const usage = params.usage || { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, nativeSearchRequests: 0 };
-  const cost = usageCostBreakdown({ snapshot, usage, searchCounts: params.externalSearchCounts, fallbackSearchCount: (params.platformSearchRequests || 0) + (usage.webSearchRequests || 0), rates: params.source === 'platform' ? searchUnitRates(process.env.SEARCH_UNIT_COST_MICROS_JSON) : {} });
+  const cost = usageCostBreakdown({ snapshot, usage, searchCounts: params.externalSearchCounts, fallbackSearchCount: (params.platformSearchRequests || 0) + (usage.webSearchRequests || 0), rates: params.source === 'platform' ? searchUnitRates(process.env.SEARCH_UNIT_COST_MICROS_JSON) : {}, searchOnly: params.operation === 'news_search' });
   return prisma.modelUsageEvent.create({
     data: {
       userId: params.userId || null,

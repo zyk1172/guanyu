@@ -230,6 +230,7 @@ export async function cleanupExpiredAuditJobInputs() {
 }
 
 export async function runPrivacyCleanup() {
+  const newsSearchCaches = await prisma.newsSearchCache.deleteMany({ where: { expiresAt: { lt: new Date() } } });
   const traffic = await prisma.pageView.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 90 * 86400_000) } } });
   const passkeyChallenges = await prisma.passkeyChallenge.deleteMany({ where: { expiresAt: { lt: new Date() } } });
   const retentionDays = Number(process.env.EMAIL_DELIVERY_RETENTION_DAYS || 90);
@@ -261,5 +262,5 @@ export async function runPrivacyCleanup() {
     },
     data: { resultJson: null },
   });
-  return { emails, jobs, verificationCodes, extensionLinkCodes, serviceOperations, traffic, passkeyChallenges };
+  return { emails, jobs, verificationCodes, extensionLinkCodes, serviceOperations, traffic, passkeyChallenges, newsSearchCaches };
 }

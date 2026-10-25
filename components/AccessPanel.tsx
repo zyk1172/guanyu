@@ -40,7 +40,7 @@ export default function AccessPanel() {
         setMessage(text('验证码已发送，10 分钟内有效。', 'Code sent. It expires in 10 minutes.'));
       } else {
         const data = await post(mode === 'email' ? '/api/access/verify' : '/api/login', mode === 'email' ? { email: sentTo, code } : { email, password });
-        window.location.assign(data.url);
+        window.location.assign(new URLSearchParams(window.location.search).get('callbackUrl') === '/' ? '/' : data.url);
       }
     } catch (error) { setError((error as Error).message); }
     finally { setBusy(false); }
@@ -52,7 +52,7 @@ export default function AccessPanel() {
       const optionsJSON = await post('/api/passkeys/options', { mode: 'login' });
       const assertion = await startAuthentication({ optionsJSON });
       const data = await post('/api/passkeys/verify', { mode: 'login', response: assertion });
-      window.location.assign(data.url);
+      window.location.assign(new URLSearchParams(window.location.search).get('callbackUrl') === '/' ? '/' : data.url);
     } catch {
       setError(text('通行密钥登录未完成。可重试，或使用邮箱继续。', 'Passkey sign-in did not finish. Retry or continue with email.'));
     } finally { setBusy(false); }
