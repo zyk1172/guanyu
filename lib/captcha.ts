@@ -124,7 +124,7 @@ export async function verifyCaptcha(challengeId: string, answer: string, ip: str
   return consumed.count === 1;
 }
 
-export type EmailCodePurpose = 'register_email' | 'login_email' | 'password_reset';
+export type EmailCodePurpose = 'register_email' | 'login_email' | 'password_reset' | 'access_email' | 'change_email';
 
 export async function createEmailVerificationCode(
   email: string,

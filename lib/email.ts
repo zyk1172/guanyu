@@ -16,7 +16,7 @@ export interface SendEmailInput {
 }
 
 export interface TrackedEmailInput extends SendEmailInput {
-  category: 'report_completed' | 'account_banned' | 'account_unbanned' | 'credits_granted' | 'order_confirmed' | 'order_rejected' | 'welcome' | 'register_code' | 'login_code' | 'password_reset' | 'password_changed' | 'admin_message' | 'order_submitted' | 'feedback_submitted';
+  category: 'access_code' | 'security_notice' | 'report_completed' | 'account_banned' | 'account_unbanned' | 'credits_granted' | 'order_confirmed' | 'order_rejected' | 'welcome' | 'register_code' | 'login_code' | 'password_reset' | 'password_changed' | 'admin_message' | 'order_submitted' | 'feedback_submitted';
   userId?: string | null;
   auditId?: string | null;
   metadata?: Record<string, unknown>;

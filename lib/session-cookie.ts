@@ -28,6 +28,7 @@ export async function setSessionCookie(
       id: user.id,
       email: user.email,
       sessionVersion: user.sessionVersion,
+      authTime: Date.now(),
     },
   });
 

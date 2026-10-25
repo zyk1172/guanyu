@@ -9,7 +9,7 @@
     "postinstall": "prisma generate",
     "start": "next start",
     "lint": "eslint",
-    "ci": "npm run lint && npm run test:analysis-draft && npm run test:report && npm run test:report-schema && npm run test:round2 && npm run test:backup && npm run test:platform-models && npm run test:analyze-job && npm run test:model-runtime && npm run test:web-research && npm run test:permissions && npm run test:deepseek-settings && npm run test:related-coverage && npm run test:related-coverage-db && npm run build",
+    "ci": "npm run lint && npm run test:analysis-draft && npm run test:report && npm run test:report-schema && npm run test:round2 && npm run test:backup && npm run test:platform-models && npm run test:analyze-job && npm run test:model-runtime && npm run test:web-research && npm run test:permissions && npm run test:deepseek-settings && npm run test:related-coverage && npm run test:related-coverage-db && npm run test:access && npm run build",
     "test:report": "node --test scripts/report-logic.test.mjs",
     "test:report-schema": "tsx --test scripts/report-schema.test.ts scripts/report-evidence.test.ts scripts/onboarding.test.ts scripts/report-comparison.test.ts",
     "test:task-quote": "tsx scripts/task-quote-smoke.ts",
@@ -31,20 +31,27 @@
     "test:web-research": "tsx --test scripts/web-research.test.ts scripts/free-web-search.test.ts scripts/usage-cost.test.ts scripts/deepseek-search.test.ts",
     "test:analysis-draft": "tsx --test scripts/analysis-draft.test.ts",
     "test:related-coverage": "tsx --test scripts/related-coverage.test.ts",
-    "test:related-coverage-db": "tsx scripts/related-coverage-smoke.ts"
+    "test:related-coverage-db": "tsx scripts/related-coverage-smoke.ts",
+    "test:access": "tsx --test scripts/access-traffic.test.ts && tsx scripts/access-account-smoke.ts"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",
     "@heroicons/react": "^2.2.0",
     "@libsql/client": "^0.17.4",
+    "@mozilla/readability": "0.6.0",
     "@pdf-lib/fontkit": "^1.1.1",
+    "@prisma/adapter-pg": "7.10.0",
     "@prisma/client": "7.10.0",
+    "@simplewebauthn/browser": "14.0.0",
+    "@simplewebauthn/server": "14.0.3",
     "@types/qrcode": "^1.5.6",
     "@upstash/redis": "^1.38.2",
     "cheerio": "^1.2.0",
     "docx": "^9.7.1",
+    "dotenv": "^17.4.2",
     "fast-xml-parser": "^5.11.0",
     "gsap": "^3.15.0",
+    "jsdom": "26.1.0",
     "lucide-react": "^1.33.0",
     "next": "16.3.2",
     "next-auth": "4.24.15",
@@ -56,11 +63,8 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "recharts": "^3.10.1",
-    "zod": "^4.6.5",
-    "@prisma/adapter-pg": "7.10.0",
-    "dotenv": "^17.4.2",
-    "@mozilla/readability": "0.6.0",
-    "jsdom": "26.1.0"
+    "sharp": "0.35.3",
+    "zod": "^4.6.5"
   },
   "overrides": {
     "undici": "7.29.0",
@@ -70,9 +74,11 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.3.3",
+    "@types/jsdom": "21.1.7",
     "@types/node": "^20",
     "@types/nodemailer": "^8.0.1",
     "@types/pdfkit": "^0.17.6",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "brace-expansion": "1.1.18",
@@ -80,9 +86,7 @@
     "eslint-config-next": "16.3.2",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
-    "typescript": "^5",
-    "@types/pg": "^8.23.1",
-    "@types/jsdom": "21.1.7"
+    "typescript": "^5"
   },
   "type": "module"
 }

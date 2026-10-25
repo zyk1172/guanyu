@@ -6,7 +6,8 @@
 
 ## 功能概览
 
-- 多用户注册、登录、退出
+- 邮箱验证码登录／首次自动注册、通行密钥（Passkey）登录，并保留密码登录
+- 个人资料与头像编辑、验证后修改邮箱；管理员访问统计（PV/UV、趋势与热门页面）
 - 账号管理和个人模型设置
 - OpenAI-compatible Chat Completions API
 - 观隅九镜审读法报告
@@ -17,6 +18,8 @@
 - Recharts 图形化核心指数和证据结构
 - PostgreSQL 持久化数据库
 - Docker 和 QNAP NAS 部署配置
+
+上述登录、资料和统计功能的部署前提、数据库迁移及统计口径见 [部署说明](docs/access-profile-traffic.md)。
 
 ## 技术栈
 
