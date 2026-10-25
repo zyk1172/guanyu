@@ -42,7 +42,8 @@ test('client generation accepts configured URLs without connecting to that datab
     const env = { ...f.env, DATABASE_URL: 'postgresql://fixture:unused@127.0.0.1:1/fixture' };
     const loaded = spawnSync(process.execPath, ['--input-type=module', '-e', `
       import assert from 'node:assert/strict';
-      import { loadConfigFromFile } from 'prisma/config';
+      import { createRequire } from 'node:module';
+      const { loadConfigFromFile } = createRequire(import.meta.url)('@prisma/config');
       const result = await loadConfigFromFile({ configRoot: process.cwd() });
       assert.equal(result.error, undefined);
       assert.equal(result.config.datasource.url, process.env.DATABASE_URL);
