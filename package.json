@@ -5,11 +5,11 @@
   "scripts": {
     "dev": "next dev --webpack",
     "build": "prisma generate && next build",
-    "vercel-build": "prisma generate && prisma migrate deploy && next build",
+    "vercel-build": "node scripts/check-deployment-env.mjs && prisma generate && prisma migrate deploy && next build",
     "postinstall": "prisma generate",
     "start": "next start",
     "lint": "eslint",
-    "ci": "npm run lint && npm run test:analysis-draft && npm run test:report && npm run test:report-schema && npm run test:round2 && npm run test:backup && npm run test:platform-models && npm run test:analyze-job && npm run test:model-runtime && npm run test:web-research && npm run test:permissions && npm run test:deepseek-settings && npm run test:related-coverage && npm run test:related-coverage-db && npm run test:access && npm run build",
+    "ci": "npm run lint && npm run test:prisma-config && npm run test:analysis-draft && npm run test:report && npm run test:report-schema && npm run test:round2 && npm run test:backup && npm run test:platform-models && npm run test:analyze-job && npm run test:model-runtime && npm run test:web-research && npm run test:permissions && npm run test:deepseek-settings && npm run test:related-coverage && npm run test:related-coverage-db && npm run test:access && npm run build",
     "test:report": "node --test scripts/report-logic.test.mjs",
     "test:report-schema": "tsx --test scripts/report-schema.test.ts scripts/report-evidence.test.ts scripts/onboarding.test.ts scripts/report-comparison.test.ts",
     "test:task-quote": "tsx scripts/task-quote-smoke.ts",
@@ -32,7 +32,8 @@
     "test:analysis-draft": "tsx --test scripts/analysis-draft.test.ts",
     "test:related-coverage": "tsx --test scripts/related-coverage.test.ts",
     "test:related-coverage-db": "tsx scripts/related-coverage-smoke.ts",
-    "test:access": "tsx --test scripts/access-traffic.test.ts && tsx scripts/access-account-smoke.ts"
+    "test:access": "tsx --test scripts/access-traffic.test.ts && tsx scripts/access-account-smoke.ts",
+    "test:prisma-config": "node --test scripts/prisma-config.test.mjs"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",
