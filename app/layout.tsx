@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import "./globals.css";
 import Providers from "@/components/Providers";
 import { GsapRoot } from "@/components/GsapMotion";
+import TrafficTracker from '@/components/TrafficTracker';
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://www.guanyu.dynv6.net";
 const siteName = "观隅 Guanyu";
@@ -122,6 +123,7 @@ export default async function RootLayout({
         />
         <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeScript }} />
         <Providers>
+          <TrafficTracker />
           <GsapRoot>{children}</GsapRoot>
         </Providers>
       </body>

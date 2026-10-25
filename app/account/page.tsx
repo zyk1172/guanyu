@@ -1,5 +1,8 @@
 'use client';
 
+import AccountProfile from '@/components/AccountProfile';
+import TrafficAdmin from '@/components/TrafficAdmin';
+
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import Header from '@/components/Header';
 import { getWorkspaceCopy } from '@/lib/workspace-copy';
@@ -938,11 +941,13 @@ export default function AccountPage() {
               )}
             </section>
           )}
+          {activeTab === 'system' && isSuperAdmin && <TrafficAdmin />}
           {activeTab === 'system' && isSuperAdmin && (
             <div className="col-span-full">
               <PlatformModelAdmin />
             </div>
           )}
+          {activeTab === 'info' && <div className="col-span-full rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-6 shadow-[var(--shadow-card)]"><AccountProfile /></div>}
           <div className={activeTab === 'system' ? 'flex min-w-0 flex-col gap-4' : 'space-y-4 rounded-xl border border-gray-150 bg-white p-6 shadow-sm dark:border-gray-900 dark:bg-gray-950'}>
             {activeTab === 'info' && (
               <>

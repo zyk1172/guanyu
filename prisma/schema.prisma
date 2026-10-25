@@ -30,6 +30,10 @@ model User {
   freeQuotaUsed             Int                       @default(0)
   name                      String?
   image                     String?
+  gender                    String?
+  country                   String?
+  passkeys                  Passkey[]
+  passkeyChallenges         PasskeyChallenge[]
   createdAt                 DateTime                  @default(now())
   updatedAt                 DateTime                  @updatedAt
   settings                  UserSettings?
@@ -48,6 +52,46 @@ model User {
   modelUsageEvents          ModelUsageEvent[]
   serviceOperations         ServiceOperation[]
   savedArticles             SavedArticle[]
+}
+
+model Passkey {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credentialId String   @unique
+  publicKey    Bytes
+  counter      BigInt   @default(0)
+  transports   String[] @default([])
+  name         String
+  createdAt    DateTime @default(now())
+  lastUsedAt   DateTime?
+
+  @@index([userId])
+}
+
+model PasskeyChallenge {
+  id             String   @id @default(cuid())
+  tokenHash      String   @unique
+  challenge      String
+  purpose        String
+  userId         String?
+  user           User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionVersion Int?
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+model PageView {
+  id           String   @id // Client event UUID, retries are idempotent.
+  visitorHash  String
+  path         String
+  isLoggedIn   Boolean
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt, visitorHash])
+  @@index([visitorHash, createdAt])
 }
 
 model ServiceOperation {
