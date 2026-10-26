@@ -519,22 +519,37 @@ function ReadingValueSection({ label, reason, verdict, manualVerifications = [],
   );
 }
 
-function ScoresSection({ report, quick = false }: { report: QuickAnalysisResult | DeepAnalysisResult; quick?: boolean }) {
+function DataAnalysisSection({ report }: { report: DeepAnalysisResult }) {
   const language = normalizeReportLanguage(report.meta.reportLanguage);
   const text = (key: string) => getReportText(key, language);
-  const rows = quick
-    ? [
-        [text('informationCompleteness'), report.scores.informationCompleteness, !language.startsWith('zh-') ? 'How complete the article’s essential information is' : '原文关键信息够不够'],
-        [text('evidenceStrength'), report.scores.evidenceStrength, !language.startsWith('zh-') ? 'How strong the article’s evidence is' : '原文证据硬不硬'],
-        [text('narrativeBias'), report.scores.narrativeBias, !language.startsWith('zh-') ? 'Whether the article guides readers in one direction' : '原文是否明显单向引导'],
-      ]
-    : [
-        [text('credibility'), report.scores.credibility, text('scoreHelpCredibility')],
-        [text('informationCompleteness'), report.scores.informationCompleteness, text('scoreHelpCompleteness')],
-        [text('narrativeBias'), report.scores.narrativeBias, text('scoreHelpBias')],
-        [text('evidenceStrength'), report.scores.evidenceStrength, text('scoreHelpEvidence')],
-        [text('speculationUncertainty'), report.scores.speculationRisk, text('scoreHelpRisk')],
-      ];
+  const details = [
+    { label: text('dataAnalysisEvidence'), reasons: [report.scoreReasons?.credibility, report.scoreReasons?.evidenceStrength] },
+    { label: text('dataAnalysisNarrative'), reasons: [report.scoreReasons?.informationCompleteness, report.scoreReasons?.narrativeBias] },
+    { label: text('dataAnalysisUncertainty'), reasons: [report.scoreReasons?.speculationRisk] },
+  ];
+
+  return (
+    <Section id="report-scores" title={text('dataAnalysis')}>
+      <dl className="space-y-4">
+        {details.map(({ label, reasons }) => (
+          <div key={label} className="grid min-w-0 gap-1 md:grid-cols-[9rem_minmax(0,1fr)] md:gap-4">
+            <dt className="text-xs font-bold text-[var(--color-text)]">{label}</dt>
+            <dd className="min-w-0 break-words text-sm leading-relaxed text-[var(--color-text-muted)]">{line([...new Set(reasons.map(reason => line(reason, '')).filter(Boolean))].join(' '), text('insufficientMaterial'))}</dd>
+          </div>
+        ))}
+      </dl>
+    </Section>
+  );
+}
+
+function ScoresSection({ report }: { report: QuickAnalysisResult }) {
+  const language = normalizeReportLanguage(report.meta.reportLanguage);
+  const text = (key: string) => getReportText(key, language);
+  const rows = [
+    [text('informationCompleteness'), report.scores.informationCompleteness, !language.startsWith('zh-') ? 'How complete the article’s essential information is' : '原文关键信息够不够'],
+    [text('evidenceStrength'), report.scores.evidenceStrength, !language.startsWith('zh-') ? 'How strong the article’s evidence is' : '原文证据硬不硬'],
+    [text('narrativeBias'), report.scores.narrativeBias, !language.startsWith('zh-') ? 'Whether the article guides readers in one direction' : '原文是否明显单向引导'],
+  ];
 
   return (
     <Section id="report-scores" title={text('coreScores')} aside={<span className="text-xxs font-semibold text-gray-400">{text('scoreDisclaimer')}</span>}>
@@ -1110,7 +1125,7 @@ function QuickReportView({ report, originalContent, qaMessages }: { report: Quic
           ))}
         </div>
       </Section>
-      <ScoresSection report={report} quick />
+      <ScoresSection report={report} />
       <Section title={reportLanguage === 'en-US' ? '7. Three questions worth asking next' : '7. 最值得追问的 3 个问题'}>
         <ul className="grid grid-cols-1 gap-2 md:grid-cols-3">{questions.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs font-semibold leading-relaxed text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300">{item}</li>)}</ul>
       </Section>
@@ -1150,7 +1165,7 @@ function DeepReportView({ relatedCoverage, report, originalContent, qaMessages, 
       <ReadingValueSection label={report.readingValue} reason={report.readingValueReason} verdict={report.read_worth} manualVerifications={report.manualVerifications} reportLanguage={report.meta.reportLanguage} />
       <Section id="report-guide" title={text('readerGuide')}><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{report.normalReaderGuide}</p></Section>
       <Section id="report-conclusion" title={text('oneSentence')}><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white">{report.oneSentenceConclusion}</p></Section>
-      <ScoresSection report={report} />
+      <DataAnalysisSection report={report} />
       <div data-verification-pulse><AuditCharts {...chartProps(report)} reportLanguage={reportLanguage} /></div>
       <Section id="report-conclusion-layers" title={text('conclusionLayers')}>
         <div className="grid gap-2 md:grid-cols-3">
