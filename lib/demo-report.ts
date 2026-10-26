@@ -25,7 +25,7 @@ export function getDemoReport(language = 'zh-CN'): { originalContent: string; re
     readingUtility: { publicImportance: 50, informationGain: 45, uniqueness: 30, explanatoryDepth: 30, actionability: 45, informationDensity: 50 },
     scores: { credibility: 50, informationCompleteness: 35, narrativeBias: 55, evidenceStrength: 35, speculationRisk: 50 },
     scoreReasons: {
-      credibility: copy('报道给出了问卷数量与试点计划，但尚无独立材料核验。', 'The article provides questionnaire counts and a trial plan, but no independent verification.'),
+      credibility: copy('有问卷数据支撑，缺少独立核验。', 'Supported by questionnaire data, but not independently verified.'),
       informationCompleteness: copy('问卷发放方法、样本代表性、新增人力成本和试点效果均未披露。', 'Questionnaire distribution, sample representativeness, additional staffing costs and trial outcomes are not disclosed.'),
       narrativeBias: copy('报道将部分问卷回复推广为整个社区的需求，叙事范围超出了现有样本。', 'The article generalizes some questionnaire responses to community-wide needs, extending its framing beyond the available sample.'),
       evidenceStrength: copy('回收问卷可支持部分受访者希望延长开放时间，不能验证试点实际成效。', 'Returned questionnaires support a preference among some respondents for longer hours; they do not establish the trial’s outcomes.'),

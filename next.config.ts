@@ -10,9 +10,11 @@ const nextConfig: NextConfig = {
   ...(allowedDevOrigins?.length ? { allowedDevOrigins } : {}),
   outputFileTracingIncludes: {
     '/api/audits/[id]/export': [
-      // PDF export embeds this font from the server file system at export time.
+      // PDF export embeds regular and bold CJK faces from the server file system.
       './public/fonts/NotoSansSC-Regular.ttf',
-      './public/fonts/NotoSansKR-Variable.ttf',
+      './public/fonts/NotoSansSC-Bold.ttf',
+      './public/fonts/NotoSansKR-Regular.ttf',
+      './public/fonts/NotoSansKR-Bold.ttf',
     ],
   },
   turbopack: {

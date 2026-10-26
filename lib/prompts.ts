@@ -58,6 +58,7 @@ narrativeBias：叙事倾向性，越高表示引导性越强。
 evidenceStrength：证据强度，越高表示证据越充分。
 speculationRisk：推测不确定性，越高表示越需要补充外部材料核验。
 评分用于衡量报道结构与证据状态，不等同于判断新闻真假。
+scoreReasons.credibility 只写一句简短总结（中文不超过40字，其他语言保持相当篇幅），保留最关键的证据限制，不重复展开其他指标。
 
 六、时间判断
 不得把报告生成时间、网页抓取时间或用户提交时间当作新闻发布时间。
@@ -123,7 +124,7 @@ const DEEP_SCHEMA = `{
     "speculationRisk": 0
   },
   "scoreReasons": {
-    "credibility": "评分理由",
+    "credibility": "一句简短总结，保留关键证据限制",
     "informationCompleteness": "评分理由",
     "narrativeBias": "评分理由",
     "evidenceStrength": "评分理由",
