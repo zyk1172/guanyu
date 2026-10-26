@@ -523,7 +523,7 @@ function DataAnalysisSection({ report }: { report: DeepAnalysisResult }) {
   const language = normalizeReportLanguage(report.meta.reportLanguage);
   const text = (key: string) => getReportText(key, language);
   const details = [
-    { label: text('dataAnalysisEvidence'), reasons: [report.scoreReasons?.credibility, report.scoreReasons?.evidenceStrength] },
+    { label: text('dataAnalysisEvidence'), reasons: [line(report.scoreReasons?.credibility, '') || report.scoreReasons?.evidenceStrength] },
     { label: text('dataAnalysisNarrative'), reasons: [report.scoreReasons?.informationCompleteness, report.scoreReasons?.narrativeBias] },
     { label: text('dataAnalysisUncertainty'), reasons: [report.scoreReasons?.speculationRisk] },
   ];
