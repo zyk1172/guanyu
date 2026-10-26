@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import PDFDocument from 'pdfkit';
 import { parseExportReport } from '@/lib/report-export-content';
+import { getReportEmphasisRuns } from '@/lib/report-emphasis';
 import {
   exportAppendixNotice,
   exportCopy,
@@ -33,7 +34,9 @@ type ReportItem = Record<string, unknown>;
 const PAGE = { width: 595.28, height: 841.89, left: 60, right: 60, top: 70, bottom: 58 };
 const FONT_PATHS = {
   default: path.join(process.cwd(), 'public', 'fonts', 'NotoSansSC-Regular.ttf'),
-  korean: path.join(process.cwd(), 'public', 'fonts', 'NotoSansKR-Variable.ttf'),
+  bold: path.join(process.cwd(), 'public', 'fonts', 'NotoSansSC-Bold.ttf'),
+  korean: path.join(process.cwd(), 'public', 'fonts', 'NotoSansKR-Regular.ttf'),
+  koreanBold: path.join(process.cwd(), 'public', 'fonts', 'NotoSansKR-Bold.ttf'),
 };
 const MAX_APPENDIX_CHARS = 32_000;
 const MAX_SECTION_ITEMS = 24;
@@ -120,16 +123,9 @@ class AcademicPdf {
   private readonly contents: Array<{ title: string; page: number }> = [];
   private readonly sourceNumbers = new Map<string, number>();
   private readonly fontName = 'GuanyuBody';
+  private readonly boldFontName = 'GuanyuBold';
   private readonly auxiliaryFontName = 'GuanyuAuxiliary';
-  private contentHeadersEnabled = false;
-
-  constructor(private readonly doc: any, private readonly audit: AuditForPdf, private readonly language: string) {
-    this.doc.on('pageAdded', () => {
-      if (!this.contentHeadersEnabled) return;
-      this.drawContentHeader();
-      this.doc.y = PAGE.top;
-    });
-  }
+  constructor(private readonly doc: any, private readonly audit: AuditForPdf, private readonly language: string) {}
 
   private get width() {
     return PAGE.width - PAGE.left - PAGE.right;
@@ -140,12 +136,11 @@ class AcademicPdf {
     return range.start + range.count - 1;
   }
 
-  private useFont(size: number, color = INK) {
-    return this.doc.font(this.fontName).fontSize(size).fillColor(color);
+  private useFont(size: number, color = INK, bold = false) {
+    return this.doc.font(bold ? this.boldFontName : this.fontName).fontSize(size).fillColor(color);
   }
 
-  private addPage(content = false) {
-    this.contentHeadersEnabled = content;
+  private addPage() {
     this.doc.addPage({ size: 'A4', margins: { top: PAGE.top, bottom: PAGE.bottom, left: PAGE.left, right: PAGE.right } });
   }
 
@@ -156,38 +151,47 @@ class AcademicPdf {
   }
 
   private ensureSpace(height: number) {
-    if (this.doc.y + height > PAGE.height - PAGE.bottom) this.addPage(true);
+    if (this.doc.y + height > PAGE.height - PAGE.bottom) this.addPage();
   }
 
   private rule(thickness = 0.45) {
     this.doc.moveTo(PAGE.left, this.doc.y).lineTo(PAGE.width - PAGE.right, this.doc.y).lineWidth(thickness).strokeColor(RULE).stroke();
     this.doc.moveDown(0.7);
+    this.doc.x = PAGE.left;
   }
 
-  private paragraph(value: unknown, options: { size?: number; color?: string; gap?: number; indent?: number } = {}) {
+  private paragraph(value: unknown, options: { size?: number; color?: string; gap?: number; indent?: number; emphasize?: boolean; x?: number; width?: number } = {}) {
     const content = truncate(plain(value), MAX_ITEM_CHARS * 5);
     if (!content) return;
     const size = options.size ?? 9.8;
-    this.useFont(size, options.color ?? INK).text(content, {
-      width: this.width - (options.indent ?? 0),
-      indent: options.indent ?? 0,
-      lineGap: size * 0.28,
-      paragraphGap: 0,
+    this.doc.x = options.x ?? PAGE.left;
+    const runs = options.emphasize === false ? [{ text: content, bold: false }] : getReportEmphasisRuns(content);
+    runs.forEach((run, index) => {
+      this.useFont(size, options.color ?? INK, run.bold).text(run.text, {
+        width: (options.width ?? this.width) - (options.indent ?? 0),
+        indent: options.indent ?? 0,
+        lineGap: size * 0.28,
+        paragraphGap: 0,
+        continued: index < runs.length - 1,
+      });
     });
     this.doc.moveDown(options.gap ?? 0.55);
+    this.doc.x = PAGE.left;
   }
 
   private heading(title: string, minimumFollowingHeight = 0) {
     this.ensureSpace(78 + Math.min(240, Math.max(0, minimumFollowingHeight)));
     this.contents.push({ title, page: this.pageIndex() + 1 });
-    this.useFont(14.5).text(title, { width: this.width, lineGap: 2 });
+    this.doc.x = PAGE.left;
+    this.useFont(14.5, INK, true).text(title, { width: this.width, lineGap: 2 });
     this.doc.moveDown(0.35);
     this.rule(0.7);
   }
 
   private subheading(value: string) {
     this.ensureSpace(34);
-    this.useFont(10.4).text(value, { width: this.width, lineGap: 2 });
+    this.doc.x = PAGE.left;
+    this.useFont(10.4, INK, true).text(value, { width: this.width, lineGap: 2 });
     this.doc.moveDown(0.2);
   }
 
@@ -224,7 +228,7 @@ class AcademicPdf {
 
   private item(item: ReportItem, index: number) {
     this.ensureSpace(112);
-    this.useFont(10.2).text(`${index}. ${itemTitle(item)}`, { width: this.width, lineGap: 2 });
+    this.useFont(10.2, INK, true).text(`${index}. ${itemTitle(item)}`, { width: this.width, lineGap: 2 });
     const body = itemBody(item);
     if (body && body !== itemTitle(item)) this.paragraph(body, { size: 9.5, color: MUTED, gap: 0.3 });
     this.itemDetails(item).forEach(([label, value]) => this.labeledParagraph(label, value, 8.8));
@@ -311,7 +315,8 @@ class AcademicPdf {
       const y = this.doc.y;
       this.useFont(9.2).text(label, PAGE.left, y, { width: 120 });
       this.useFont(9.2).text(`${value}/100`, PAGE.left + 128, y, { width: 40 });
-      this.useFont(8.7, MUTED).text(reason, PAGE.left + 172, y, { width: this.width - 172, lineGap: 3 });
+      this.doc.y = y;
+      this.paragraph(reason, { size: 8.7, color: MUTED, gap: 0, x: PAGE.left + 172, width: this.width - 172 });
       this.doc.y = Math.max(this.doc.y, y + 32);
       this.rule(0.3);
     });
@@ -362,8 +367,10 @@ class AcademicPdf {
       // overflow and silently creates a blank page for every footer.
       const originalBottomMargin = this.doc.page.margins.bottom;
       this.doc.page.margins.bottom = 0;
-      // The footer has an independent font subset so page finishing cannot
-      // remap glyphs that were already written by the report body.
+      // Finish furniture after prose: drawing inside pageAdded interrupts
+      // PDFKit's continued bold/plain runs and can shift headers or body text.
+      if (index >= 2) this.drawContentHeader();
+      // Furniture uses the bundled regular face after body layout is complete.
       this.doc.font(this.auxiliaryFontName).fontSize(7.1).fillColor(MUTED).text(`${brand.name} | ${copy(this.language, '新闻叙事审视报告', 'News Narrative Review Report')}`, PAGE.left, PAGE.height - 34, { width: this.width - 72 });
       this.doc.font(this.auxiliaryFontName).fontSize(7.1).fillColor(MUTED).text(`${index + 1} / ${total}`, PAGE.width - PAGE.right - 48, PAGE.height - 34, { width: 48, align: 'right' });
       this.doc.font(this.auxiliaryFontName).fontSize(6.5).fillColor(MUTED).text(`v${this.audit.reportVersion} | ${this.audit.createdAt.toISOString().slice(0, 10)}`, PAGE.left, PAGE.height - 20, { width: this.width });
@@ -380,9 +387,9 @@ class AcademicPdf {
     });
 
     this.cover(report);
-    this.addPage(false);
+    this.addPage();
     if (contentsOverride) this.writeContents(contentsOverride);
-    this.addPage(true);
+    this.addPage();
     this.heading(copy(this.language, '摘要', 'Abstract'));
     this.paragraph(this.audit.newsSummary, { size: 10.2 });
     this.labeledParagraph(copy(this.language, '核心结论', 'Core conclusion'), report.oneSentenceConclusion ?? report.one_sentence_conclusion, 10);
@@ -456,9 +463,9 @@ class AcademicPdf {
         this.doc.moveDown(0.6);
       });
     }
-    this.addPage(true);
+    this.addPage();
     this.heading(copy(this.language, '附录 A：新闻原文', 'Appendix A: original article'));
-    this.paragraph(reportAppendix(this.audit.originalContent, this.language), { size: 9.1, gap: 0 });
+    this.paragraph(reportAppendix(this.audit.originalContent, this.language), { size: 9.1, gap: 0, emphasize: false });
     this.headersAndFooters();
     return this.contents;
   }
@@ -466,13 +473,16 @@ class AcademicPdf {
 
 async function renderPass(audit: AuditForPdf, language: string, contentsOverride?: Array<{ title: string; page: number }>) {
   const fontPath = language === 'ko-KR' ? FONT_PATHS.korean : FONT_PATHS.default;
+  const boldPath = language === 'ko-KR' ? FONT_PATHS.koreanBold : FONT_PATHS.bold;
   if (!fs.existsSync(fontPath)) throw new Error(`PDF 字体文件不可用 (${language})。`);
+  if (!fs.existsSync(boldPath)) throw new Error(`PDF 粗体字体文件不可用 (${language})。`);
   const brand = getExportBrand(language);
   const document = new PDFDocument({ font: fontPath, autoFirstPage: false, bufferPages: true, size: 'A4', margins: { top: PAGE.top, bottom: PAGE.bottom, left: PAGE.left, right: PAGE.right }, info: { Title: audit.title, Author: brand.name, Subject: copy(language, '新闻叙事审视报告', 'News Narrative Review Report'), Keywords: `${brand.name}, news narrative review, ${audit.id}`, CreationDate: audit.createdAt } });
   // Never use PDFKit's built-in Helvetica: its AFM file is omitted by some
-  // serverless tracing bundles. Both embedded subsets come from our deployed
-  // font file and remain available in local and Vercel runtimes.
+  // serverless tracing bundles. All faces are bundled and available in local
+  // and Vercel runtimes, including CJK bold text.
   document.registerFont('GuanyuBody', fontPath);
+  document.registerFont('GuanyuBold', boldPath);
   document.registerFont('GuanyuAuxiliary', fontPath);
   const output = new Promise<Buffer>((resolve, reject) => {
     const chunks: Buffer[] = [];

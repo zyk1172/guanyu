@@ -1,5 +1,6 @@
 'use client';
 
+import ReportText from './ReportText';
 import { CheckCircle2, ExternalLink, LoaderCircle, Search, ShieldAlert } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { ManualVerificationOutcome, ManualVerificationRecord, VerificationRoadmapTask } from '@/lib/types';
@@ -140,8 +141,8 @@ export default function VerificationRoadmap({
         const isSaving = savingIndex === index;
         return (
           <article key={`${item.question}-${index}`} data-gsap-hover className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-xs transition-colors hover:bg-[var(--color-card-hover)]">
-            <div className="font-bold leading-relaxed text-[var(--color-text)]">{item.question}</div>
-            <p className="mt-1 leading-relaxed text-[var(--color-text-muted)]">{item.whyItMatters}</p>
+            <div className="font-bold leading-relaxed text-[var(--color-text)]"><ReportText>{item.question}</ReportText></div>
+            <p className="mt-1 leading-relaxed text-[var(--color-text-muted)]"><ReportText>{item.whyItMatters}</ReportText></p>
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               <span className="rounded border border-[var(--color-info)]/30 bg-[color-mix(in_srgb,var(--color-info)_12%,transparent)] px-2 py-0.5 text-xxs font-bold text-[var(--color-info)]">{formatMaterialType(item.materialType, reportLanguage)}</span>
               <span className="rounded border border-[var(--color-warning)]/35 bg-[color-mix(in_srgb,var(--color-warning)_12%,transparent)] px-2 py-0.5 text-xxs font-bold text-[var(--color-warning)]">{formatPriority(item.priority, reportLanguage)}</span>

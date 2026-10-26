@@ -5,13 +5,13 @@ import { getSuperAdminStatus } from '@/lib/admin';
 import { assertServiceCreditsAvailable, CREDIT_COSTS, consumeServiceCreditsWithResult } from '@/lib/billing';
 import { prisma } from '@/lib/prisma';
 import { parseExportReport } from '@/lib/report-export-content';
+import { emphasizeReportMarkdown } from '@/lib/report-emphasis';
 import { exportCopy, getExportBrand, normalizeExportLanguage } from '@/lib/export-language-core.mjs';
 import { withHistoricalAuditModelName } from '@/lib/audit-model-display';
 import { sameOriginResponse } from '@/lib/request-security';
 
 type ExportFormat = 'MARKDOWN' | 'PDF' | 'WORD';
-const PDF_TEMPLATE_VERSION = '7';
-const WORD_TEMPLATE_VERSION = '3';
+const TEMPLATE_VERSIONS = { PDF: '8', WORD: '4', MARKDOWN: '3' } as const;
 
 export const maxDuration = 60;
 
@@ -32,7 +32,7 @@ function markdown(audit: { title: string; source: string; publishedAt: string; n
     const items = asArray(value).map((item: any) => typeof item === 'string' ? item : item.title || item.question || item.actor || item.explanation || item.content || item.detail).filter(Boolean);
     return items.length ? [`## ${title}`, ...items.map((item) => `- ${String(item)}`), ''] : [];
   };
-  return [
+  return emphasizeReportMarkdown([
     `# ${h('观隅 · 新闻叙事审视报告', 'Guanyu · News Narrative Review Report')}`,
     '',
     `## ${h('报告信息', 'Report information')}`,
@@ -59,7 +59,7 @@ function markdown(audit: { title: string; source: string; publishedAt: string; n
     ...sectionItems(h('继续追问清单', 'Questions to ask next'), report.questionsToAsk || report.questions_to_ask_next),
     `## ${h('附录：新闻原文', 'Appendix: original article')}`,
     audit.originalContent,
-  ].join('\n');
+  ].join('\n'));
 }
 
 function attachment(content: Uint8Array | string, filename: string, contentType: string) {
@@ -99,11 +99,7 @@ function filenameFor(audit: { title: string; reportLanguage: string; createdAt: 
 }
 
 async function getExisting(userId: string, reportId: string, reportVersion: number, format: ExportFormat) {
-  const artifact = await prisma.exportArtifact.findUnique({ where: { userId_reportId_reportVersion_exportFormat: { userId, reportId, reportVersion, exportFormat: format } } });
-  // Formal export templates are separately versioned. Markdown remains content-versioned only.
-  const expectedTemplateVersion = format === 'PDF' ? PDF_TEMPLATE_VERSION : format === 'WORD' ? WORD_TEMPLATE_VERSION : null;
-  if (expectedTemplateVersion && artifact?.templateVersion !== expectedTemplateVersion) return null;
-  return artifact;
+  return prisma.exportArtifact.findUnique({ where: { userId_reportId_reportVersion_exportFormat: { userId, reportId, reportVersion, exportFormat: format } } });
 }
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -113,7 +109,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const format = String(new URL(request.url).searchParams.get('format') || 'PDF').toUpperCase() as ExportFormat;
   if (format !== 'MARKDOWN' && format !== 'PDF' && format !== 'WORD') return NextResponse.json({ error: '不支持的导出格式。' }, { status: 400 });
   const artifact = await getExisting(found.user.id, id, found.audit.reportVersion, format);
-  if (!artifact?.content || artifact.status !== 'READY') return NextResponse.json({ error: '该版本尚未生成此导出文件。' }, { status: 404 });
+  if (!artifact?.content || artifact.status !== 'READY' || artifact.templateVersion !== TEMPLATE_VERSIONS[format]) return NextResponse.json({ error: '该版本尚未生成此导出文件。' }, { status: 404 });
   if (format === 'PDF') return attachment(Buffer.from(artifact.content, 'base64'), artifact.downloadFilename, 'application/pdf');
   if (format === 'WORD') return attachment(Buffer.from(artifact.content, 'base64'), artifact.downloadFilename, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
   return attachment(artifact.content, artifact.downloadFilename, 'text/markdown; charset=utf-8');
@@ -130,14 +126,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (format !== 'MARKDOWN' && format !== 'PDF' && format !== 'WORD') return NextResponse.json({ error: '不支持的导出格式。' }, { status: 400 });
 
   const existing = await getExisting(found.user.id, id, found.audit.reportVersion, format);
-  if (existing?.status === 'READY' && existing.content) {
+  if (existing?.status === 'READY' && existing.content && existing.templateVersion === TEMPLATE_VERSIONS[format]) {
     if (format === 'PDF' || format === 'WORD') return NextResponse.json({ filename: existing.downloadFilename, charged: false, downloadUrl: `/api/audits/${encodeURIComponent(id)}/export?format=${format}` });
     return NextResponse.json({ content: existing.content, filename: existing.downloadFilename, charged: false });
   }
 
+  // Reformat an already generated export for free, including zero-balance users.
+  const refreshing = Boolean(existing?.status === 'READY' && existing.content);
   const creditCost = format === 'PDF' ? CREDIT_COSTS.PDF_EXPORT : format === 'WORD' ? CREDIT_COSTS.WORD_EXPORT : CREDIT_COSTS.MARKDOWN_EXPORT;
   try {
-    await assertServiceCreditsAvailable({ userId: found.user.id, cents: creditCost });
+    await assertServiceCreditsAvailable({ userId: found.user.id, cents: refreshing ? 0 : creditCost });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : '当前点数不足。' }, { status: 402 });
   }
@@ -157,7 +155,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     console.info('Report export rendered', { auditId: id, format, bytes: generated.byteLength, elapsedMs: Date.now() - startedAt });
     const content = format === 'PDF' || format === 'WORD' ? Buffer.from(generated).toString('base64') : generated.toString('utf8');
     const hash = crypto.createHash('sha256').update(generated).digest('hex');
-    const committed = await consumeServiceCreditsWithResult({
+    const artifactData = { content, contentHash: hash, fileHash: hash, fileSizeBytes: generated.byteLength, downloadFilename: filename, status: 'READY' as const, language: found.audit.reportLanguage, templateVersion: TEMPLATE_VERSIONS[format], errorCode: null, errorMessageSanitized: null };
+    const artifact = refreshing ? await prisma.exportArtifact.update({ where: { id: existing!.id }, data: artifactData }) : (await consumeServiceCreditsWithResult({
       userId: found.user.id,
       cents: creditCost,
       transactionType: format === 'PDF' ? 'PDF_EXPORT' : format === 'WORD' ? 'WORD_EXPORT' : 'MARKDOWN_EXPORT',
@@ -171,13 +170,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       transactionOptions: { maxWait: 5_000, timeout: 30_000 },
     }, (tx, transaction) => tx.exportArtifact.upsert({
       where: { userId_reportId_reportVersion_exportFormat: { userId: found.user.id, reportId: id, reportVersion: found.audit.reportVersion, exportFormat: format } },
-      update: { content, contentHash: hash, fileHash: hash, fileSizeBytes: generated.byteLength, downloadFilename: filename, status: 'READY', language: found.audit.reportLanguage, templateVersion: format === 'PDF' ? PDF_TEMPLATE_VERSION : format === 'WORD' ? WORD_TEMPLATE_VERSION : '2', pointTransactionId: transaction?.id, errorCode: null, errorMessageSanitized: null },
-      create: { userId: found.user.id, reportId: id, reportVersion: found.audit.reportVersion, exportFormat: format, content, contentHash: hash, fileHash: hash, fileSizeBytes: generated.byteLength, downloadFilename: filename, language: found.audit.reportLanguage, status: 'READY', templateVersion: format === 'PDF' ? PDF_TEMPLATE_VERSION : format === 'WORD' ? WORD_TEMPLATE_VERSION : '2', pointTransactionId: transaction?.id },
-    }));
-    const artifact = committed.result;
+      update: { ...artifactData, pointTransactionId: transaction?.id },
+      create: { ...artifactData, userId: found.user.id, reportId: id, reportVersion: found.audit.reportVersion, exportFormat: format, pointTransactionId: transaction?.id },
+    }))).result;
     console.info('Report export stored', { auditId: id, format, elapsedMs: Date.now() - startedAt });
-    if (format === 'PDF' || format === 'WORD') return NextResponse.json({ filename: artifact.downloadFilename, charged: true, downloadUrl: `/api/audits/${encodeURIComponent(id)}/export?format=${format}` });
-    return NextResponse.json({ content: artifact.content, filename: artifact.downloadFilename, charged: true });
+    if (format === 'PDF' || format === 'WORD') return NextResponse.json({ filename: artifact.downloadFilename, charged: !refreshing, downloadUrl: `/api/audits/${encodeURIComponent(id)}/export?format=${format}` });
+    return NextResponse.json({ content: artifact.content, filename: artifact.downloadFilename, charged: !refreshing });
   } catch (error) {
     // Rendering happens before the transaction. Charging and artifact storage
     // then commit atomically, so a persistence failure cannot strand a charge.

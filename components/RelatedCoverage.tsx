@@ -1,5 +1,6 @@
 'use client';
 
+import ReportText from './ReportText';
 import { useCallback, useEffect, useState } from 'react';
 import { Search, ChevronDown, ExternalLink } from 'lucide-react';
 import { useUiLanguage } from './LanguageProvider';
@@ -73,7 +74,7 @@ export default function RelatedCoverage({ auditId }: { auditId: string }) {
     finally { setSubmitting(false); }
   };
   const renderFinding = (finding: Finding, key: string | number) => <div key={key} className="mt-3">
-    <p className="text-sm leading-relaxed">{finding.text}</p>
+    <p className="text-sm leading-relaxed"><ReportText>{finding.text}</ReportText></p>
     <details className="mt-2 text-sm"><summary className="inline-flex min-h-11 cursor-pointer items-center gap-2 font-medium text-[var(--color-link)]"><ChevronDown size={15} aria-hidden="true" />{c.references}</summary>
       <div className="space-y-3 border-l-2 border-[var(--color-border)] pl-4">{finding.citations.map((cite, i) => {
         const article = result?.articles.find(article => article.number === cite.article);
@@ -102,7 +103,7 @@ export default function RelatedCoverage({ auditId }: { auditId: string }) {
       <p className="mt-2 break-words text-xs text-[var(--color-text-muted)]">{c.query}: {result.query}</p>
       <h3 className="mt-5 text-lg font-bold">{c.summary}</h3>{result.synthesis.summary && renderFinding(result.synthesis.summary, 'summary')}
       {([['sharedClaims', c.shared], ['differences', c.differences], ['missingEvidence', c.missing]] as const).filter(([key]) => result.synthesis[key].length > 0).map(([key, label]) => <div key={key} className="mt-5"><h3 className="text-base font-bold">{label}</h3>{result.synthesis[key].map(renderFinding)}</div>)}
-      <div className="mt-6 border-t border-[var(--color-border)] pt-5"><h3 className="text-base font-bold">{c.sources}</h3><ol className="mt-3 space-y-4">{result.articles.map(article => <li key={article.number} id={`coverage-source-${article.number}`}><a href={article.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-start gap-2 break-words text-sm font-semibold text-[var(--color-link)] underline"><span>[{article.number}] {article.title}</span><ExternalLink size={15} className="mt-1 shrink-0" aria-hidden="true" /></a><p className="mt-1 text-xs leading-relaxed text-[var(--color-text-muted)]">{new URL(article.url).hostname} · {result.synthesis.matches.find(match => match.article === article.number)?.reason}</p></li>)}</ol></div>
+      <div className="mt-6 border-t border-[var(--color-border)] pt-5"><h3 className="text-base font-bold">{c.sources}</h3><ol className="mt-3 space-y-4">{result.articles.map(article => <li key={article.number} id={`coverage-source-${article.number}`}><a href={article.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-start gap-2 break-words text-sm font-semibold text-[var(--color-link)] underline"><span>[{article.number}] {article.title}</span><ExternalLink size={15} className="mt-1 shrink-0" aria-hidden="true" /></a><p className="mt-1 text-xs leading-relaxed text-[var(--color-text-muted)]">{new URL(article.url).hostname} · <ReportText>{result.synthesis.matches.find(match => match.article === article.number)?.reason}</ReportText></p></li>)}</ol></div>
       {(result.unreadableCount > 0 || result.excludedCount > 0) && <p className="mt-4 text-xs text-[var(--color-text-muted)]">{c.counts}</p>}
       <p className="mt-4 text-xs leading-relaxed text-[var(--color-text-muted)]">{c.caution}</p>
     </div>}

@@ -20,6 +20,7 @@ import {
   WidthType,
 } from 'docx';
 import { exportItems, exportPlainText, parseExportReport, type ExportReportItem } from '@/lib/report-export-content';
+import { getReportEmphasisRuns } from '@/lib/report-emphasis';
 import {
   exportAppendixNotice,
   exportCopy,
@@ -126,14 +127,19 @@ function safeUrl(value: unknown) {
   }
 }
 
-function paragraph(value: unknown, options: { bold?: boolean; size?: number; color?: string; style?: string; alignment?: (typeof AlignmentType)[keyof typeof AlignmentType]; pageBreakBefore?: boolean; spacing?: { before?: number; after?: number; line?: number }; keepNext?: boolean } = {}) {
+function proseRuns(value: string, options: { bold?: boolean; size?: number; color?: string; emphasize?: boolean } = {}) {
+  const runs = options.emphasize === false || options.bold ? [{ text: value, bold: Boolean(options.bold) }] : getReportEmphasisRuns(value);
+  return runs.map(run => new TextRun({ text: run.text, bold: run.bold, size: options.size, color: options.color, font: fontForText(value) }));
+}
+
+function paragraph(value: unknown, options: { bold?: boolean; size?: number; color?: string; style?: string; alignment?: (typeof AlignmentType)[keyof typeof AlignmentType]; pageBreakBefore?: boolean; spacing?: { before?: number; after?: number; line?: number }; keepNext?: boolean; emphasize?: boolean } = {}) {
   return new Paragraph({
     style: options.style,
     pageBreakBefore: options.pageBreakBefore,
     keepNext: options.keepNext,
     alignment: options.alignment,
     spacing: options.spacing ?? { after: 120, line: 330 },
-    children: [new TextRun({ text: truncate(text(value), MAX_ITEM_CHARS * 6), bold: options.bold, size: options.size, color: options.color, font: fontForText(value) })],
+    children: proseRuns(truncate(text(value), MAX_ITEM_CHARS * 6), options),
   });
 }
 
@@ -151,7 +157,7 @@ function bullet(value: unknown) {
   return new Paragraph({
     bullet: { level: 0 },
     spacing: { after: 70, line: 300 },
-    children: [new TextRun({ text: truncate(text(value)), font: fontForText(value), color: BLACK, size: 20 })],
+    children: proseRuns(truncate(text(value)), { color: BLACK, size: 20 }),
   });
 }
 
@@ -164,7 +170,7 @@ function cell(value: unknown, options: { bold?: boolean; shade?: string; width?:
     children: [new Paragraph({
       alignment: options.align,
       spacing: { after: 0, line: 280 },
-      children: [new TextRun({ text: truncate(text(value), 900), bold: options.bold, color: BLACK, size: 18, font: fontForText(value) })],
+      children: proseRuns(truncate(text(value), 900), { bold: options.bold, color: BLACK, size: 18 }),
     })],
   });
 }
@@ -237,7 +243,7 @@ function sourceParagraphs(rows: Array<Array<unknown>>) {
     const url = safeUrl(row[5]);
     result.push(new Paragraph({ spacing: { after: 80, line: 300 }, children: [
       new TextRun({ text: `[${index + 1}] ${text(row[1])}. `, font: fontForText(row[1]), bold: true, color: BLACK, size: 19 }),
-      new TextRun({ text: `${text(row[0])}; ${text(row[2])} `, font: fontForText(`${row[0]} ${row[2]}`), color: MID, size: 19 }),
+      ...proseRuns(`${text(row[0])}; ${text(row[2])} `, { color: MID, size: 19 }),
       ...(url ? [new ExternalHyperlink({ link: url, children: [new TextRun({ text: url, font: SERIF, color: '1A5A8A', underline: { type: 'single' }, size: 18 })] })] : []),
     ] }));
   });
@@ -337,7 +343,7 @@ export async function renderProfessionalWord(audit: AuditForWord) {
     heading(copy(language, '来源与引用', 'Sources and references'), 1, true),
     ...sourceParagraphs(sourceTableRows),
     heading(copy(language, '附录：新闻原文', 'Appendix: original article'), 1, true),
-    paragraph(appendix(audit.originalContent || copy(language, '未提供原始新闻正文。', 'The original article text was not provided.'), language), { spacing: { after: 100, line: 330 } }),
+    paragraph(appendix(audit.originalContent || copy(language, '未提供原始新闻正文。', 'The original article text was not provided.'), language), { spacing: { after: 100, line: 330 }, emphasize: false }),
   ];
 
   const doc = new Document({
