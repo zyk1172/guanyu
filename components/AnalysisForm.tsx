@@ -58,7 +58,7 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
   const router = useRouter();
   const { language, t } = useUiLanguage();
   const c = getWorkspaceCopy(language);
-  const [inputMode, setInputMode] = useState<'search' | 'text' | 'url'>('search');
+  const [inputMode, setInputMode] = useState<'text' | 'url'>('text');
   const [draftNotice, setDraftNotice] = useState<'restored' | 'storageError' | null>(null);
   const [title, setTitle] = useState('');
   const [source, setSource] = useState('');
@@ -68,6 +68,7 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
   const mode: AnalysisMode = 'deep';
   const [urlInput, setUrlInput] = useState('');
   const [parsedSourceUrl, setParsedSourceUrl] = useState('');
+  const [selectedNews, setSelectedNews] = useState<NewsArticle | null>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [parseFailure, setParseFailure] = useState<ParseFailure | null>(null);
   const [canAnalyze, setCanAnalyze] = useState(false);
@@ -92,7 +93,7 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
 
   useEffect(() => {
     if (!articleUrl) return;
-    setUrlInput(articleUrl.url); setInputMode('url'); setParsedSourceUrl(''); setParseFailure(null);
+    setUrlInput(articleUrl.url); setInputMode('url'); setSelectedNews(null); setParseFailure(null);
   }, [articleUrl]);
 
   const signInWithDraft = () => {
@@ -139,7 +140,7 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
     };
   }, [parseFailure]);
 
-  const handleParseUrl = async (selectedUrl?: string) => {
+  const handleParseUrl = async (selectedUrl?: string, selectedArticle?: NewsArticle) => {
     const trimmed = (selectedUrl ?? urlInput).trim();
     if (!trimmed) return;
 
@@ -168,17 +169,19 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
       if (current !== parseNumber.current) return;
 
       if (!res.ok) {
+        setSelectedNews(null);
         setParseFailure({ code: String(data.code || 'PARSE_FAILED'), message: data.error || '解析失败' });
         return;
       }
 
-      if (data.title) setTitle(data.title);
-      if (data.source) setSource(data.source);
+      if (data.title || selectedArticle?.title) setTitle(data.title || selectedArticle?.title || '');
+      if (data.source || selectedArticle?.source) setSource(data.source || selectedArticle?.source || '');
       if (data.content) setContent(data.content);
       setParsedSourceUrl(String(data.url || trimmed));
       if (!selectedUrl) requestAnimationFrame(() => contentRef.current?.focus());
     } catch {
       if (controller.signal.aborted || current !== parseNumber.current) return;
+      setSelectedNews(null);
       setParseFailure({ code: 'NETWORK_ERROR', message: '网络错误，请重试' });
     } finally {
       if (current === parseNumber.current) setIsParsing(false);
@@ -188,17 +191,17 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
   useEffect(() => () => { parseController.current?.abort(); }, []);
 
   const handleNewsSelect = (article: NewsArticle) => {
-    setTitle(article.title); setSource(article.source); setContent(''); setFocus('');
-    setUrlInput(article.url); setParsedSourceUrl(''); setInputMode('url'); setParseFailure(null);
+    setSelectedNews(article);
+    setUrlInput(article.url); setInputMode('url'); setParseFailure(null);
     document.getElementById('analysis')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });
     if (status !== 'authenticated') {
       try {
-        sessionStorage.setItem(ANALYSIS_DRAFT_KEY, encodeAnalysisDraft({ title: article.title, source: article.source, content: '', focus: '', urlInput: article.url, parsedSourceUrl: '', inputMode: 'url' }));
+        sessionStorage.setItem(ANALYSIS_DRAFT_KEY, encodeAnalysisDraft({ title, source, content, focus, urlInput: article.url, parsedSourceUrl, inputMode: 'url' }));
         router.push('/login?callbackUrl=/');
       } catch { setDraftNotice('storageError'); }
       return;
     }
-    void handleParseUrl(article.url);
+    void handleParseUrl(article.url, article);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -229,27 +232,26 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
   };
 
   return (
-    <section id="analysis" className="workspace-panel">
-      <div className="flex flex-wrap items-center justify-between gap-3"><h2>{language.startsWith('zh') ? '查找并分析新闻' : 'Find and analyze news'}</h2><Link href="/demo" className="inline-flex min-h-11 items-center text-sm font-medium text-[var(--color-link)] underline">{c.demoNav}</Link></div>
-      {draftNotice && <p role="status" className="mt-4 rounded-lg bg-[var(--color-primary-soft)] p-3 text-sm">{c[draftNotice]}</p>}
-      <div className="workspace-tabs my-5" role="group" aria-label={language.startsWith('zh') ? '新闻输入方式' : 'Article input method'}>
-          <button type="button" aria-pressed={inputMode === 'search'} onClick={() => setInputMode('search')}>{language.startsWith('zh') ? '搜索新闻' : 'Search news'}</button>
-          <button type="button" aria-pressed={inputMode === 'text'} onClick={() => setInputMode('text')}>{c.text}</button>
-          <button type="button" aria-pressed={inputMode === 'url'} onClick={() => setInputMode('url')}>{c.url}</button>
-        </div>
-      <div hidden={inputMode !== 'search'}><NewsSearch onSelect={handleNewsSelect} busy={isLoading || isParsing} /></div>
-      <form onSubmit={handleSubmit} hidden={inputMode === 'search'} className="space-y-4">
-        {inputMode === 'url' && title && <div className="rounded-lg bg-[var(--color-surface-muted)] p-4"><p className="text-xs text-[var(--color-text-muted)]">{isParsing ? (language.startsWith('zh') ? '正在读取报道正文…' : 'Reading article text…') : (language.startsWith('zh') ? '已选报道' : 'Selected article')}</p><h3 className="mt-1 break-words text-base font-semibold">{title}</h3><p className="mt-1 text-xs text-[var(--color-text-muted)]">{source}</p></div>}
-        {inputMode === 'url' && <div className="space-y-2">
-          <label htmlFor="article-url" className="workspace-label">{t('form.urlParser')}</label>
+    <>
+    <section id="news-search" className="workspace-panel home-workspace-panel">
+      <div className="home-section-heading"><div><h2>{language.startsWith('zh') ? '搜索新闻' : 'Search news'}</h2><p>{language.startsWith('zh') ? '输入关键词，查找相关报道。' : 'Find reporting on a topic that matters to you.'}</p></div><Link href="/demo" className="workspace-link">{c.demoNav}</Link></div>
+      <NewsSearch onSelect={handleNewsSelect} busy={isLoading || isParsing} />
+    </section>
+    <section id="analysis" className="workspace-panel home-workspace-panel scroll-mt-24">
+      <div className="home-section-heading"><div><h2>{language.startsWith('zh') ? '分析一篇报道' : 'Analyze an article'}</h2><p>{language.startsWith('zh') ? '粘贴链接获取正文，或直接输入正文。' : 'Read from a link or paste the article text below.'}</p></div></div>
+      {draftNotice && <p role="status" className="mb-4 rounded-lg bg-[var(--color-primary-soft)] p-3 text-sm">{c[draftNotice]}</p>}
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {selectedNews && <div className="rounded-lg bg-[var(--color-surface-muted)] p-4"><p className="text-xs text-[var(--color-text-muted)]">{isParsing ? (language.startsWith('zh') ? '正在读取报道正文…' : 'Reading article text…') : (language.startsWith('zh') ? '已选报道' : 'Selected article')}</p><h3 className="mt-1 break-words text-base font-semibold">{selectedNews.title}</h3><p className="mt-1 text-xs text-[var(--color-text-muted)]">{selectedNews.source}</p></div>}
+        <div className="space-y-2">
+          <label htmlFor="article-url" className="workspace-label">{language.startsWith('zh') ? '新闻链接（可选）' : 'Article link (optional)'}</label>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <input id="article-url" type="url" disabled={isParsing || isLoading} value={urlInput} onChange={(e) => { setUrlInput(e.target.value); setParsedSourceUrl(''); setContent(''); setTitle(''); setSource(''); setParseFailure(null); }} onKeyDown={handleKeyDown} placeholder="https://…" className="workspace-input min-w-0 flex-1" />
+            <input id="article-url" type="text" inputMode="url" disabled={isParsing || isLoading} value={urlInput} onChange={(e) => { setUrlInput(e.target.value); setInputMode('url'); setSelectedNews(null); setParseFailure(null); }} onKeyDown={handleKeyDown} placeholder="https://…" className="workspace-input min-w-0 flex-1" />
             <button type="button" onClick={() => void handleParseUrl()} disabled={isLoading || isParsing || status === 'loading' || !urlInput.trim()} className="workspace-button workspace-secondary shrink-0 disabled:opacity-50">{isParsing ? t('form.parsing') : status === 'authenticated' ? c.read : c.loginRead}</button>
           </div>
-        </div>}
+        </div>
         <div>
           <label htmlFor="content" className="workspace-label">{t('form.contentLabel')}</label>
-          <textarea id="content" ref={contentRef} disabled={isParsing || isLoading} value={content} onChange={(e) => { setContent(e.target.value); setParsedSourceUrl(''); }} rows={7} required minLength={50} maxLength={30000} placeholder={c.placeholder} aria-describedby="content-help" className="workspace-input resize-y" />
+          <textarea id="content" ref={contentRef} disabled={isParsing || isLoading} value={content} onChange={(e) => { setContent(e.target.value); setInputMode('text'); setParsedSourceUrl(''); }} rows={7} required minLength={50} maxLength={30000} placeholder={c.placeholder} aria-describedby="content-help" className="workspace-input resize-y" />
           <div id="content-help" className="mt-1 flex justify-between gap-3 text-xs text-[var(--color-text-muted)]"><span>{t('form.minimumLength')}</span><span>{t('form.characterCount', undefined, { count: content.length })}</span></div>
         </div>
         <details className="workspace-disclosure">
@@ -262,7 +264,7 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
             <div><label htmlFor="focus" className="workspace-label">{t('form.focusLabel')}</label><input id="focus" value={focus} onChange={(e) => setFocus(e.target.value)} maxLength={2000} placeholder={t('form.focusPlaceholder')} className="workspace-input" /></div>
           </div>
         </details>
-        {inputMode !== 'search' && <TaskBudget compact onAvailabilityChange={setCanAnalyze} />}
+        <TaskBudget compact onAvailabilityChange={setCanAnalyze} />
         <button type="submit" disabled={isLoading || isParsing || status === 'loading' || !isFormValid || (status === 'authenticated' && !canAnalyze)} className="workspace-button workspace-primary w-full">{isLoading ? t('form.analyzing') : status === 'authenticated' ? t('form.start') : c.continue}</button>
       </form>
 
@@ -310,5 +312,6 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
         </div>
       )}
     </section>
+    </>
   );
 }

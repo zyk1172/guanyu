@@ -42,7 +42,7 @@ export function normalizeNewsArticles(sources: WebSearchSource[]): NewsArticle[]
   }).slice(0, 10);
 }
 
-export const NEWS_SEARCH_DRAFT_KEY = 'guanyu-news-search-v1';
+export const NEWS_SEARCH_DRAFT_KEY = 'guanyu-news-search-v2';
 export type NewsSearchDraft = { query: string; provider: NewsProvider; period: NewsPeriod; result: NewsSearchResult | null; pending: NewsArticle | null };
 export function encodeNewsSearchDraft(draft: NewsSearchDraft, now = Date.now()) {
   return JSON.stringify({ ...draft, savedAt: now });
@@ -55,6 +55,8 @@ export function decodeNewsSearchDraft(raw: string | null, now = Date.now()): New
     if (data.result !== null && (!Array.isArray(data.result?.articles) || data.result.articles.length > 10 || !Array.isArray(data.result.providers) || data.result.providers.length > 5 || !data.result.providers.every((provider: unknown) => typeof provider === 'string' && provider.length <= 32) || !['free', 'deepseek'].includes(data.result.requestedProvider) || typeof data.result.searchedAt !== 'string' || !Number.isFinite(Date.parse(data.result.searchedAt)) || typeof data.result.cached !== 'boolean' || typeof data.result.webFallback !== 'boolean' || typeof data.result.timeFilterApplied !== 'boolean')) return null;
     const valid = (a: NewsArticle) => a && typeof a.title === 'string' && a.title.length <= 300 && typeof a.snippet === 'string' && a.snippet.length <= 800 && typeof a.source === 'string' && a.source.length <= 120 && newsUrl(a.url) && typeof a.provider === 'string' && (a.publishedAt === null || newsDate(a.publishedAt));
     if (data.result?.articles.some((a: NewsArticle) => !valid(a)) || (data.pending !== null && !valid(data.pending))) return null;
+    // Discard results from the old general-web fallback after the news-only upgrade.
+    if (data.result?.webFallback) return { query: data.query, provider: data.provider, period: data.period, result: null, pending: null };
     return { query: data.query, provider: data.provider, period: data.period, result: data.result, pending: data.pending };
   } catch { return null; }
 }
