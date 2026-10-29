@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import { useUiLanguage } from '@/components/LanguageProvider';
+import { Button, Input, Panel } from '@/components/ui/controls';
+import { getBrandIdentity } from '@/lib/brand-core.mjs';
 import Image from 'next/image';
 import Link from 'next/link';
-import { getBrandIdentity } from '@/lib/brand-core.mjs';
-import { useUiLanguage } from '@/components/LanguageProvider';
+import { useCallback, useEffect, useState } from 'react';
 
 export default function ForgotPasswordPage() {
   const { language, t } = useUiLanguage();
@@ -101,52 +102,52 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <main className="auth-page min-h-screen bg-gray-50 px-4 py-10 font-sans dark:bg-black">
-      <div className="mx-auto w-full max-w-md space-y-6 rounded-xl border border-gray-100 bg-white p-7 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+    <main className="auth-page min-h-screen bg-[var(--color-surface-muted)] px-4 py-10 font-sans">
+      <Panel as="div" className="mx-auto w-full max-w-md space-y-6">
         <div className="text-center">
           <Image src="/guanyu-icon.png" alt={brand.name} width={44} height={44} className="mx-auto mb-3 h-11 w-11 rounded-xl object-cover shadow-sm" priority />
-          <h1 className="text-xl font-black text-gray-950 dark:text-white">{t('auth.resetTitle')}</h1>
-          <p className="mt-2 text-xs leading-relaxed text-gray-500 dark:text-gray-400">{t('auth.resetDescription')}</p>
+          <h1 className="ui-page-title">{t('auth.resetTitle')}</h1>
+          <p className="mt-2 text-xs leading-relaxed text-[var(--color-text-muted)]">{t('auth.resetDescription')}</p>
         </div>
         <form onSubmit={(event) => { event.preventDefault(); void resetPassword(); }} className="space-y-4">
-          {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-600 dark:border-red-900/30 dark:bg-red-950/20 dark:text-red-400">{error}</div>}
-          {message && <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-700 dark:border-emerald-900/30 dark:bg-emerald-950/20 dark:text-emerald-300">{message}</div>}
-          <label className="grid gap-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+          {error && <div className="rounded-lg border border-[var(--color-danger)] bg-[var(--color-danger-soft)] p-3 text-xs font-semibold text-[var(--color-danger)]">{error}</div>}
+          {message && <div className="rounded-lg border border-[var(--color-success)] bg-[var(--color-success-soft)] p-3 text-xs font-semibold text-[var(--color-success)]">{message}</div>}
+          <label className="ui-label grid gap-2 text-[var(--color-text-muted)]">
             {t('auth.email')}
-            <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm normal-case tracking-normal text-gray-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-gray-800 dark:bg-gray-900 dark:text-white" />
+            <Input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" />
           </label>
-          <label className="grid gap-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+          <label className="ui-label grid gap-2 text-[var(--color-text-muted)]">
             {t('auth.captcha')}
             <div className="flex items-stretch gap-2">
-              <input value={captchaAnswer} onChange={(event) => setCaptchaAnswer(event.target.value)} placeholder={t('auth.captchaPlaceholder')} className="h-12 min-w-0 flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm normal-case tracking-normal text-gray-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-gray-800 dark:bg-gray-900 dark:text-white" />
-              <button type="button" onClick={refreshCaptcha} className="inline-flex h-12 w-[9.875rem] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-gray-200 bg-gray-50 p-0 text-xs font-bold normal-case tracking-normal text-gray-600 hover:bg-gray-100 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300" title={t('auth.refreshCaptcha')}>
+              <Input value={captchaAnswer} onChange={(event) => setCaptchaAnswer(event.target.value)} placeholder={t('auth.captchaPlaceholder')} className="min-w-0 flex-1" />
+              <Button variant="secondary" type="button" onClick={refreshCaptcha} className="captcha-button" aria-label={t('auth.refreshCaptcha')}>
                 {captchaImage ? <>
                   {/* CAPTCHA uses a short-lived data URL, not a remotely optimized image. */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={captchaImage} alt={t('auth.captcha')} className="block h-full w-full object-cover" />
+                  <img src={captchaImage} alt={t('auth.captcha')} width={158} height={44} className="block h-full w-full object-contain" />
                 </> : t('auth.refresh')}
-              </button>
+              </Button>
             </div>
           </label>
-          <label className="grid gap-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+          <label className="ui-label grid gap-2 text-[var(--color-text-muted)]">
             {t('auth.emailCode')}
             <div className="flex gap-2">
-              <input value={code} onChange={(event) => setCode(event.target.value)} placeholder={t('auth.emailCodePlaceholder')} className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm normal-case tracking-normal text-gray-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-gray-800 dark:bg-gray-900 dark:text-white" />
-              <button type="button" onClick={sendCode} disabled={isSendingCode || !email || !captchaAnswer} className="rounded-lg bg-gray-950 px-3 text-xs font-bold normal-case tracking-normal text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-300 dark:bg-white dark:text-gray-950 dark:hover:bg-gray-200">{isSendingCode ? t('auth.sendingCode') : t('auth.sendCode')}</button>
+              <Input value={code} onChange={(event) => setCode(event.target.value)} placeholder={t('auth.emailCodePlaceholder')} className="min-w-0 flex-1" />
+              <Button variant="primary" type="button" onClick={sendCode} disabled={isSendingCode || !email || !captchaAnswer}>{isSendingCode ? t('auth.sendingCode') : t('auth.sendCode')}</Button>
             </div>
           </label>
-          <label className="grid gap-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+          <label className="ui-label grid gap-2 text-[var(--color-text-muted)]">
             {t('auth.newPassword')}
-            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" placeholder={t('auth.passwordMinEight')} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm normal-case tracking-normal text-gray-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-gray-800 dark:bg-gray-900 dark:text-white" />
+            <Input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" placeholder={t('auth.passwordMinEight')} />
           </label>
-          <label className="grid gap-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+          <label className="ui-label grid gap-2 text-[var(--color-text-muted)]">
             {t('auth.confirmPassword')}
-            <input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" placeholder={t('auth.confirmPasswordPlaceholder')} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm normal-case tracking-normal text-gray-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-gray-800 dark:bg-gray-900 dark:text-white" />
+            <Input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" placeholder={t('auth.confirmPasswordPlaceholder')} />
           </label>
-          <button type="submit" disabled={isResetting} className="w-full rounded-lg bg-indigo-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-gray-300 dark:disabled:bg-gray-800">{isResetting ? t('auth.resetting') : t('auth.resetPassword')}</button>
+          <Button variant="primary" type="submit" disabled={isResetting} className="w-full">{isResetting ? t('auth.resetting') : t('auth.resetPassword')}</Button>
         </form>
-        <div className="flex justify-between text-xs"><Link href="/" className="font-semibold text-gray-500 hover:text-indigo-600">{t('common.backHome')}</Link><Link href="/login" className="font-semibold text-indigo-600 hover:text-indigo-700">{t('auth.backToLogin')}</Link></div>
-      </div>
+        <div className="flex justify-between text-xs"><Link href="/" className="font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-link)]">{t('common.backHome')}</Link><Link href="/login" className="font-semibold text-[var(--color-link)] hover:text-[var(--color-link)]">{t('auth.backToLogin')}</Link></div>
+      </Panel>
     </main>
   );
 }

@@ -1,13 +1,15 @@
-import type { Metadata } from "next";
+import Providers from "@/components/Providers";
+import TrafficTracker from '@/components/TrafficTracker';
+import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 import "./globals.css";
-import Providers from "@/components/Providers";
-import { GsapRoot } from "@/components/GsapMotion";
-import TrafficTracker from '@/components/TrafficTracker';
+import "./ui-system.css";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://www.guanyu.dynv6.net";
 const siteName = "观隅 Guanyu";
 const siteDescription = "观隅（Guanyu）是面向新闻阅读者的叙事审视工具：帮助区分事实、主张、证据与待核验信息，看见新闻没有展开的一角。";
+
+export const viewport: Viewport = { themeColor: '#f6f8fb' };
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -120,11 +122,11 @@ export default async function RootLayout({
               },
             }).replace(/</g, "\\u003c"),
           }}
-        />
+       />
         <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeScript }} />
         <Providers>
           <TrafficTracker />
-          <GsapRoot>{children}</GsapRoot>
+          {children}
         </Providers>
       </body>
     </html>

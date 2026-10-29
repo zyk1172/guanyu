@@ -1,38 +1,8 @@
 'use client';
 
-import ReportText from './ReportText';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Button, Panel } from '@/components/ui/controls';
 import { emphasizeReportMarkdown, reportEmphasisHtml } from '@/lib/report-emphasis';
-import gsap from 'gsap';
-import { useGSAP } from '@gsap/react';
-import {
-  AnalysisResult,
-  DeepAnalysisResult,
-  EvidenceGrade,
-  QuickAnalysisResult,
-  ReadWorthLabel,
-  ReadWorthVerdict as ReadWorthVerdictType,
-  ManualVerificationRecord,
-  ManualVerificationOutcome,
-  getReportLanguageLabel,
-  getReadWorthDisplayLabel,
-  getReadWorthEvidenceGuidance,
-  normalizeReportLanguage,
-  SpeculationRisk,
-  VerificationStatus,
-  VerificationStatusCode,
-} from '../lib/types';
-import AuditCharts from './AuditCharts';
-import GuanyuCardButton from './GuanyuCardButton';
-import { GsapReveal } from './GsapMotion';
-import InteractiveQA, { ChatMessage } from './InteractiveQA';
-import DiscussionBoard from './DiscussionBoard';
-import { useUiLanguage } from './LanguageProvider';
-import ReadWorthVerdict from './ReadWorthVerdict';
-import { useActiveModel } from './useActiveModel';
-import VerificationRoadmap from './VerificationRoadmap';
-import ReportBrief from './ReportBrief';
-import ReadingNavigation from './ReadingNavigation';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { computeReadWorth } from '../lib/readWorth';
 import {
   formatAnalysisMode,
@@ -49,8 +19,34 @@ import {
   formatVerificationStatus,
   getReportText,
 } from '../lib/report-display-core.mjs';
-
-gsap.registerPlugin(useGSAP);
+import {
+  AnalysisResult,
+  DeepAnalysisResult,
+  EvidenceGrade,
+  getReadWorthDisplayLabel,
+  getReadWorthEvidenceGuidance,
+  getReportLanguageLabel,
+  ManualVerificationOutcome,
+  ManualVerificationRecord,
+  normalizeReportLanguage,
+  QuickAnalysisResult,
+  ReadWorthLabel,
+  ReadWorthVerdict as ReadWorthVerdictType,
+  SpeculationRisk,
+  VerificationStatus,
+  VerificationStatusCode,
+} from '../lib/types';
+import AuditCharts from './AuditCharts';
+import DiscussionBoard from './DiscussionBoard';
+import GuanyuCardButton from './GuanyuCardButton';
+import InteractiveQA, { ChatMessage } from './InteractiveQA';
+import { useUiLanguage } from './LanguageProvider';
+import ReadingNavigation from './ReadingNavigation';
+import ReadWorthVerdict from './ReadWorthVerdict';
+import ReportBrief from './ReportBrief';
+import ReportText from './ReportText';
+import { useActiveModel } from './useActiveModel';
+import VerificationRoadmap from './VerificationRoadmap';
 
 interface AnalysisResultProps {
   result: AnalysisResult;
@@ -142,43 +138,43 @@ function normalizeStatus(value?: VerificationStatus | string): VerificationStatu
 
 function evidenceClass(grade?: string) {
   switch (grade) {
-    case 'A': return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/30 dark:bg-emerald-950/20 dark:text-emerald-300';
-    case 'B': return 'border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-900/30 dark:bg-cyan-950/20 dark:text-cyan-300';
-    case 'C': return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-300';
-    case 'D': return 'border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900/30 dark:bg-orange-950/20 dark:text-orange-300';
-    case 'E': return 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/30 dark:bg-red-950/20 dark:text-red-300';
-    default: return 'border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300';
+    case 'A': return "border-[var(--color-success)] bg-[var(--color-success-soft)] text-[var(--color-success)]";
+    case 'B': return "border-[var(--color-primary)] bg-[var(--color-primary-soft)] text-[var(--color-link)]";
+    case 'C': return "border-[var(--color-warning)] bg-[var(--color-warning-soft)] text-[var(--color-warning)]";
+    case 'D': return "border-[var(--color-warning)] bg-[var(--color-warning-soft)] text-[var(--color-warning)]";
+    case 'E': return "border-[var(--color-danger)] bg-[var(--color-danger-soft)] text-[var(--color-danger)]";
+    default: return "border-[var(--color-border)] bg-[var(--color-surface-muted)] text-[var(--color-text-muted)]";
   }
 }
 
 function riskClass(risk?: SpeculationRisk | string) {
-  if (risk === '低') return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/30 dark:bg-emerald-950/20 dark:text-emerald-300';
-  if (risk === '高') return 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/30 dark:bg-red-950/20 dark:text-red-300';
-  return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-300';
+  if (risk === '低') return "border-[var(--color-success)] bg-[var(--color-success-soft)] text-[var(--color-success)]";
+  if (risk === '高') return "border-[var(--color-danger)] bg-[var(--color-danger-soft)] text-[var(--color-danger)]";
+  return "border-[var(--color-warning)] bg-[var(--color-warning-soft)] text-[var(--color-warning)]";
 }
 
 function statusClass(status?: VerificationStatus | string) {
   const normalized = normalizeStatus(status);
-  if (normalized === 'externally_verified') return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/30 dark:bg-emerald-950/20 dark:text-emerald-300';
-  if (normalized === 'source_supported') return 'border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-900/30 dark:bg-indigo-950/20 dark:text-indigo-300';
-  if (normalized === 'partially_supported') return 'border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-900/30 dark:bg-cyan-950/20 dark:text-cyan-300';
-  if (normalized === 'unable_to_verify') return 'border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300';
-  return 'border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900/30 dark:bg-orange-950/20 dark:text-orange-300';
+  if (normalized === 'externally_verified') return "border-[var(--color-success)] bg-[var(--color-success-soft)] text-[var(--color-success)]";
+  if (normalized === 'source_supported') return "border-[var(--color-primary)] bg-[var(--color-primary-soft)] text-[var(--color-link)]";
+  if (normalized === 'partially_supported') return "border-[var(--color-primary)] bg-[var(--color-primary-soft)] text-[var(--color-link)]";
+  if (normalized === 'unable_to_verify') return "border-[var(--color-border)] bg-[var(--color-surface-muted)] text-[var(--color-text-muted)]";
+  return "border-[var(--color-warning)] bg-[var(--color-warning-soft)] text-[var(--color-warning)]";
 }
 
 function Badge({ children, className, title }: { children: React.ReactNode; className: string; title?: string }) {
-  return <span title={title} className={`inline-flex rounded border px-2 py-0.5 text-xxs font-bold ${className}`}>{children}</span>;
+  return <span title={title} className={`ui-badge border ${className}`}>{children}</span>;
 }
 
 function Section({ title, children, aside, id }: { title: string; children: React.ReactNode; aside?: React.ReactNode; id?: string }) {
   return (
-    <section id={id} data-reading-section={id ? title : undefined} data-gsap-reveal className="result-card rounded-xl border border-gray-150 bg-white p-3 shadow-sm dark:border-gray-900 dark:bg-gray-950 sm:p-4">
-      <div className="mb-3 flex flex-col gap-2 border-b border-gray-100 pb-2 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-sm font-black text-gray-950 dark:text-white">{title}</h2>
+    <Panel id={id} data-reading-section={id ? title : undefined} className="result-card">
+      <div className="mb-3 flex flex-col gap-2 border-b border-[var(--color-border)] pb-2 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-sm font-bold text-[var(--color-text)]">{title}</h2>
         {aside}
       </div>
       {children}
-    </section>
+    </Panel>
   );
 }
 
@@ -219,12 +215,12 @@ function JudgmentCard({ item, reportLanguage = 'zh-CN' }: { item: any; reportLan
   const risk = item.speculationRisk || item.speculation_risk;
   const text = (key: string) => getReportText(key, reportLanguage);
   return (
-    <article className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs dark:border-gray-850 dark:bg-gray-900">
-      <div className="text-sm font-black leading-snug text-gray-950 dark:text-white md:text-base">{line(item.title, !reportLanguage.startsWith('zh-') ? 'Key finding' : '关键判断')}</div>
-      <p className="mt-1 leading-relaxed text-gray-600 dark:text-gray-300"><ReportText>{line(item.content || item.description || item.detail, text('insufficientMaterial'))}</ReportText></p>
+    <article className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-xs">
+      <div className="text-sm font-bold leading-snug text-[var(--color-text)] md:text-base">{line(item.title, !reportLanguage.startsWith('zh-') ? 'Key finding' : '关键判断')}</div>
+      <p className="mt-1 leading-relaxed text-[var(--color-text-muted)]"><ReportText>{line(item.content || item.description || item.detail, text('insufficientMaterial'))}</ReportText></p>
       <div className="mt-2 flex flex-wrap gap-1.5">
         {item.judgmentType && (
-          <Badge className="border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-900/30 dark:bg-indigo-950/20 dark:text-indigo-300">{formatJudgmentType(item.judgmentType, reportLanguage)}</Badge>
+          <Badge className="border-[var(--color-primary)] bg-[var(--color-primary-soft)] text-[var(--color-link)]">{formatJudgmentType(item.judgmentType, reportLanguage)}</Badge>
         )}
         <Badge className={evidenceClass(evidence)} title={EVIDENCE_DEFINITIONS[evidence as EvidenceGrade]}>
           {formatEvidenceGrade(evidence, reportLanguage)}
@@ -233,7 +229,7 @@ function JudgmentCard({ item, reportLanguage = 'zh-CN' }: { item: any; reportLan
         {risk && <Badge className={riskClass(risk)}>{formatSpeculationRisk(risk, reportLanguage)}</Badge>}
       </div>
       {(item.nextVerification || item.whyItMatters) && (
-        <p className="mt-2 text-xxs font-semibold leading-relaxed text-gray-500 dark:text-gray-400">
+        <p className="mt-2 text-xxs font-semibold leading-relaxed text-[var(--color-text-muted)]">
           <ReportText>{item.whyItMatters ? `${text('importance')}: ${item.whyItMatters}${!reportLanguage.startsWith('zh-') ? '. ' : '；'}` : ''}</ReportText><ReportText>{text('verificationPath')}</ReportText>: <ReportText>{line(item.nextVerification, !reportLanguage.startsWith('zh-') ? 'Consult primary documents, public data, independent reporting, or a response from the involved party.' : '寻找原始材料、公开数据、多方报道或当事方回应。')}</ReportText>
         </p>
       )}
@@ -463,12 +459,12 @@ function OriginalContentPanel({ originalContent, reportLanguage = 'zh-CN', sourc
   if (!originalContent?.trim()) return null;
   const text = (key: string) => getReportText(key, reportLanguage);
   return (
-    <Section id="report-original" title={text('articleOriginal')} aside={<button type="button" onClick={() => setOpen((value) => !value)} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-bold text-gray-700 transition hover:bg-gray-100 active:scale-[0.98] dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">{open ? text('hideOriginal') : text('showOriginal')}</button>}>
+    <Section id="report-original" title={text('articleOriginal')} aside={<Button variant="secondary" type="button" onClick={() => setOpen((value) => !value)}>{open ? text('hideOriginal') : text('showOriginal')}</Button>}>
       {sourceUrl && /^https?:\/\//i.test(sourceUrl) && <a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="mb-3 inline-flex min-h-11 items-center text-sm text-[var(--color-link)] underline">{reportLanguage.startsWith('zh') ? '查看报道原文 ↗' : 'Open original article ↗'}</a>}
       {!open ? (
-        <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400"><ReportText>{text('originalCollapsed')}</ReportText></p>
+        <p className="text-xs leading-relaxed text-[var(--color-text-muted)]"><ReportText>{text('originalCollapsed')}</ReportText></p>
       ) : (
-        <pre className="max-h-[420px] overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs leading-6 text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300">{originalContent}</pre>
+        <pre className="max-h-[420px] overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-xs leading-6 text-[var(--color-text)]">{originalContent}</pre>
       )}
     </Section>
   );
@@ -480,7 +476,7 @@ function limitedItems<T>(items: T[], limit: number) {
 
 function compactAside(total: number, limit: number, reportLanguage = 'zh-CN') {
   if (limit >= 999 || total <= limit) return undefined;
-  return <span className="text-xxs font-semibold text-gray-400">{!reportLanguage.startsWith('zh-') ? `Showing ${limit} of ${total}; the complete report is available in Markdown.` : `已优先显示 ${limit}/${total} 条，完整内容见 Markdown`}</span>;
+  return <span className="text-xxs font-semibold text-[var(--color-text-subtle)]">{!reportLanguage.startsWith('zh-') ? `Showing ${limit} of ${total}; the complete report is available in Markdown.` : `已优先显示 ${limit}/${total} 条，完整内容见 Markdown`}</span>;
 }
 
 function ReadingValueSection({ label, reason, verdict, manualVerifications = [], reportLanguage }: { label: ReadWorthLabel; reason?: string; verdict?: ReadWorthVerdictType; manualVerifications?: ManualVerificationRecord[]; reportLanguage?: string }) {
@@ -498,12 +494,12 @@ function ReadingValueSection({ label, reason, verdict, manualVerifications = [],
   const evidenceGuidance = getReadWorthEvidenceGuidance(verdict?.evidencePosture || 'cautious_reading', language);
   return (
     <Section id="report-full" title={getReportText('readingValue', language)}>
-      <div data-verification-pulse className="grid gap-3 md:grid-cols-[minmax(240px,280px)_minmax(0,1fr)]">
+      <div className="grid gap-3 md:grid-cols-[minmax(240px,280px)_minmax(0,1fr)]">
         <ReadWorthVerdict label={label} displayLabel={getReadWorthDisplayLabel(label, language)} reportLanguage={language} />
-        <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm leading-relaxed text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300">
+        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-sm leading-relaxed text-[var(--color-text)]">
           {line(visibleReason, !language.startsWith('zh-') ? 'Reading value is based on expected information utility; evidence quality is shown separately as reading guidance.' : '阅读价值依据预期信息收益判断；证据质量另行作为阅读提示展示。')}
           <p className="mt-2 border-t border-[var(--color-border)] pt-2 text-xs leading-relaxed text-[var(--color-text-muted)]">
-            <span className="mr-2 inline-flex rounded-md border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-2 py-0.5 font-bold text-[var(--color-text)]">{evidenceGuidance.label}</span>
+            <span className="ui-badge mr-2 inline-flex border border-[var(--color-border)] bg-[var(--color-surface-muted)] text-[var(--color-text)]">{evidenceGuidance.label}</span>
             <ReportText>{evidenceGuidance.guidance}</ReportText>
           </p>
           {hasVerificationUpdate && (
@@ -554,13 +550,13 @@ function ScoresSection({ report }: { report: QuickAnalysisResult }) {
   ];
 
   return (
-    <Section id="report-scores" title={text('coreScores')} aside={<span className="text-xxs font-semibold text-gray-400">{text('scoreDisclaimer')}</span>}>
+    <Section id="report-scores" title={text('coreScores')} aside={<span className="text-xxs font-semibold text-[var(--color-text-subtle)]">{text('scoreDisclaimer')}</span>}>
       <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
         {rows.map(([name, value, help]) => (
-          <div key={String(name)} data-verification-pulse className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">
-            <div className="text-xxs font-bold text-gray-500 dark:text-gray-400">{String(name)}</div>
-            <div className="mt-1 text-2xl font-black text-gray-950 dark:text-white">{Number(value)}/100</div>
-            <div className="mt-1 text-xxs leading-relaxed text-gray-500 dark:text-gray-400">{String(help)}</div>
+          <div key={String(name)} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
+            <div className="text-xxs font-bold text-[var(--color-text-muted)]">{String(name)}</div>
+            <div className="mt-1 text-2xl font-bold text-[var(--color-text)]">{Number(value)}/100</div>
+            <div className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{String(help)}</div>
           </div>
         ))}
       </div>
@@ -573,10 +569,10 @@ function WebVerificationView({ report }: { report: DeepAnalysisResult }) {
   const language = normalizeReportLanguage(report.meta.reportLanguage);
   const text = (key: string) => getReportText(key, language);
   if (!web.enabled || web.status === 'not_enabled') {
-    return <p className="rounded-lg border border-dashed border-gray-200 p-3 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400"><ReportText>{!language.startsWith('zh-') ? 'Web verification was not enabled for this report.' : '本次未启用联网核验'}</ReportText></p>;
+    return <p className="rounded-lg border border-dashed border-[var(--color-border)] p-3 text-xs text-[var(--color-text-muted)]"><ReportText>{!language.startsWith('zh-') ? 'Web verification was not enabled for this report.' : '本次未启用联网核验'}</ReportText></p>;
   }
   if (web.status === 'no_reliable_sources') {
-    return <p className="rounded-lg border border-dashed border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300"><ReportText>{text('noReliableSources')}</ReportText></p>;
+    return <p className="rounded-lg border border-dashed border-[var(--color-warning)] bg-[var(--color-warning-soft)] p-3 text-xs font-semibold text-[var(--color-warning)]"><ReportText>{text('noReliableSources')}</ReportText></p>;
   }
 
   const groups = [
@@ -589,15 +585,15 @@ function WebVerificationView({ report }: { report: DeepAnalysisResult }) {
     <div className="space-y-3">
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         {groups.map(([title, items]) => (
-          <div key={title} className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">
-            <h4 className="text-xs font-black text-gray-900 dark:text-white">{title}</h4>
+          <div key={title} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
+            <h4 className="text-xs font-bold text-[var(--color-text)]">{title}</h4>
             <div className="mt-2 space-y-2">
               {items.length === 0 ? (
-                <p className="text-xs text-gray-400"><ReportText>{text('noReliableItems')}</ReportText></p>
+                <p className="text-xs text-[var(--color-text-subtle)]"><ReportText>{text('noReliableItems')}</ReportText></p>
               ) : items.slice(0, 4).map((source, index) => (
-                <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer" className="block rounded-lg border border-gray-100 bg-white p-2 text-xs transition hover:border-sky-300 dark:border-gray-800 dark:bg-gray-950 dark:hover:border-sky-800">
-                  <div className="line-clamp-2 font-bold text-gray-950 dark:text-white">{line(source.title, source.url ? safeHost(source.url, language) : (!language.startsWith('zh-') ? 'Source' : '来源标题'))}</div>
-                  <p className="mt-1 line-clamp-2 text-gray-500 dark:text-gray-400"><ReportText>{source.relevance || source.note}</ReportText></p>
+                <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer" className="block rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-xs transition hover:border-[var(--color-primary)]">
+                  <div className="line-clamp-2 font-bold text-[var(--color-text)]">{line(source.title, source.url ? safeHost(source.url, language) : (!language.startsWith('zh-') ? 'Source' : '来源标题'))}</div>
+                  <p className="mt-1 line-clamp-2 text-[var(--color-text-muted)]"><ReportText>{source.relevance || source.note}</ReportText></p>
                   <div className="mt-2 flex flex-wrap gap-1">
                     <Badge className={statusClass(source.verificationStatus)}>{statusLabel(source.verificationStatus, language)}</Badge>
                     <Badge className={evidenceClass(source.evidenceGrade)}>{formatEvidenceGrade(source.evidenceGrade, language)}</Badge>
@@ -609,10 +605,10 @@ function WebVerificationView({ report }: { report: DeepAnalysisResult }) {
         ))}
       </div>
       {web.unableToConfirm.length > 0 && (
-        <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">
-          <h4 className="text-xs font-black text-gray-900 dark:text-white">{!language.startsWith('zh-') ? 'Information that cannot yet be verified' : '暂无法确认的信息'}</h4>
+        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
+          <h4 className="text-xs font-bold text-[var(--color-text)]">{!language.startsWith('zh-') ? 'Information that cannot yet be verified' : '暂无法确认的信息'}</h4>
           <ul className="mt-2 space-y-1.5">
-            {web.unableToConfirm.map((item, index) => <li key={`${String(item)}-${index}`} className="text-xs leading-relaxed text-gray-600 dark:text-gray-300">- <ReportText>{formatUnconfirmedItem(item)}</ReportText></li>)}
+            {web.unableToConfirm.map((item, index) => <li key={`${String(item)}-${index}`} className="text-xs leading-relaxed text-[var(--color-text-muted)]">- <ReportText>{formatUnconfirmedItem(item)}</ReportText></li>)}
           </ul>
         </div>
       )}
@@ -992,32 +988,32 @@ function AiCompletionButton({ auditId, reportLanguage }: { auditId: string; repo
 
   return (
     <>
-      <button type="button" onClick={() => setShowControls((value) => !value)} disabled={isGenerating} className="rounded-lg border border-[var(--color-success)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-bold text-[var(--color-success)] transition hover:bg-[var(--color-card-hover)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60">
+      <Button variant="secondary" type="button" onClick={() => setShowControls((value) => !value)} disabled={isGenerating}>
         {isGenerating ? text('generatingCompletion') : text('aiCompletion')}
-      </button>
+      </Button>
       {showControls && (
         <div className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2">
             <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">
               {uiText('modelSelector.accountModelHint', '使用账号设置中当前激活的模型。')}
             </p>
-            <button type="button" onClick={generate} disabled={isGenerating || activeModel.loading} className="rounded-lg bg-[var(--color-primary)] px-3 py-2 text-xs font-black text-white transition hover:bg-[var(--color-primary-hover)] active:scale-[0.98] disabled:opacity-50">
+            <Button variant="primary" type="button" onClick={generate} disabled={isGenerating || activeModel.loading}>
               {isGenerating ? text('generatingCompletion') : `${text('aiCompletion')} · ${activeModel.source === 'custom' ? '0' : activeModel.estimatedCost} ${uiText('modelSelector.credits', '点')}`}
-            </button>
+            </Button>
           </div>
         </div>
       )}
       {error && <span className="w-full text-right text-xxs font-semibold text-[var(--color-danger)]">{error}</span>}
       {markdown && (
-        <section className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-sm sm:p-4">
+        <Panel className="w-full">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] pb-2">
-            <h3 className="text-sm font-black text-[var(--color-text)]">{text('completionPreview')}</h3>
-            <button type="button" onClick={download} className="rounded border border-[var(--color-border-strong)] px-2 py-1 text-xxs font-bold text-[var(--color-text)] hover:bg-[var(--color-card-hover)]">{text('downloadCompletion')}</button>
+            <h3 className="text-sm font-bold text-[var(--color-text)]">{text('completionPreview')}</h3>
+            <Button variant="secondary" type="button" onClick={download}>{text('downloadCompletion')}</Button>
           </div>
           <div className="max-h-[38rem] overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
             <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-7 text-[var(--color-text)]" dangerouslySetInnerHTML={{ __html: completionPreviewHtml(markdown) }} />
           </div>
-        </section>
+        </Panel>
       )}
     </>
   );
@@ -1091,12 +1087,12 @@ function DownloadButton({ report, originalContent, qaMessages, auditId, canGener
   };
 
   return (
-    <div data-gsap-reveal className="flex flex-wrap justify-end gap-2">
-      {auditId && <button onClick={downloadWord} disabled={exporting} className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-bold text-[var(--color-text)] transition hover:bg-[var(--color-card-hover)] active:scale-[0.98] disabled:opacity-60">{exporting ? t('export.generating') : `${t('export.word')} · 1 ${t('billing.creditUnit')}`}</button>}
-      {auditId && <button onClick={downloadPdf} disabled={exporting} className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-bold text-[var(--color-text)] transition hover:bg-[var(--color-card-hover)] disabled:opacity-60">{exporting ? t('export.generating') : `${t('export.pdf')} · 1 ${t('billing.creditUnit')}`}</button>}
-      <button onClick={download} disabled={exporting} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100 active:scale-[0.98] disabled:opacity-60 dark:border-indigo-900/40 dark:bg-indigo-950/20 dark:text-indigo-300">
+    <div className="flex flex-wrap justify-end gap-2">
+      {auditId && <Button variant="secondary" onClick={downloadWord} disabled={exporting}>{exporting ? t('export.generating') : `${t('export.word')} · 1 ${t('billing.creditUnit')}`}</Button>}
+      {auditId && <Button variant="secondary" onClick={downloadPdf} disabled={exporting}>{exporting ? t('export.generating') : `${t('export.pdf')} · 1 ${t('billing.creditUnit')}`}</Button>}
+      <Button variant="primary" onClick={download} disabled={exporting}>
         {exporting ? t('export.generating') : `${t('export.markdown', getReportText('exportMarkdown', reportLanguage))}${auditId ? ` · 1 ${t('billing.creditUnit')}` : ''}`}
-      </button>
+      </Button>
       {auditId && <AiCompletionButton auditId={auditId} reportLanguage={reportLanguage} />}
       {auditId && canGenerateCard && <GuanyuCardButton auditId={auditId} title={report.meta.title} reportLanguage={reportLanguage} />}
       {exportError && <span className="w-full text-right text-xxs font-semibold text-[var(--color-danger)]">{exportError}</span>}
@@ -1109,10 +1105,10 @@ function QuickReportView({ report, originalContent, qaMessages }: { report: Quic
   const questions = limitedItems(report.questionsToAsk, 3);
   return (
     <>
-      <Section title={reportLanguage === 'en-US' ? '1. Article at a glance' : '1. 原文速读'}><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300"><ReportText>{report.originalReading || report.newsSummary}</ReportText></p></Section>
-      <Section title={reportLanguage === 'en-US' ? '2. Core claim' : '2. 核心主张'}><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white"><ReportText>{report.coreClaim}</ReportText></p></Section>
+      <Section title={reportLanguage === 'en-US' ? '1. Article at a glance' : '1. 原文速读'}><p className="text-sm leading-relaxed text-[var(--color-text)]"><ReportText>{report.originalReading || report.newsSummary}</ReportText></p></Section>
+      <Section title={reportLanguage === 'en-US' ? '2. Core claim' : '2. 核心主张'}><p className="text-sm font-bold leading-relaxed text-[var(--color-text)]"><ReportText>{report.coreClaim}</ReportText></p></Section>
       <ReadingValueSection label={report.readingValue} reason={report.readingValueReason} verdict={report.read_worth} reportLanguage={report.meta.reportLanguage} />
-      <Section title={reportLanguage === 'en-US' ? '4. One-sentence Guanyu view' : '4. 一句话观隅审视'}><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white"><ReportText>{report.oneSentenceJudgment}</ReportText></p></Section>
+      <Section title={reportLanguage === 'en-US' ? '4. One-sentence Guanyu view' : '4. 一句话观隅审视'}><p className="text-sm font-bold leading-relaxed text-[var(--color-text)]"><ReportText>{report.oneSentenceJudgment}</ReportText></p></Section>
       <Section title={reportLanguage === 'en-US' ? '5. Three key signals' : '5. 三个关键信号'}>
         <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
           {[
@@ -1120,18 +1116,18 @@ function QuickReportView({ report, originalContent, qaMessages }: { report: Quic
             [reportLanguage === 'en-US' ? 'Largest information gap' : '最大信息缺口', report.quickSignals?.biggestGap],
             [reportLanguage === 'en-US' ? 'Narrative to watch' : '最需警惕叙事', report.quickSignals?.narrativeToWatch],
           ].map(([title, content]) => (
-            <article key={title} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs dark:border-gray-850 dark:bg-gray-900">
-              <div className="font-black text-gray-950 dark:text-white">{title}</div>
-              <p className="mt-1 leading-relaxed text-gray-600 dark:text-gray-300"><ReportText>{line(content)}</ReportText></p>
+            <article key={title} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-xs">
+              <div className="font-bold text-[var(--color-text)]">{title}</div>
+              <p className="mt-1 leading-relaxed text-[var(--color-text-muted)]"><ReportText>{line(content)}</ReportText></p>
             </article>
           ))}
         </div>
       </Section>
       <ScoresSection report={report} />
       <Section title={reportLanguage === 'en-US' ? '7. Three questions worth asking next' : '7. 最值得追问的 3 个问题'}>
-        <ul className="grid grid-cols-1 gap-2 md:grid-cols-3">{questions.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs font-semibold leading-relaxed text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300"><ReportText>{item}</ReportText></li>)}</ul>
+        <ul className="grid grid-cols-1 gap-2 md:grid-cols-3">{questions.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-xs font-semibold leading-relaxed text-[var(--color-text)]"><ReportText>{item}</ReportText></li>)}</ul>
       </Section>
-      <Section title={reportLanguage === 'en-US' ? '8. Quick conclusion' : '8. 快速结论'}><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300"><ReportText>{report.quickConclusion}</ReportText></p></Section>
+      <Section title={reportLanguage === 'en-US' ? '8. Quick conclusion' : '8. 快速结论'}><p className="text-sm leading-relaxed text-[var(--color-text)]"><ReportText>{report.quickConclusion}</ReportText></p></Section>
       <DownloadButton report={report} originalContent={originalContent} qaMessages={qaMessages} />
     </>
   );
@@ -1153,22 +1149,22 @@ function DeepReportView({ relatedCoverage, report, originalContent, qaMessages, 
       {relatedCoverage}
       <Section id="report-interpretation" title={text('sourceInterpretation')}>
         <div className="grid gap-3 text-xs md:grid-cols-2">
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900 md:col-span-2">
-            <div className="font-black text-gray-950 dark:text-white">{text('whatItSays')}</div>
-            <p className="mt-1 leading-relaxed text-gray-600 dark:text-gray-300"><ReportText>{report.sourceInterpretation.whatItSays || report.newsSummary}</ReportText></p>
+          <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 md:col-span-2">
+            <div className="font-bold text-[var(--color-text)]">{text('whatItSays')}</div>
+            <p className="mt-1 leading-relaxed text-[var(--color-text-muted)]"><ReportText>{report.sourceInterpretation.whatItSays || report.newsSummary}</ReportText></p>
           </div>
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><div className="font-black">{text('coreClaims')}</div><ul className="mt-1 space-y-1">{report.sourceInterpretation.coreClaims.map((item, index) => <li key={`${item}-${index}`}>- <ReportText>{item}</ReportText></li>)}</ul></div>
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><div className="font-black">{text('mainActors')}</div><ul className="mt-1 space-y-1">{report.sourceInterpretation.mainActors.map((item, index) => <li key={`${item}-${index}`}>- <ReportText>{item}</ReportText></li>)}</ul></div>
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><div className="font-black">{text('keyEvidence')}</div><ul className="mt-1 space-y-1">{report.sourceInterpretation.keyEvidence.map((item, index) => <li key={`${item}-${index}`}>- <ReportText>{item}</ReportText></li>)}</ul></div>
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><div className="font-black">{text('narrativeStyle')}</div><p className="mt-1 leading-relaxed"><ReportText>{report.sourceInterpretation.narrativeStyle}</ReportText></p></div>
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900 md:col-span-2"><div className="font-black">{text('readerImpression')}</div><p className="mt-1 leading-relaxed"><ReportText>{report.sourceInterpretation.likelyReaderImpression}</ReportText></p></div>
+          <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3"><div className="font-bold">{text('coreClaims')}</div><ul className="mt-1 space-y-1">{report.sourceInterpretation.coreClaims.map((item, index) => <li key={`${item}-${index}`}>- <ReportText>{item}</ReportText></li>)}</ul></div>
+          <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3"><div className="font-bold">{text('mainActors')}</div><ul className="mt-1 space-y-1">{report.sourceInterpretation.mainActors.map((item, index) => <li key={`${item}-${index}`}>- <ReportText>{item}</ReportText></li>)}</ul></div>
+          <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3"><div className="font-bold">{text('keyEvidence')}</div><ul className="mt-1 space-y-1">{report.sourceInterpretation.keyEvidence.map((item, index) => <li key={`${item}-${index}`}>- <ReportText>{item}</ReportText></li>)}</ul></div>
+          <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3"><div className="font-bold">{text('narrativeStyle')}</div><p className="mt-1 leading-relaxed"><ReportText>{report.sourceInterpretation.narrativeStyle}</ReportText></p></div>
+          <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 md:col-span-2"><div className="font-bold">{text('readerImpression')}</div><p className="mt-1 leading-relaxed"><ReportText>{report.sourceInterpretation.likelyReaderImpression}</ReportText></p></div>
         </div>
       </Section>
       <ReadingValueSection label={report.readingValue} reason={report.readingValueReason} verdict={report.read_worth} manualVerifications={report.manualVerifications} reportLanguage={report.meta.reportLanguage} />
-      <Section id="report-guide" title={text('readerGuide')}><p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300"><ReportText>{report.normalReaderGuide}</ReportText></p></Section>
-      <Section id="report-conclusion" title={text('oneSentence')}><p className="text-sm font-bold leading-relaxed text-gray-900 dark:text-white"><ReportText>{report.oneSentenceConclusion}</ReportText></p></Section>
+      <Section id="report-guide" title={text('readerGuide')}><p className="text-sm leading-relaxed text-[var(--color-text)]"><ReportText>{report.normalReaderGuide}</ReportText></p></Section>
+      <Section id="report-conclusion" title={text('oneSentence')}><p className="text-sm font-bold leading-relaxed text-[var(--color-text)]"><ReportText>{report.oneSentenceConclusion}</ReportText></p></Section>
       <DataAnalysisSection report={report} />
-      <div data-verification-pulse><AuditCharts {...chartProps(report)} reportLanguage={reportLanguage} /></div>
+      <div><AuditCharts {...chartProps(report)} reportLanguage={reportLanguage} /></div>
       <Section id="report-conclusion-layers" title={text('conclusionLayers')}>
         <div className="grid gap-2 md:grid-cols-3">
           {[
@@ -1176,15 +1172,15 @@ function DeepReportView({ relatedCoverage, report, originalContent, qaMessages, 
             [text('reasonableDoubts'), report.conclusionLayers.reasonableDoubts],
             [text('cannotJudge'), report.conclusionLayers.cannotJudgeYet],
           ].map(([title, items]) => (
-            <div key={String(title)} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs dark:border-gray-850 dark:bg-gray-900">
-              <div className="font-black text-gray-950 dark:text-white">{String(title)}</div>
-              <ul className="mt-2 space-y-1 text-gray-600 dark:text-gray-300">{(items as string[]).map((item, index) => <li key={`${item}-${index}`}>- <ReportText>{item}</ReportText></li>)}</ul>
+            <div key={String(title)} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-xs">
+              <div className="font-bold text-[var(--color-text)]">{String(title)}</div>
+              <ul className="mt-2 space-y-1 text-[var(--color-text-muted)]">{(items as string[]).map((item, index) => <li key={`${item}-${index}`}>- <ReportText>{item}</ReportText></li>)}</ul>
             </div>
           ))}
         </div>
       </Section>
       <Section id="report-findings" title={text('findings')} aside={compactAside(report.keyFindings.length, displayLimit, reportLanguage)}><div className="grid grid-cols-1 gap-3 lg:grid-cols-3">{keyFindings.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} reportLanguage={reportLanguage} />)}</div></Section>
-      <Section id="report-supporting" title={text('supportingEvidence')} aside={compactAside(report.supportingEvidence.length, displayLimit, reportLanguage) || <span className="text-xxs font-semibold text-gray-400">{text('supportingEvidence')}</span>}>
+      <Section id="report-supporting" title={text('supportingEvidence')} aside={compactAside(report.supportingEvidence.length, displayLimit, reportLanguage) || <span className="text-xxs font-semibold text-[var(--color-text-subtle)]">{text('supportingEvidence')}</span>}>
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2">{supportingEvidence.map((item, index) => <JudgmentCard key={`${item.content}-${index}`} reportLanguage={reportLanguage} item={{ title: item.supportsNarrative, content: item.content, evidenceGrade: item.evidenceGrade, verificationStatus: item.verificationStatus, nextVerification: item.limitation }} />)}</div>
       </Section>
       <Section id="report-gaps" title={text('informationGaps')} aside={compactAside(report.informationGaps.length, displayLimit, reportLanguage)}><div className="grid grid-cols-1 gap-2 md:grid-cols-2">{informationGaps.map((item, index) => <JudgmentCard key={`${item.title}-${index}`} item={item} reportLanguage={reportLanguage} />)}</div></Section>
@@ -1198,17 +1194,17 @@ function DeepReportView({ relatedCoverage, report, originalContent, qaMessages, 
       </Section>
       <Section id="report-evidence" title={text('evidenceStatus')}>
         <div className="grid grid-cols-1 gap-2 text-xs md:grid-cols-2">
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><span className="font-bold">{text('strongestEvidence')}: </span><ReportText>{report.evidenceVerificationSummary.strongestEvidence}</ReportText></div>
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900"><span className="font-bold">{text('weakestEvidence')}: </span><ReportText>{report.evidenceVerificationSummary.weakestEvidence}</ReportText></div>
+          <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3"><span className="font-bold">{text('strongestEvidence')}: </span><ReportText>{report.evidenceVerificationSummary.strongestEvidence}</ReportText></div>
+          <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3"><span className="font-bold">{text('weakestEvidence')}: </span><ReportText>{report.evidenceVerificationSummary.weakestEvidence}</ReportText></div>
           {[
             [text('sourceSupported'), report.evidenceVerificationSummary.sourceSupportedClaims],
             [text('externallyVerified'), report.evidenceVerificationSummary.externallyVerifiedClaims],
             [text('pendingExternalVerification'), report.evidenceVerificationSummary.pendingVerificationClaims],
             [text('unableToVerify'), report.evidenceVerificationSummary.unableToVerifyClaims],
           ].map(([title, items]) => (
-            <div key={String(title)} className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">
-              <div className="font-black text-gray-900 dark:text-white">{String(title)}</div>
-              <ul className="mt-2 space-y-1 text-gray-600 dark:text-gray-300">{(items as string[]).length ? (items as string[]).map((item, index) => <li key={`${item}-${index}`}>- <ReportText>{formatUnconfirmedItem(item)}</ReportText></li>) : <li><ReportText>{text('insufficientMaterial')}</ReportText></li>}</ul>
+            <div key={String(title)} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
+              <div className="font-bold text-[var(--color-text)]">{String(title)}</div>
+              <ul className="mt-2 space-y-1 text-[var(--color-text-muted)]">{(items as string[]).length ? (items as string[]).map((item, index) => <li key={`${item}-${index}`}>- <ReportText>{formatUnconfirmedItem(item)}</ReportText></li>) : <li><ReportText>{text('insufficientMaterial')}</ReportText></li>}</ul>
             </div>
           ))}
         </div>
@@ -1223,12 +1219,12 @@ function DeepReportView({ relatedCoverage, report, originalContent, qaMessages, 
           title={report.meta.title}
           source={report.meta.source}
           onUpdated={onVerificationUpdated}
-        />
+       />
       </Section>
       <Section id="report-web-verification" title={text('webVerification')}><WebVerificationView report={report} /></Section>
-      <Section id="report-questions" title={text('questions')} aside={compactAside(report.questionsToAsk.length, displayLimit, reportLanguage)}><ul className="grid grid-cols-1 gap-2 md:grid-cols-2">{questions.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs font-semibold leading-relaxed text-gray-700 dark:border-gray-850 dark:bg-gray-900 dark:text-gray-300"><ReportText>{item}</ReportText></li>)}</ul></Section>
-      <Section id="report-limits" title={text('notConcluded')}><ul className="space-y-2 text-xs leading-relaxed text-gray-700 dark:text-gray-300">{report.cannotConclude.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">- <ReportText>{item}</ReportText></li>)}</ul></Section>
-      <Section id="report-risk" title={text('riskNotice')}><p className="text-xs leading-relaxed text-gray-600 dark:text-gray-300"><ReportText>{report.riskNotice}</ReportText></p></Section>
+      <Section id="report-questions" title={text('questions')} aside={compactAside(report.questionsToAsk.length, displayLimit, reportLanguage)}><ul className="grid grid-cols-1 gap-2 md:grid-cols-2">{questions.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-xs font-semibold leading-relaxed text-[var(--color-text)]"><ReportText>{item}</ReportText></li>)}</ul></Section>
+      <Section id="report-limits" title={text('notConcluded')}><ul className="space-y-2 text-xs leading-relaxed text-[var(--color-text)]">{report.cannotConclude.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">- <ReportText>{item}</ReportText></li>)}</ul></Section>
+      <Section id="report-risk" title={text('riskNotice')}><p className="text-xs leading-relaxed text-[var(--color-text-muted)]"><ReportText>{report.riskNotice}</ReportText></p></Section>
       <Section id="report-metadata" title={text('meta')}>
         <div className="grid gap-2 text-xs md:grid-cols-2">
           {[
@@ -1241,7 +1237,7 @@ function DeepReportView({ relatedCoverage, report, originalContent, qaMessages, 
             [text('analysisMode'), formatAnalysisMode(report.meta.analysisMode, reportLanguage)],
             [text('createdAt'), report.meta.createdAt],
             [text('methodology'), !reportLanguage.startsWith('zh-') ? 'Guanyu Nine-Lens Reading Method' : report.methodology],
-          ].map(([key, value]) => <div key={key} className="rounded-lg bg-gray-50 p-2 dark:bg-gray-900"><span className="font-bold text-gray-500">{key}{!reportLanguage.startsWith('zh-') ? ': ' : '：'}</span>{value}</div>)}
+          ].map(([key, value]) => <div key={key} className="rounded-lg bg-[var(--color-surface-muted)] p-2"><span className="font-bold text-[var(--color-text-muted)]">{key}{!reportLanguage.startsWith('zh-') ? ': ' : '：'}</span>{value}</div>)}
         </div>
       </Section>
       <OriginalContentPanel originalContent={originalContent} reportLanguage={reportLanguage} sourceUrl={report.meta.sourceUrl} />
@@ -1251,10 +1247,8 @@ function DeepReportView({ relatedCoverage, report, originalContent, qaMessages, 
 }
 
 export default function AnalysisResultView({ result: rawResult, relatedCoverage, auditId, originalContent, auditMeta, canUpdateVerification = false }: AnalysisResultProps) {
-  const rootRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [workingResult, setWorkingResult] = useState<AnalysisResult>(rawResult);
-  const [verificationPulse, setVerificationPulse] = useState(0);
   const [verificationNotice, setVerificationNotice] = useState<string | null>(null);
   const result = useNormalizedResult(workingResult, auditMeta);
   const [qaMessages, setQaMessages] = useState<ChatMessage[]>([]);
@@ -1265,45 +1259,24 @@ export default function AnalysisResultView({ result: rawResult, relatedCoverage,
     setWorkingResult(rawResult);
   }, [rawResult]);
 
-  useGSAP(() => {
-    if (!verificationPulse || !rootRef.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    const targets = Array.from(rootRef.current.querySelectorAll<HTMLElement>('[data-verification-pulse]'));
-    const toast = rootRef.current.querySelector<HTMLElement>('[data-verification-toast]');
-    const timeline = gsap.timeline({ defaults: { ease: 'power3.out' } });
-    if (targets.length) {
-      timeline.fromTo(targets, { y: 0, scale: 1, boxShadow: '0 0 0 rgba(0,0,0,0)' }, {
-        y: -2,
-        scale: 1.008,
-        boxShadow: '0 0 0 3px color-mix(in srgb, var(--color-primary) 20%, transparent)',
-        duration: 0.24,
-        stagger: 0.055,
-        yoyo: true,
-        repeat: 1,
-        clearProps: 'transform,boxShadow',
-      });
-    }
-    if (toast) timeline.fromTo(toast, { autoAlpha: 0, y: 8 }, { autoAlpha: 1, y: 0, duration: 0.24 }, '-=0.12');
-  }, { scope: rootRef, dependencies: [verificationPulse], revertOnUpdate: true });
-
   const handleVerificationUpdated = (nextResult: unknown, outcome: ManualVerificationOutcome) => {
     setWorkingResult(nextResult as AnalysisResult);
     setVerificationNotice(outcome === 'verified'
       ? (result.meta.reportLanguage.startsWith('zh-') ? '已记录“验证存在”，核心指数与阅读价值已重新计算。' : 'Material found was recorded. Core scores and reading value were recalculated.')
       : (result.meta.reportLanguage.startsWith('zh-') ? '已记录“无法验证”，核心指数与阅读价值已重新计算。' : 'Not verified was recorded. Core scores and reading value were recalculated.'));
-    setVerificationPulse((value) => value + 1);
   };
 
   return (
-    <div ref={rootRef} className="report-reading space-y-5">
+    <div className="report-reading space-y-5">
       {verificationNotice && <div data-verification-toast role="status" className="rounded-lg border border-[var(--color-success)]/35 bg-[color-mix(in_srgb,var(--color-success)_10%,var(--color-surface))] px-3 py-2 text-xs font-bold text-[var(--color-success)]">{verificationNotice}</div>}
       <div className={isQuick(result) ? undefined : 'report-layout'}>
         <div ref={contentRef} className="report-content min-w-0">
-          <GsapReveal className="space-y-4 sm:space-y-5" y={18} stagger={0.055}>
+          <div className="space-y-4 sm:space-y-5">
             {isQuick(result)
               ? <QuickReportView report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} />
               : <DeepReportView relatedCoverage={relatedCoverage} report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} displayLimit={readingLimit} auditId={auditId} canUpdateVerification={canUpdateVerification} onVerificationUpdated={handleVerificationUpdated} />}
             {isQuick(result) && relatedCoverage}
-          </GsapReveal>
+          </div>
         </div>
         {!isQuick(result) && <ReadingNavigation language={result.meta.reportLanguage} contentRef={contentRef} />}
       </div>

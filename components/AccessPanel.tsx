@@ -1,10 +1,12 @@
 'use client';
-import { useState, useEffect, useSyncExternalStore } from 'react';
-import Link from 'next/link';
-import Image from 'next/image';
-import { Fingerprint, ArrowRight, Mail } from 'lucide-react';
+
 import { useUiLanguage } from '@/components/LanguageProvider';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
+import { Button, Input, Panel } from '@/components/ui/controls';
+import { ArrowRight, Fingerprint, Mail } from 'lucide-react';
+import Image from 'next/image';
+import Link from 'next/link';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 
 const subscribe = () => () => {};
 const supported = () => typeof PublicKeyCredential !== 'undefined' && window.isSecureContext;
@@ -59,32 +61,32 @@ export default function AccessPanel() {
   }
   return <main className="auth-page relative flex min-h-screen items-center justify-center px-4 py-16">
     <div className="absolute right-4 top-4"><LanguageSwitcher variant="auth" /></div>
-    <div className="settings-form w-full max-w-md rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] p-6 shadow-[var(--shadow-card)] sm:p-8">
+    <Panel as="div" className="settings-form w-full max-w-md">
       <Link href="/" aria-label={text('返回首页', 'Home')}><Image src="/guanyu-icon.png" alt="观隅 Guanyu" width={44} height={44} className="mb-6 rounded-xl" priority /></Link>
       <h1 className="font-bold text-[var(--color-text)]">{text('欢迎来到观隅', 'Welcome to Guanyu')}</h1>
       <p className="mt-2 text-sm leading-relaxed text-[var(--color-text-muted)]">{text('邮箱验证即可开始。首次使用会自动创建账号，无需设置密码。', 'Verify your email to get started. New here? An account is created automatically, with no password to set.')}</p>
       {canPasskey && <>
-        <button type="button" disabled={busy} onClick={signInWithPasskey} className="workspace-button workspace-primary mt-6 w-full"><Fingerprint size={20} aria-hidden="true" />{text('使用通行密钥登录', 'Sign in with a passkey')}</button>
+        <Button variant="primary" type="button" disabled={busy} onClick={signInWithPasskey} className="mt-6 w-full"><Fingerprint size={20} aria-hidden="true" />{text('使用通行密钥登录', 'Sign in with a passkey')}</Button>
         <p className="mt-2 text-center text-xs leading-relaxed text-[var(--color-text-muted)]">{text('已添加密钥？通过指纹、面容或设备解锁直接进入。', 'Already have a passkey? Use your fingerprint, face or device unlock.')}</p>
         <div className="my-5 flex items-center gap-3 text-xs text-[var(--color-text-muted)]"><span className="h-px flex-1 bg-[var(--color-border)]" />{text('或使用邮箱', 'or use email')}<span className="h-px flex-1 bg-[var(--color-border)]" /></div>
       </>}
       <form className="mt-5 space-y-4" onSubmit={event => { event.preventDefault(); void submit(); }}>
-        <label className="block text-sm font-semibold">{text('邮箱', 'Email')}<input autoComplete="email" type="email" required maxLength={254} value={email} onChange={event => setEmail(event.target.value)} disabled={busy || Boolean(sentTo)} className="mt-2 w-full" placeholder="you@example.com" /></label>
+        <label className="ui-label block">{text('邮箱', 'Email')}<Input autoComplete="email" type="email" required maxLength={254} value={email} onChange={event => setEmail(event.target.value)} disabled={busy || Boolean(sentTo)} className="mt-2 w-full" placeholder="you@example.com" /></label>
         {mode === 'email' && sentTo && <>
-          <button type="button" className="text-xs text-[var(--color-link)] underline" disabled={busy} onClick={() => { setSentTo(''); setCode(''); setMessage(''); setError(''); }}>{text('更换邮箱', 'Change email')}</button>
-          <label className="block text-sm font-semibold">{text('邮箱验证码', 'Email code')}<input autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} required autoFocus value={code} onChange={event => setCode(event.target.value.replace(/\D/g, ''))} className="mt-2 w-full tracking-[0.3em]" placeholder="000000" /></label>
-          <button type="button" disabled={busy || cooldown > 0} className="text-xs text-[var(--color-link)] disabled:opacity-60" onClick={async () => { setBusy(true); setError(''); try { await post('/api/access/send-code', { email: sentTo }); setCooldown(60); setMessage(text('新的验证码已发送。', 'A new code has been sent.')); } catch (error) { setError((error as Error).message); } finally { setBusy(false); } }}>{cooldown ? text(`${cooldown} 秒后可重发`, `Resend in ${cooldown}s`) : text('重新发送验证码', 'Resend code')}</button>
+          <Button variant="ghost" type="button"  disabled={busy} onClick={() => { setSentTo(''); setCode(''); setMessage(''); setError(''); }}>{text('更换邮箱', 'Change email')}</Button>
+          <label className="ui-label block">{text('邮箱验证码', 'Email code')}<Input autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} required autoFocus value={code} onChange={event => setCode(event.target.value.replace(/\D/g, ''))} className="mt-2 w-full" placeholder="000000" /></label>
+          <Button variant="ghost" type="button" disabled={busy || cooldown > 0}  onClick={async () => { setBusy(true); setError(''); try { await post('/api/access/send-code', { email: sentTo }); setCooldown(60); setMessage(text('新的验证码已发送。', 'A new code has been sent.')); } catch (error) { setError((error as Error).message); } finally { setBusy(false); } }}>{cooldown ? text(`${cooldown} 秒后可重发`, `Resend in ${cooldown}s`) : text('重新发送验证码', 'Resend code')}</Button>
         </>}
-        {mode === 'password' && <label className="block text-sm font-semibold">{text('密码', 'Password')}<input type="password" autoComplete="current-password" required maxLength={1024} value={password} onChange={event => setPassword(event.target.value)} className="mt-2 w-full" /></label>}
+        {mode === 'password' && <label className="ui-label block">{text('密码', 'Password')}<Input type="password" autoComplete="current-password" required maxLength={1024} value={password} onChange={event => setPassword(event.target.value)} className="mt-2 w-full" /></label>}
         {error && <p role="alert" className="rounded-lg bg-[var(--color-surface-muted)] p-3 text-sm text-[var(--color-danger)]">{error}</p>}
         {message && <p role="status" className="text-sm text-[var(--color-primary)]">{message}</p>}
-        <button type="submit" disabled={busy} className="workspace-button workspace-primary w-full"><Mail size={18} aria-hidden="true" />{busy ? text('处理中…', 'Please wait…') : mode === 'password' ? text('登录', 'Sign in') : sentTo ? text('验证并进入', 'Verify and continue') : text('获取验证码', 'Send email code')}<ArrowRight size={16} aria-hidden="true" /></button>
+        <Button variant="primary" type="submit" disabled={busy} className="w-full"><Mail size={18} aria-hidden="true" />{busy ? text('处理中…', 'Please wait…') : mode === 'password' ? text('登录', 'Sign in') : sentTo ? text('验证并进入', 'Verify and continue') : text('获取验证码', 'Send email code')}<ArrowRight size={16} aria-hidden="true" /></Button>
       </form>
       <div className="mt-5 flex flex-wrap justify-between gap-3 text-xs text-[var(--color-link)]">
-        <button type="button" disabled={busy} onClick={() => { setMode(mode === 'email' ? 'password' : 'email'); setSentTo(''); setError(''); setMessage(''); }}>{mode === 'email' ? text('已有密码？使用密码登录', 'Have a password? Sign in with it') : text('使用邮箱验证码', 'Use an email code')}</button>
+        <Button variant="ghost" type="button" disabled={busy} onClick={() => { setMode(mode === 'email' ? 'password' : 'email'); setSentTo(''); setError(''); setMessage(''); }}>{mode === 'email' ? text('已有密码？使用密码登录', 'Have a password? Sign in with it') : text('使用邮箱验证码', 'Use an email code')}</Button>
         {mode === 'password' && <Link href="/forgot-password">{text('忘记密码', 'Forgot password')}</Link>}
       </div>
       <div className="mt-6 border-t border-[var(--color-border)] pt-4 text-xs leading-relaxed text-[var(--color-text-muted)]"><Link href="/demo" className="text-[var(--color-link)] underline">{text('先看示例报告', 'Explore a sample report')}</Link>{text('，无需登录。添加通行密钥后，下次可通过设备解锁登录；仍可用邮箱恢复访问。', ', no sign-in needed. Add a passkey after signing in for faster access next time. Email remains available for recovery.')}</div>
-    </div>
+    </Panel>
   </main>;
 }

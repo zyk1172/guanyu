@@ -1,16 +1,17 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import { Button, ButtonLink, Input, Panel, Textarea } from '@/components/ui/controls';
+import Dialog from '@/components/ui/Dialog';
+import { ANALYSIS_DRAFT_KEY, decodeAnalysisDraft, encodeAnalysisDraft } from '@/lib/analysis-draft';
+import type { NewsArticle } from '@/lib/news-search-types';
+import { getWorkspaceCopy } from '@/lib/workspace-copy';
 import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
+import React, { useEffect, useRef, useState } from 'react';
 import { AnalysisMode, ReportLanguage, normalizeReportLanguage } from '../lib/types';
 import { useUiLanguage } from './LanguageProvider';
-import { useRouter } from 'next/navigation';
-import { getWorkspaceCopy } from '@/lib/workspace-copy';
-import { ANALYSIS_DRAFT_KEY, encodeAnalysisDraft, decodeAnalysisDraft } from '@/lib/analysis-draft';
-import TaskBudget from './TaskBudget';
-import Link from 'next/link';
 import NewsSearch from './NewsSearch';
-import type { NewsArticle } from '@/lib/news-search-types';
+import TaskBudget from './TaskBudget';
 
 interface AnalysisFormProps {
   onSubmit: (data: {
@@ -71,13 +72,11 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
   const [selectedNews, setSelectedNews] = useState<NewsArticle | null>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [parseFailure, setParseFailure] = useState<ParseFailure | null>(null);
+  const [parseTrigger, setParseTrigger] = useState<HTMLElement | null>(null);
   const [canAnalyze, setCanAnalyze] = useState(false);
   const parseController = useRef<AbortController | null>(null);
   const parseNumber = useRef(0);
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
-  const modalRef = useRef<HTMLDivElement | null>(null);
-  const closeParseFailureButtonRef = useRef<HTMLButtonElement | null>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     try {
@@ -103,46 +102,10 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
     } catch { setDraftNotice('storageError'); }
   };
 
-  useEffect(() => {
-    if (!parseFailure) return;
-    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const focusables = () => Array.from(
-      modalRef.current?.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') || [],
-    ).filter((element) => !element.hasAttribute('disabled'));
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setParseFailure(null);
-        return;
-      }
-      if (event.key !== 'Tab') return;
-      const items = focusables();
-      if (!items.length) return;
-      const first = items[0];
-      const last = items[items.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener('keydown', onKeyDown);
-    requestAnimationFrame(() => closeParseFailureButtonRef.current?.focus());
-    return () => {
-      document.removeEventListener('keydown', onKeyDown);
-      document.body.style.overflow = previousOverflow;
-      if (previousFocusRef.current?.getClientRects().length) previousFocusRef.current.focus({ preventScroll: true });
-      else document.getElementById('article-url')?.focus({ preventScroll: true });
-    };
-  }, [parseFailure]);
-
   const handleParseUrl = async (selectedUrl?: string, selectedArticle?: NewsArticle) => {
     const trimmed = (selectedUrl ?? urlInput).trim();
     if (!trimmed) return;
+    setParseTrigger(document.activeElement instanceof HTMLElement ? document.activeElement : null);
 
     try { new URL(trimmed); } catch {
       setParseFailure({ code: 'INVALID_URL', message: 'URL 格式无效' });
@@ -233,85 +196,49 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
 
   return (
     <>
-    <section id="news-search" className="workspace-panel home-workspace-panel">
-      <div className="home-section-heading"><div><h2>{language.startsWith('zh') ? '搜索新闻' : 'Search news'}</h2><p>{language.startsWith('zh') ? '输入关键词，查找相关报道。' : 'Find reporting on a topic that matters to you.'}</p></div><Link href="/demo" className="workspace-link">{c.demoNav}</Link></div>
+    <Panel id="news-search">
+      <div className="ui-section-heading"><div><h2>{language.startsWith('zh') ? '搜索新闻' : 'Search news'}</h2><p>{language.startsWith('zh') ? '输入关键词，查找相关报道。' : 'Find reporting on a topic that matters to you.'}</p></div><ButtonLink variant="ghost" href="/demo">{c.demoNav}</ButtonLink></div>
       <NewsSearch onSelect={handleNewsSelect} busy={isLoading || isParsing} />
-    </section>
-    <section id="analysis" className="workspace-panel home-workspace-panel scroll-mt-24">
-      <div className="home-section-heading"><div><h2>{language.startsWith('zh') ? '分析一篇报道' : 'Analyze an article'}</h2><p>{language.startsWith('zh') ? '粘贴链接获取正文，或直接输入正文。' : 'Read from a link or paste the article text below.'}</p></div></div>
+    </Panel>
+    <Panel id="analysis" className="scroll-mt-24">
+      <div className="ui-section-heading"><div><h2>{language.startsWith('zh') ? '分析一篇报道' : 'Analyze an article'}</h2><p>{language.startsWith('zh') ? '粘贴链接获取正文，或直接输入正文。' : 'Read from a link or paste the article text below.'}</p></div></div>
       {draftNotice && <p role="status" className="mb-4 rounded-lg bg-[var(--color-primary-soft)] p-3 text-sm">{c[draftNotice]}</p>}
       <form onSubmit={handleSubmit} className="space-y-4">
         {selectedNews && <div className="rounded-lg bg-[var(--color-surface-muted)] p-4"><p className="text-xs text-[var(--color-text-muted)]">{isParsing ? (language.startsWith('zh') ? '正在读取报道正文…' : 'Reading article text…') : (language.startsWith('zh') ? '已选报道' : 'Selected article')}</p><h3 className="mt-1 break-words text-base font-semibold">{selectedNews.title}</h3><p className="mt-1 text-xs text-[var(--color-text-muted)]">{selectedNews.source}</p></div>}
         <div className="space-y-2">
-          <label htmlFor="article-url" className="workspace-label">{language.startsWith('zh') ? '新闻链接（可选）' : 'Article link (optional)'}</label>
+          <label htmlFor="article-url" className="ui-label ui-field-label">{language.startsWith('zh') ? '新闻链接（可选）' : 'Article link (optional)'}</label>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <input id="article-url" type="text" inputMode="url" disabled={isParsing || isLoading} value={urlInput} onChange={(e) => { setUrlInput(e.target.value); setInputMode('url'); setSelectedNews(null); setParseFailure(null); }} onKeyDown={handleKeyDown} placeholder="https://…" className="workspace-input min-w-0 flex-1" />
-            <button type="button" onClick={() => void handleParseUrl()} disabled={isLoading || isParsing || status === 'loading' || !urlInput.trim()} className="workspace-button workspace-secondary shrink-0 disabled:opacity-50">{isParsing ? t('form.parsing') : status === 'authenticated' ? c.read : c.loginRead}</button>
+            <Input id="article-url" type="text" inputMode="url" disabled={isParsing || isLoading} value={urlInput} onChange={(e) => { setUrlInput(e.target.value); setInputMode('url'); setSelectedNews(null); setParseFailure(null); }} onKeyDown={handleKeyDown} placeholder="https://…" className="min-w-0 flex-1" />
+            <Button variant="secondary" type="button" onClick={() => void handleParseUrl()} disabled={isLoading || isParsing || status === 'loading' || !urlInput.trim()} className="shrink-0">{isParsing ? t('form.parsing') : status === 'authenticated' ? c.read : c.loginRead}</Button>
           </div>
         </div>
         <div>
-          <label htmlFor="content" className="workspace-label">{t('form.contentLabel')}</label>
-          <textarea id="content" ref={contentRef} disabled={isParsing || isLoading} value={content} onChange={(e) => { setContent(e.target.value); setInputMode('text'); setParsedSourceUrl(''); }} rows={7} required minLength={50} maxLength={30000} placeholder={c.placeholder} aria-describedby="content-help" className="workspace-input resize-y" />
+          <label htmlFor="content" className="ui-label ui-field-label">{t('form.contentLabel')}</label>
+          <Textarea id="content" ref={contentRef} disabled={isParsing || isLoading} value={content} onChange={(e) => { setContent(e.target.value); setInputMode('text'); setParsedSourceUrl(''); }} rows={7} required minLength={50} maxLength={30000} placeholder={c.placeholder} aria-describedby="content-help" />
           <div id="content-help" className="mt-1 flex justify-between gap-3 text-xs text-[var(--color-text-muted)]"><span>{t('form.minimumLength')}</span><span>{t('form.characterCount', undefined, { count: content.length })}</span></div>
         </div>
         <details className="workspace-disclosure">
           <summary>{c.optional}</summary>
           <div className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
-              <div><label htmlFor="title" className="workspace-label">{t('form.titleLabel')}</label><input id="title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={500} placeholder={t('form.titlePlaceholder')} className="workspace-input" /></div>
-              <div><label htmlFor="source" className="workspace-label">{t('form.sourceLabel')}</label><input id="source" value={source} onChange={(e) => setSource(e.target.value)} maxLength={500} placeholder={t('form.sourcePlaceholder')} className="workspace-input" /></div>
+              <div><label htmlFor="title" className="ui-label ui-field-label">{t('form.titleLabel')}</label><Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={500} placeholder={t('form.titlePlaceholder')} /></div>
+              <div><label htmlFor="source" className="ui-label ui-field-label">{t('form.sourceLabel')}</label><Input id="source" value={source} onChange={(e) => setSource(e.target.value)} maxLength={500} placeholder={t('form.sourcePlaceholder')} /></div>
             </div>
-            <div><label htmlFor="focus" className="workspace-label">{t('form.focusLabel')}</label><input id="focus" value={focus} onChange={(e) => setFocus(e.target.value)} maxLength={2000} placeholder={t('form.focusPlaceholder')} className="workspace-input" /></div>
+            <div><label htmlFor="focus" className="ui-label ui-field-label">{t('form.focusLabel')}</label><Input id="focus" value={focus} onChange={(e) => setFocus(e.target.value)} maxLength={2000} placeholder={t('form.focusPlaceholder')} /></div>
           </div>
         </details>
         <TaskBudget compact onAvailabilityChange={setCanAnalyze} />
-        <button type="submit" disabled={isLoading || isParsing || status === 'loading' || !isFormValid || (status === 'authenticated' && !canAnalyze)} className="workspace-button workspace-primary w-full">{isLoading ? t('form.analyzing') : status === 'authenticated' ? t('form.start') : c.continue}</button>
+        <Button variant="primary" type="submit" disabled={isLoading || isParsing || status === 'loading' || !isFormValid || (status === 'authenticated' && !canAnalyze)} className="w-full">{isLoading ? t('form.analyzing') : status === 'authenticated' ? t('form.start') : c.continue}</Button>
       </form>
 
-      {parseFailure && parseFailureInfo && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm"
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="parse-failure-title"
-          aria-describedby="parse-failure-description"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setParseFailure(null);
-          }}
-        >
-          <div ref={modalRef} className="w-full max-w-md rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-card)] sm:p-5">
-            <div className="flex items-start gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary-soft)] text-[var(--color-warning)]" aria-hidden="true">
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-start justify-between gap-3">
-                  <h3 id="parse-failure-title" className="text-sm font-black text-[var(--color-text)]">{t('parse.modalTitle')}</h3>
-                  <button ref={closeParseFailureButtonRef} type="button" onClick={() => setParseFailure(null)} className="rounded p-1 text-[var(--color-text-muted)] transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)]" aria-label={t('common.close')}>
-                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 6 12 12M18 6 6 18" /></svg>
-                  </button>
-                </div>
-                <p className="mt-2 text-xs font-bold text-[var(--color-text)]">{t('parse.reasonLabel', undefined, { reason: t(parseFailureInfo.reasonKey) })}</p>
-                <p id="parse-failure-description" className="mt-1 text-xs leading-relaxed text-[var(--color-text-muted)]">{t(parseFailureInfo.explanationKey)}</p>
-                <p className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-xs leading-relaxed text-[var(--color-text-muted)]">
-                  {t('parse.modalInstructions')}
-                </p>
-              </div>
-            </div>
-            <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <button type="button" onClick={() => void handleParseUrl()} className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-xs font-bold text-[var(--color-text)] transition hover:bg-[var(--color-surface-muted)]">
-                {t('common.retry')}
-              </button>
-              <button type="button" onClick={focusManualContent} className="rounded-lg bg-[var(--color-primary)] px-3 py-2 text-xs font-bold text-white transition hover:bg-[var(--color-primary-hover)] active:scale-[0.98]">
-                {t('parse.manualPaste')}
-              </button>
-            </div>
-          </div>
+      {parseFailure && parseFailureInfo && <Dialog open onClose={() => setParseFailure(null)} title={t('parse.modalTitle')} closeLabel={t('common.close')} role="alertdialog" returnFocus={parseTrigger} description={`${t('parse.reasonLabel', undefined, { reason: t(parseFailureInfo.reasonKey) })} ${t(parseFailureInfo.explanationKey)}`}>
+        <p className="rounded-lg bg-[var(--color-surface-muted)] p-4 text-sm leading-relaxed text-[var(--color-text-muted)]">{t('parse.modalInstructions')}</p>
+        <div className="ui-dialog-actions">
+          <Button onClick={() => void handleParseUrl()}>{t('common.retry')}</Button>
+          <Button variant="primary" onClick={focusManualContent}>{t('parse.manualPaste')}</Button>
         </div>
-      )}
-    </section>
+      </Dialog>}
+    </Panel>
     </>
   );
 }

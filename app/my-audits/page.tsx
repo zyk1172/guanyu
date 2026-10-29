@@ -1,15 +1,18 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import { useConfirmation } from '@/components/ui/ConfirmationProvider';
+
 import Header from '@/components/Header';
+import { useUiLanguage } from '@/components/LanguageProvider';
+import { Button, ButtonLink, Input, Panel, Select } from '@/components/ui/controls';
 import { relatedCoverageCopy } from '@/lib/related-coverage-copy';
+import { THINKING_DEPTH_OPTIONS, getReportLanguageLabel, getThinkingDepthLabel } from '@/lib/types';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { THINKING_DEPTH_OPTIONS, getReportLanguageLabel, getThinkingDepthLabel } from '@/lib/types';
-import { useUiLanguage } from '@/components/LanguageProvider';
+import React, { useCallback, useEffect, useState } from 'react';
 
 export default function MyAuditsPage() {
+  const { confirm } = useConfirmation();
   const { data: session, status } = useSession();
   const router = useRouter();
   const { language, t } = useUiLanguage();
@@ -86,7 +89,7 @@ export default function MyAuditsPage() {
 
   // 4. 删除审视
   const handleDeleteAudit = async (id: string) => {
-    if (!window.confirm(t('myAudits.deleteConfirm'))) return;
+    if (!await confirm(t('myAudits.deleteConfirm'))) return;
 
     try {
       const res = await fetch(`/api/audits/${id}`, {
@@ -102,8 +105,8 @@ export default function MyAuditsPage() {
 
   if (status === 'loading') {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-black flex items-center justify-center">
-        <div className="text-sm font-semibold text-gray-500 animate-pulse">{t('myAudits.loading')}</div>
+      <div className="min-h-screen bg-[var(--color-surface-muted)] flex items-center justify-center">
+        <div className="text-sm font-semibold text-[var(--color-text-muted)] animate-pulse">{t('myAudits.loading')}</div>
       </div>
     );
   }
@@ -119,140 +122,132 @@ export default function MyAuditsPage() {
   };
 
   return (
-    <main className="workspace-page min-h-screen bg-gray-50 dark:bg-black font-sans text-gray-900 dark:text-gray-100 selection:bg-indigo-500/20 pb-12">
+    <main className="workspace-page pb-12">
       <Header />
 
-      <div className="workspace-container py-8 space-y-6">
+      <div id="main-content" tabIndex={-1} className="workspace-container workspace-content space-y-6">
         <p className="text-sm text-[var(--color-text-muted)]">{relatedCoverageCopy(language).listHint}</p>
         <div>
-          <h1 className="text-2xl font-bold leading-tight">{t('myAudits.title')}</h1>
-          <p className="text-xs text-gray-500 dark:text-gray-400">{t('myAudits.description')}</p>
+          <h1 className="ui-page-title">{t('myAudits.title')}</h1>
+          <p className="text-xs text-[var(--color-text-muted)]">{t('myAudits.description')}</p>
         </div>
 
         {/* 紧凑型筛选工具栏 */}
-        <div className="bg-white dark:bg-gray-950 p-4 rounded-xl border border-gray-150 dark:border-gray-900 shadow-sm space-y-3">
+        <Panel as="div" className="space-y-3">
           <form onSubmit={handleSearchSubmit} className="flex gap-2">
-            <input
+            <Input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t('myAudits.searchPlaceholder')}
               aria-label={t('myAudits.searchPlaceholder')}
-              className="flex-1 px-3 py-1.5 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white"
-            />
-            <button
+              className="flex-1"
+           />
+            <Button variant="primary"
               type="submit"
-              className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-xs shadow-sm transition"
-            >
+           >
               {t('myAudits.search')}
-            </button>
+            </Button>
           </form>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 text-xs">
-            <div className="space-y-1">
-              <label htmlFor="audit-modeFilter" className="block text-xxs font-bold text-gray-500 uppercase">{t('myAudits.type')}</label>
-              <select
+            <div className="space-y-2">
+              <label htmlFor="audit-modeFilter" className="ui-label block text-[var(--color-text-muted)]">{t('myAudits.type')}</label>
+              <Select
                 id="audit-modeFilter"
                 value={modeFilter}
                 onChange={(e) => setModeFilter(e.target.value)}
-                className="w-full px-2 py-1.5 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 focus:outline-none"
-              >
+                className="w-full"
+             >
                 <option value="">{t('myAudits.allModes')}</option>
                 <option value="quick">{t('myAudits.historyQuick')}</option>
                 <option value="deep">{t('myAudits.analysis')}</option>
-              </select>
+              </Select>
             </div>
 
-            <div className="space-y-1">
-              <label htmlFor="audit-depthFilter" className="block text-xxs font-bold text-gray-500 uppercase">{t('myAudits.thinkingDepth')}</label>
-              <select
+            <div className="space-y-2">
+              <label htmlFor="audit-depthFilter" className="ui-label block text-[var(--color-text-muted)]">{t('myAudits.thinkingDepth')}</label>
+              <Select
                 id="audit-depthFilter"
                 value={depthFilter}
                 onChange={(e) => setDepthFilter(e.target.value)}
-                className="w-full px-2 py-1.5 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 focus:outline-none"
-              >
+                className="w-full"
+             >
                 <option value="">{t('myAudits.allDepths')}</option>
                 <option value="quick">{language === 'en-US' ? 'Quick' : '快速'}</option>
                 {THINKING_DEPTH_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>{t(`thinking.${option.value}`)}</option>
                 ))}
-              </select>
+              </Select>
             </div>
 
-            <div className="space-y-1">
-              <label htmlFor="audit-publicFilter" className="block text-xxs font-bold text-gray-500 uppercase">{t('myAudits.visibility')}</label>
-              <select
+            <div className="space-y-2">
+              <label htmlFor="audit-publicFilter" className="ui-label block text-[var(--color-text-muted)]">{t('myAudits.visibility')}</label>
+              <Select
                 id="audit-publicFilter"
                 value={publicFilter}
                 onChange={(e) => setPublicFilter(e.target.value)}
-                className="w-full px-2 py-1.5 border border-gray-200 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 focus:outline-none"
-              >
+                className="w-full"
+             >
                 <option value="">{t('myAudits.allVisibility')}</option>
                 <option value="true">{t('common.public')}</option>
                 <option value="false">{t('common.private')}</option>
-              </select>
+              </Select>
             </div>
           </div>
-        </div>
+        </Panel>
 
         {/* 审视历史列表 */}
         {isFetchingAudits ? (
-          <div className="text-center py-16 text-sm text-gray-400 animate-pulse font-semibold">{t('myAudits.loadingHistory')}</div>
+          <div className="text-center py-16 text-sm text-[var(--color-text-subtle)] animate-pulse font-semibold">{t('myAudits.loadingHistory')}</div>
         ) : myAudits.length === 0 ? (
-          <div className="bg-white dark:bg-gray-950 p-12 text-center text-xs text-gray-400 dark:text-gray-500 rounded-xl border border-dashed border-gray-200 dark:border-gray-800">
+          <div className="bg-[var(--color-surface)] p-12 text-center text-xs text-[var(--color-text-subtle)] rounded-xl border border-dashed border-[var(--color-border)]">
             {t('myAudits.empty')}
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3.5">
             {myAudits.map((audit) => (
-              <div
+              <Panel as="div"
                 key={audit.id}
-                className="bg-white dark:bg-gray-950 p-4 rounded-xl border border-gray-150 dark:border-gray-900 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 transition hover:border-gray-300 dark:hover:border-gray-700"
-              >
+                className="flex flex-col md:flex-row md:items-center justify-between gap-4 transition"
+             >
                 <div className="space-y-1 md:max-w-2xl">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xxs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">
+                    <span className="ui-badge text-[var(--color-link)] bg-[var(--color-primary-soft)]">
                       {t('myAudits.thinking', undefined, { depth: getDepthLabel(audit.reasoningDepth) })}
                     </span>
-                    <span className="text-xxs font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded">
+                    <span className="ui-badge text-[var(--color-text-muted)] bg-[var(--color-surface)]">
                       {getModeLabel(audit.analysisMode)}
                     </span>
-                    <span className="text-xxs font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded dark:bg-sky-950/30 dark:text-sky-300">
+                    <span className="ui-badge text-[var(--color-link)] bg-[var(--color-primary-soft)]">
                       {getReportLanguageLabel(audit.reportLanguage, language)}
                     </span>
-                    <span className="text-xxs text-gray-400 font-semibold">{new Date(audit.createdAt).toLocaleDateString(language)}</span>
+                    <span className="text-xxs text-[var(--color-text-subtle)] font-semibold">{new Date(audit.createdAt).toLocaleDateString(language)}</span>
                   </div>
-                  <h4 className="text-sm font-bold text-gray-900 dark:text-white">{audit.title}</h4>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1">{audit.newsSummary}</p>
+                  <h4 className="text-sm font-bold text-[var(--color-text)]">{audit.title}</h4>
+                  <p className="text-xs text-[var(--color-text-muted)] line-clamp-1">{audit.newsSummary}</p>
                 </div>
 
                 <div className="flex items-center gap-2.5 justify-end text-xs font-bold flex-wrap">
-                  <button
+                  <Button variant="secondary" aria-pressed={audit.isPublic}
                     onClick={() => toggleAuditPublic(audit.id, audit.isPublic)}
-                    className={`px-2.5 py-1 rounded text-xxs font-black transition border ${
-                      audit.isPublic
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                        : 'bg-gray-50 border-gray-200 text-gray-500'
-                    }`}
-                  >
+                 >
                     {audit.isPublic ? t('common.public') : t('common.private')}
-                  </button>
+                  </Button>
 
-                  <Link
+                  <ButtonLink variant="primary"
                     href={`/audits/${audit.id}`}
-                    className="px-2.5 py-1 bg-indigo-550 hover:bg-indigo-600 text-white rounded text-xxs flex items-center transition"
-                  >
+                 >
                     {t('common.viewDetails')}
-                  </Link>
+                  </ButtonLink>
 
-                  <button
+                  <Button variant="danger"
                     onClick={() => handleDeleteAudit(audit.id)}
-                    className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 rounded text-xxs flex items-center transition"
-                  >
+                 >
                     {t('common.delete')}
-                  </button>
+                  </Button>
                 </div>
-              </div>
+              </Panel>
             ))}
           </div>
         )}

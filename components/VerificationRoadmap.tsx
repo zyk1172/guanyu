@@ -1,11 +1,12 @@
 'use client';
 
-import ReportText from './ReportText';
+import { Button } from '@/components/ui/controls';
+import { getVerificationRoadmapStorageKey } from '@/lib/analysis-job-client-core.mjs';
+import { formatMaterialType, formatPriority } from '@/lib/report-display-core.mjs';
+import type { ManualVerificationOutcome, ManualVerificationRecord, VerificationRoadmapTask } from '@/lib/types';
 import { CheckCircle2, ExternalLink, LoaderCircle, Search, ShieldAlert } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import type { ManualVerificationOutcome, ManualVerificationRecord, VerificationRoadmapTask } from '@/lib/types';
-import { formatMaterialType, formatPriority } from '@/lib/report-display-core.mjs';
-import { getVerificationRoadmapStorageKey } from '@/lib/analysis-job-client-core.mjs';
+import ReportText from './ReportText';
 
 interface VerificationRoadmapProps {
   auditId?: string;
@@ -140,12 +141,12 @@ export default function VerificationRoadmap({
         const isOpen = openedIndex === index;
         const isSaving = savingIndex === index;
         return (
-          <article key={`${item.question}-${index}`} data-gsap-hover className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-xs transition-colors hover:bg-[var(--color-card-hover)]">
+          <article key={`${item.question}-${index}`} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-xs transition-colors hover:bg-[var(--color-card-hover)]">
             <div className="font-bold leading-relaxed text-[var(--color-text)]"><ReportText>{item.question}</ReportText></div>
             <p className="mt-1 leading-relaxed text-[var(--color-text-muted)]"><ReportText>{item.whyItMatters}</ReportText></p>
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              <span className="rounded border border-[var(--color-info)]/30 bg-[color-mix(in_srgb,var(--color-info)_12%,transparent)] px-2 py-0.5 text-xxs font-bold text-[var(--color-info)]">{formatMaterialType(item.materialType, reportLanguage)}</span>
-              <span className="rounded border border-[var(--color-warning)]/35 bg-[color-mix(in_srgb,var(--color-warning)_12%,transparent)] px-2 py-0.5 text-xxs font-bold text-[var(--color-warning)]">{formatPriority(item.priority, reportLanguage)}</span>
+              <span className="ui-badge border border-[var(--color-info)]/30 bg-[color-mix(in_srgb,var(--color-info)_12%,transparent)] text-[var(--color-info)]">{formatMaterialType(item.materialType, reportLanguage)}</span>
+              <span className="ui-badge border border-[var(--color-warning)]/35 bg-[color-mix(in_srgb,var(--color-warning)_12%,transparent)] text-[var(--color-warning)]">{formatPriority(item.priority, reportLanguage)}</span>
             </div>
 
             {record ? (
@@ -156,11 +157,11 @@ export default function VerificationRoadmap({
             ) : null}
 
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <button type="button" onClick={() => openSearch(item, index)} className="inline-flex items-center gap-1.5 rounded-md border border-[var(--color-primary)]/35 bg-[var(--color-surface)] px-2.5 py-1.5 text-xxs font-black text-[var(--color-primary)] transition hover:bg-[var(--color-primary-soft)] active:scale-[0.98]">
+              <Button variant="secondary" type="button" onClick={() => openSearch(item, index)}>
                 <Search className="h-3.5 w-3.5" />
                 {copy.search}
                 <ExternalLink className="h-3 w-3 opacity-70" />
-              </button>
+              </Button>
               {!record && !isOpen && <span className="text-xxs font-medium text-[var(--color-text-subtle)]">{copy.searchHint}</span>}
             </div>
 
@@ -168,14 +169,14 @@ export default function VerificationRoadmap({
               <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-2">
                 {canUpdate && auditId ? (
                   <>
-                    <button type="button" disabled={isSaving} onClick={() => saveOutcome(index, 'verified')} className="inline-flex items-center gap-1.5 rounded-md bg-[var(--color-success)] px-2.5 py-1.5 text-xxs font-black text-white transition hover:brightness-105 active:scale-[0.98] disabled:cursor-wait disabled:opacity-60">
+                    <Button variant="primary" type="button" disabled={isSaving} onClick={() => saveOutcome(index, 'verified')}>
                       {isSaving ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                       {isSaving ? copy.saving : copy.verified}
-                    </button>
-                    <button type="button" disabled={isSaving} onClick={() => saveOutcome(index, 'unverified')} className="inline-flex items-center gap-1.5 rounded-md border border-[var(--color-warning)]/55 bg-[var(--color-surface)] px-2.5 py-1.5 text-xxs font-black text-[var(--color-warning)] transition hover:bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)] active:scale-[0.98] disabled:cursor-wait disabled:opacity-60">
+                    </Button>
+                    <Button variant="secondary" type="button" disabled={isSaving} onClick={() => saveOutcome(index, 'unverified')}>
                       <ShieldAlert className="h-3.5 w-3.5" />
                       {copy.unverified}
-                    </button>
+                    </Button>
                     <span className="basis-full text-xxs leading-relaxed text-[var(--color-text-subtle)]">{copy.change}</span>
                   </>
                 ) : (
