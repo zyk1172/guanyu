@@ -25,7 +25,13 @@ export async function POST(request: Request) {
     const query = normalizeNewsQuery(input.query);
     if (!query) throw new AccessError('请输入 2 至 128 个字符的关键词。');
     const user = await getCurrentUser(request);
-    await reserveAccessAttempt('news-search-ip', requireClientIp(request), user ? 30 : 12, 5 * 60_000);
+    let clientIp: string;
+    try { clientIp = requireClientIp(request); }
+    catch {
+      console.error('[news-search] Trusted proxy configuration is required for public request rate limiting.');
+      throw new AccessError('新闻搜索服务配置不完整，请联系管理员。', 503);
+    }
+    await reserveAccessAttempt('news-search-ip', clientIp, user ? 30 : 12, 5 * 60_000);
     const access = await resolveNewsSearchAccess(user);
     const result = await runNewsSearch({ ...input, query }, access, user?.id || null);
     return NextResponse.json(result, { headers: { 'Cache-Control': 'private, no-store' } });

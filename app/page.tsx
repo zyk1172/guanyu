@@ -208,7 +208,7 @@ export default function Home() {
     <main className="workspace-page">
       <Header />
       <GsapReveal className="workspace-container">
-        <section data-gsap-reveal className="workspace-hero">
+        <section data-gsap-reveal className="workspace-hero home-hero">
           <h1>{language.startsWith('zh-') ? <><span className="inline-block">{c.headline.split('，')[0]}，</span><wbr /><span className="inline-block">{c.headline.split('，')[1]}</span></> : c.headline}</h1>
           <p>{c.subtitle}</p>
         </section>
@@ -218,7 +218,7 @@ export default function Home() {
             {activeJobId && !isLoading && <p role="status" className="text-sm text-[var(--color-text-muted)]">{t('home.backgroundJob')}</p>}
             {error && <ErrorMessage message={error} onRetry={handleRetry} />}
         </div>
-        <section className="workspace-panel mt-7">
+        <section className="workspace-panel home-workspace-panel mt-7">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <h2>{c.public}</h2>
             <Link href={sessionStatus === 'authenticated' ? '/audits' : '/login'} className="workspace-link">{sessionStatus === 'authenticated' ? t('home.more') : c.continue}<ArrowUpRight size={16} aria-hidden="true" /></Link>

@@ -16,11 +16,13 @@ const suffix = crypto.randomUUID(), start = new Date(), base = process.env.NEXTA
 const app = await getOrCreateAppSetting(); const oldPaid = process.env.GUANYU_ALLOW_PAID_SEARCH;
 const users: string[] = [], keys = new Set<string>(); let modelId: string | undefined;
 const input: NewsSearchInput = { query: `fixture ${suffix}`, provider: 'free', period: 'any', language: 'zh-CN' };
-const transport = async () => ({ status: 200, headers: new Headers(), body: Buffer.from(JSON.stringify({ results: [{ title: 'Fictional public report', url: 'https://news.example/fixture', content: 'Fixture only, not real news.', publishedDate: '2026-01-01' }] })) });
+const transport = async (url: string | URL) => String(url).includes('fixture.example')
+  ? ({ status: 200, headers: new Headers(), body: Buffer.from(JSON.stringify({ results: [{ title: 'Fictional public report', url: 'https://news.example/fixture', content: 'Fixture only, not real news.', publishedDate: '2026-01-01' }] })) })
+  : ({ status: 503, headers: new Headers(), body: Buffer.from('unavailable') });
 const options = { freeOptions: { searxngUrl: 'https://fixture.example', request: transport } };
 function track(i: NewsSearchInput, a: Awaited<ReturnType<typeof resolveNewsSearchAccess>>) {
   const scope = i.provider === 'deepseek' ? `${a.scope}:${privacyHmacHash(a.encryptedKey!)}` : 'public';
-  keys.add(privacyHmacHash(JSON.stringify(['news-v1', scope, i.provider, i.period, i.language, i.query])));
+  keys.add(privacyHmacHash(JSON.stringify(['news-v2', scope, i.provider, i.period, i.language, i.query])));
 }
 async function request(path: string, userId?: string, method = 'GET', body?: unknown, origin = new URL(base).origin) {
   const token = userId ? await encode({ secret: process.env.NEXTAUTH_SECRET!, token: { id: userId, sessionVersion: 1 } }) : '';
@@ -43,26 +45,40 @@ try {
   assert.equal((await searchRoute(await request('/api/news/search', undefined, 'POST', { ...input, provider: 'deepseek' }))).status, 403);
   assert.equal((await searchRoute(await request('/api/news/search', undefined, 'POST', { ...input, query: 'a' }))).status, 400);
   assert.equal((await searchRoute(await request('/api/news/search', undefined, 'POST', input, 'https://evil.example'))).status, 403);
+  const proxyEnv = { node: process.env.NODE_ENV, vercel: process.env.VERCEL, trust: process.env.TRUST_PROXY_HEADERS };
+  const mutableEnv = process.env as Record<string, string | undefined>;
+  try {
+    mutableEnv.NODE_ENV = 'production'; delete process.env.VERCEL; delete process.env.TRUST_PROXY_HEADERS;
+    const missingProxy = await searchRoute(await request('/api/news/search', undefined, 'POST', input));
+    assert.equal(missingProxy.status, 503); assert.match((await missingProxy.json()).error, /配置不完整/);
+  } finally {
+    if (proxyEnv.node === undefined) delete mutableEnv.NODE_ENV; else mutableEnv.NODE_ENV = proxyEnv.node;
+    if (proxyEnv.vercel === undefined) delete process.env.VERCEL; else process.env.VERCEL = proxyEnv.vercel;
+    if (proxyEnv.trust === undefined) delete process.env.TRUST_PROXY_HEADERS; else process.env.TRUST_PROXY_HEADERS = proxyEnv.trust;
+  }
 
   track(input, ordinary); let calls = 0;
-  const first = await runNewsSearch(input, ordinary, users[0], { freeOptions: { ...options.freeOptions, request: async () => { calls++; return transport(); } } });
+  const first = await runNewsSearch(input, ordinary, users[0], { freeOptions: { ...options.freeOptions, request: async url => { calls++; return transport(url); } } });
   const second = await runNewsSearch(input, ordinary, users[0], { freeOptions: { ...options.freeOptions, request: async () => { throw new Error('cache must avoid outbound work'); } } });
-  assert.equal(first.articles.length, 1); assert.equal(second.cached, true); assert.equal(calls, 1);
+  assert.equal(first.articles.length, 1); assert.equal(second.cached, true); assert.equal(calls, 2);
   assert.equal(await prisma.pointTransaction.count({ where: { userId: { in: users } } }), 0);
 
   const paid: NewsSearchInput = { ...input, provider: 'deepseek' }; track(paid, ordinary);
   let upstream = 0;
-  const fakeDeepseek: typeof fetch = async (_url, init) => { upstream++; assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer platform-fixture-key'); return Response.json({ results: [{ title: 'Fixture', url: 'https://news.example/paid', summary: 'Fictional test material' }] }); };
-  const concurrent = await Promise.allSettled([runNewsSearch(paid, ordinary, users[0], { deepseekFetch: fakeDeepseek }), runNewsSearch(paid, ordinary, users[0], { deepseekFetch: fakeDeepseek })]);
+  const fakeDeepseek: typeof fetch = async (_url, init) => { upstream++; assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer platform-fixture-key'); assert.match(JSON.parse(String(init?.body)).query, /^新闻报道 /); return Response.json({ results: [{ title: 'Fixture', url: 'https://news.example/fixture?utm_source=paid', summary: 'Fictional test material' }, { title: 'Non-news', url: 'https://other.example/blog' }] }); };
+  const concurrent = await Promise.allSettled([runNewsSearch(paid, ordinary, users[0], { ...options, deepseekFetch: fakeDeepseek }), runNewsSearch(paid, ordinary, users[0], { ...options, deepseekFetch: fakeDeepseek })]);
   assert.equal(upstream, 1); assert.ok(concurrent.some(item => item.status === 'fulfilled'));
-  const repeated = await runNewsSearch(paid, ordinary, users[0], { deepseekFetch: fakeDeepseek }); assert.equal(repeated.cached, true); assert.equal(upstream, 1);
+  const repeated = await runNewsSearch(paid, ordinary, users[0], { ...options, deepseekFetch: fakeDeepseek }); assert.equal(repeated.cached, true); assert.equal(upstream, 1); assert.deepEqual(repeated.articles.map(article => article.url), ['https://news.example/fixture']);
   const capped = { ...paid, query: `capped ${suffix}` }; track(capped, ordinary);
-  await assert.rejects(runNewsSearch(capped, ordinary, users[0], { deepseekFetch: fakeDeepseek }), (error: unknown) => (error as { status: number }).status === 429); assert.equal(upstream, 1);
+  await assert.rejects(runNewsSearch(capped, ordinary, users[0], { ...options, deepseekFetch: fakeDeepseek }), (error: unknown) => (error as { status: number }).status === 429); assert.equal(upstream, 1);
+  const noNews = { ...paid, query: `no-news ${suffix}` }; track(noNews, ordinary);
+  const empty = await runNewsSearch(noNews, ordinary, users[0], { freeOptions: { searxngUrl: '', request: async () => ({ status: 200, headers: new Headers(), body: Buffer.from('<rss><channel><title>Empty</title></channel></rss>') }) }, deepseekFetch: fakeDeepseek });
+  assert.equal(empty.articles.length, 0); assert.equal(upstream, 1);
 
   track(paid, pro);
-  await runNewsSearch(paid, pro, users[1], { deepseekFetch: async (_url, init) => { assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer personal-fixture-key'); return Response.json({ results: [] }); } });
+  await runNewsSearch(paid, pro, users[1], { ...options, deepseekFetch: async (_url, init) => { assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer personal-fixture-key'); return Response.json({ results: [] }); } });
   const failing = { ...paid, query: `failure ${suffix}` }; track(failing, pro);
-  await assert.rejects(runNewsSearch(failing, pro, users[1], { deepseekFetch: async () => { throw new Error('fixture upstream failure'); } }), (error: unknown) => (error as { status: number }).status === 503);
+  await assert.rejects(runNewsSearch(failing, pro, users[1], { ...options, deepseekFetch: async () => { throw new Error('fixture upstream failure'); } }), (error: unknown) => (error as { status: number }).status === 503);
   assert.equal(await prisma.newsSearchCache.count({ where: { cacheKey: [...keys].at(-1) } }), 0);
   process.env.GUANYU_ALLOW_PAID_SEARCH = 'false';
   const disabled = await resolveNewsSearchAccess({ id: users[1], sessionVersion: 1 }); assert.equal(disabled.capabilities.deepseekAvailable, false);
