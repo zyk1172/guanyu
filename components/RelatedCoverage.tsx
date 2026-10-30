@@ -1,12 +1,13 @@
 'use client';
 
-import ReportText from './ReportText';
-import { useCallback, useEffect, useState } from 'react';
-import { Search, ChevronDown, ExternalLink } from 'lucide-react';
-import { useUiLanguage } from './LanguageProvider';
-import { useActiveModel } from './useActiveModel';
-import { relatedCoverageCopy } from '@/lib/related-coverage-copy';
+import { Button, Input, Panel } from '@/components/ui/controls';
 import type { CoverageResult, CoverageSynthesis } from '@/lib/related-coverage';
+import { relatedCoverageCopy } from '@/lib/related-coverage-copy';
+import { ChevronDown, ExternalLink, Search } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { useUiLanguage } from './LanguageProvider';
+import ReportText from './ReportText';
+import { useActiveModel } from './useActiveModel';
 
 type Job = { status: string; jobId?: string; stage?: string; query?: string; sourceFingerprint?: string; defaultQuery?: string; errorCode?: string; result?: CoverageResult; previous?: CoverageResult; cached?: boolean };
 type Finding = NonNullable<CoverageSynthesis['summary']>;
@@ -82,21 +83,21 @@ export default function RelatedCoverage({ auditId }: { auditId: string }) {
       })}</div>
     </details>
   </div>;
-  return <section id="report-related" data-reading-section={c.title} className="workspace-panel" aria-labelledby="related-coverage-title">
+  return <Panel id="report-related" data-reading-section={c.title}  aria-labelledby="related-coverage-title">
     <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 id="related-coverage-title">{c.title}</h2><p className="mt-2 text-sm leading-relaxed text-[var(--color-text-muted)]">{c.intro}</p></div>
-      {!expanded && !busy && <button type="button" className="workspace-button workspace-secondary" onClick={() => setExpanded(true)}><Search size={16} aria-hidden="true" />{result ? c.adjust : c.open}</button>}
+      {!expanded && !busy && <Button variant="secondary" type="button"  onClick={() => setExpanded(true)}><Search size={16} aria-hidden="true" />{result ? c.adjust : c.open}</Button>}
     </div>
     {job.status === 'loading' && <p role="status" className="mt-3 text-sm text-[var(--color-text-muted)]">{c.loading}</p>}
     {(expanded || busy) && <form onSubmit={start} className="mt-5 space-y-3">
-      <label htmlFor="related-coverage-query" className="workspace-label">{c.query}</label>
-      <input id="related-coverage-query" className="workspace-input" value={query} minLength={2} maxLength={200} onChange={event => setQuery(event.target.value)} disabled={busy} required />
+      <label htmlFor="related-coverage-query" className="ui-label ui-field-label">{c.query}</label>
+      <Input id="related-coverage-query"  value={query} minLength={2} maxLength={200} onChange={event => setQuery(event.target.value)} disabled={busy} required />
       <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">{c.fees}</p>
       {model.source === 'custom' && <p className="text-xs text-[var(--color-text-muted)]">{c.custom}</p>}
       {model.error && <p role="alert" className="text-sm text-[var(--color-danger)]">{model.error}</p>}
-      <button type="submit" disabled={busy || model.loading || !!model.error || !fingerprint || query.trim().length < 2} className="workspace-button workspace-primary disabled:opacity-60">{busy ? (job.stage === 'compare' ? c.compare : c.search) : `${c.start} · ${model.estimatedCost} ${c.credits}`}</button>
+      <Button variant="primary" type="submit" disabled={busy || model.loading || !!model.error || !fingerprint || query.trim().length < 2}>{busy ? (job.stage === 'compare' ? c.compare : c.search) : `${c.start} · ${model.estimatedCost} ${c.credits}`}</Button>
     </form>}
     {busy && <p role="status" className="mt-3 text-sm text-[var(--color-text-muted)]">{c.wait}</p>}
-    {(error || job.status === 'failed') && <p role="alert" className="mt-4 rounded-lg border border-[var(--color-border)] p-3 text-sm text-[var(--color-warning)]">{message(error || job.errorCode || '')}{!fingerprint && <button type="button" onClick={() => window.location.reload()} className="ml-3 underline">{t('common.retry')}</button>}</p>}
+    {(error || job.status === 'failed') && <p role="alert" className="mt-4 rounded-lg border border-[var(--color-border)] p-3 text-sm text-[var(--color-warning)]">{message(error || job.errorCode || '')}{!fingerprint && <Button variant="ghost" type="button" onClick={() => window.location.reload()} className="ml-3">{t('common.retry')}</Button>}</p>}
     {job.cached && <p role="status" className="mt-3 text-sm text-[var(--color-success)]">{c.reused}</p>}
     {result && <div className="mt-5 border-t border-[var(--color-border)] pt-5">
       <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">{c.saved} · {new Date(result.generatedAt).toLocaleString(language, { timeZoneName: 'short' })} · {result.usage.model} · {result.usage.cost} {c.credits}</p>
@@ -108,5 +109,5 @@ export default function RelatedCoverage({ auditId }: { auditId: string }) {
       <p className="mt-4 text-xs leading-relaxed text-[var(--color-text-muted)]">{c.caution}</p>
     </div>}
     {(expanded || result || busy) && <p className="mt-4 text-xs leading-relaxed text-[var(--color-text-muted)]">{c.privacy}</p>}
-  </section>;
+  </Panel>;
 }

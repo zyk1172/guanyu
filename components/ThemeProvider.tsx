@@ -24,6 +24,8 @@ function normalizeTheme(value: string | null | undefined): AppTheme {
 function applyTheme(theme: AppTheme) {
   document.documentElement.dataset.theme = theme;
   window.localStorage.setItem(STORAGE_KEY, theme);
+  const color = getComputedStyle(document.documentElement).getPropertyValue('--color-bg').trim();
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', color);
 }
 
 interface ThemeContextValue {
@@ -44,7 +46,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const onStorage = (event: StorageEvent) => {
       if (event.key !== STORAGE_KEY) return;
       const next = normalizeTheme(event.newValue);
-      document.documentElement.dataset.theme = next;
+      applyTheme(next);
       setThemeState(next);
     };
     window.addEventListener('storage', onStorage);

@@ -1,7 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useConfirmation } from '@/components/ui/ConfirmationProvider';
+
+import { Button, Panel, Textarea } from '@/components/ui/controls';
 import { Flag, LockKeyhole, MessageCircle, Reply, ShieldCheck } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 import { useUiLanguage } from './LanguageProvider';
 
 type Message = {
@@ -23,6 +26,7 @@ type DiscussionPayload = {
 };
 
 export default function DiscussionBoard({ auditId }: { auditId: string }) {
+  const { prompt } = useConfirmation();
   const { language, t } = useUiLanguage();
   const [messages, setMessages] = useState<Message[]>([]);
   const [locked, setLocked] = useState(false);
@@ -81,7 +85,7 @@ export default function DiscussionBoard({ auditId }: { auditId: string }) {
   };
 
   const report = async (messageId: string) => {
-    const reason = window.prompt(t('discussion.reportPrompt'));
+    const reason = await prompt(t('discussion.reportPrompt'));
     if (!reason?.trim()) return;
     try { await requestAction({ action: 'report', messageId, reason: reason.trim() }); setError(t('discussion.reported')); }
     catch (err: any) { setError(err?.message || t('discussion.actionFailed')); }
@@ -97,33 +101,33 @@ export default function DiscussionBoard({ auditId }: { auditId: string }) {
       {message.status === 'HIDDEN' && <p className="mt-1 text-xxs font-semibold text-[var(--color-warning)]">{t('discussion.hidden')}</p>}
       {message.isEdited && <span className="mt-1 block text-xxs text-[var(--color-text-subtle)]">{t('discussion.edited')}</span>}
       <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
-        {!nested && message.status === 'VISIBLE' && <button type="button" onClick={() => setReplyTo(message.id)} className="inline-flex items-center gap-1 text-xxs font-bold text-[var(--color-link)]"><Reply size={12} />{t('discussion.reply')}</button>}
-        {message.status === 'VISIBLE' && <button type="button" onClick={() => void report(message.id)} className="inline-flex items-center gap-1 text-xxs font-bold text-[var(--color-text-muted)]"><Flag size={12} />{t('discussion.report')}</button>}
-        {canModerate && message.status !== 'DELETED' && <button type="button" onClick={() => void requestAction({ action: message.status === 'HIDDEN' ? 'restore' : 'hide', messageId: message.id }).catch((err) => setError(err.message))} className="inline-flex items-center gap-1 text-xxs font-bold text-[var(--color-warning)]"><ShieldCheck size={12} />{message.status === 'HIDDEN' ? t('discussion.restore') : t('discussion.hide')}</button>}
+        {!nested && message.status === 'VISIBLE' && <Button variant="ghost" type="button" onClick={() => setReplyTo(message.id)}><Reply size={12} />{t('discussion.reply')}</Button>}
+        {message.status === 'VISIBLE' && <Button variant="ghost" type="button" onClick={() => void report(message.id)}><Flag size={12} />{t('discussion.report')}</Button>}
+        {canModerate && message.status !== 'DELETED' && <Button variant="ghost" type="button" onClick={() => void requestAction({ action: message.status === 'HIDDEN' ? 'restore' : 'hide', messageId: message.id }).catch((err) => setError(err.message))}><ShieldCheck size={12} />{message.status === 'HIDDEN' ? t('discussion.restore') : t('discussion.hide')}</Button>}
       </div>
       {message.replies?.map((reply) => row(reply, true))}
     </article>
   );
 
-  return <section className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-3 shadow-[var(--shadow-card)] sm:p-4">
+  return <Panel>
     <div className="mb-3 flex items-start justify-between gap-2 border-b border-[var(--color-border)] pb-2">
       <div>
-        <h3 className="flex items-center gap-2 text-sm font-black text-[var(--color-text)]"><MessageCircle size={16} />{t('discussion.title')} <span className="text-xxs font-semibold text-[var(--color-text-subtle)]">{messages.length}</span></h3>
+        <h3 className="flex items-center gap-2 text-sm font-bold text-[var(--color-text)]"><MessageCircle size={16} />{t('discussion.title')} <span className="text-xxs font-semibold text-[var(--color-text-subtle)]">{messages.length}</span></h3>
         <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{locked ? t('discussion.locked') : t('discussion.hint')}</p>
       </div>
-      {canModerate && <button type="button" onClick={() => void requestAction({ action: locked ? 'unlock' : 'lock' }).catch((err) => setError(err.message))} className="inline-flex shrink-0 items-center gap-1 rounded border border-[var(--color-border-strong)] px-2 py-1 text-xxs font-bold text-[var(--color-text)]"><LockKeyhole size={12} />{locked ? t('discussion.unlock') : t('discussion.lock')}</button>}
+      {canModerate && <Button variant="secondary" type="button" onClick={() => void requestAction({ action: locked ? 'unlock' : 'lock' }).catch((err) => setError(err.message))} className="shrink-0"><LockKeyhole size={12} />{locked ? t('discussion.unlock') : t('discussion.lock')}</Button>}
     </div>
-    {nextCursor && <div className="mb-2 text-center"><button type="button" disabled={loadingMore} onClick={() => void load(nextCursor)} className="rounded border border-[var(--color-border)] px-3 py-1.5 text-xxs font-bold text-[var(--color-link)] disabled:opacity-50">{loadingMore ? t('discussion.loadingMore') : t('discussion.loadMore')}</button></div>}
+    {nextCursor && <div className="mb-2 text-center"><Button variant="secondary" type="button" disabled={loadingMore} onClick={() => void load(nextCursor)}>{loadingMore ? t('discussion.loadingMore') : t('discussion.loadMore')}</Button></div>}
     <div className="space-y-2">{messages.length ? messages.map((message) => row(message)) : <p className="py-3 text-center text-xs text-[var(--color-text-muted)]">{t('discussion.empty')}</p>}</div>
     <form onSubmit={submit} className="mt-3 border-t border-[var(--color-border)] pt-3">
-      <textarea aria-label={replyTo ? t('discussion.replyPlaceholder') : t('discussion.placeholder')} value={text} onChange={(event) => setText(event.target.value)} maxLength={2000} disabled={locked || sending} placeholder={replyTo ? t('discussion.replyPlaceholder') : t('discussion.placeholder')} className="min-h-20 w-full rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] p-2 text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-primary)]" />
+      <Textarea aria-label={replyTo ? t('discussion.replyPlaceholder') : t('discussion.placeholder')} value={text} onChange={(event) => setText(event.target.value)} maxLength={2000} disabled={locked || sending} placeholder={replyTo ? t('discussion.replyPlaceholder') : t('discussion.placeholder')} className="w-full" />
       <div className="mt-2 flex items-center justify-between gap-2">
         {error && <span className="text-xxs font-semibold text-[var(--color-danger)]">{error}</span>}
         <div className="ml-auto flex gap-2">
-          {replyTo && <button type="button" onClick={() => setReplyTo(null)} className="text-xxs font-bold text-[var(--color-text-muted)]">{t('discussion.cancelReply')}</button>}
-          <button type="submit" disabled={locked || sending || !text.trim()} className="rounded-lg bg-[var(--color-primary)] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50">{replyTo ? t('discussion.reply') : t('discussion.post')}</button>
+          {replyTo && <Button variant="ghost" type="button" onClick={() => setReplyTo(null)}>{t('discussion.cancelReply')}</Button>}
+          <Button variant="primary" type="submit" disabled={locked || sending || !text.trim()}>{replyTo ? t('discussion.reply') : t('discussion.post')}</Button>
         </div>
       </div>
     </form>
-  </section>;
+  </Panel>;
 }

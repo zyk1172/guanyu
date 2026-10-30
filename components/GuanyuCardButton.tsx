@@ -1,9 +1,12 @@
 'use client';
 
-import { Download, LoaderCircle, Share2, Sparkles, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
-import QRCode from 'qrcode';
+import Dialog from '@/components/ui/Dialog';
+
+import { Button } from '@/components/ui/controls';
 import { getReadWorthDisplayLabel, normalizeReportLanguage, type ReadWorthLabel, type ReportLanguage } from '@/lib/types';
+import { Download, ImageDown, LoaderCircle, Share2 } from 'lucide-react';
+import QRCode from 'qrcode';
+import { useEffect, useRef, useState } from 'react';
 
 interface GuanyuCardContent {
   oneSentenceView: string;
@@ -202,6 +205,7 @@ export default function GuanyuCardButton({ auditId, title, reportLanguage }: { a
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [trigger, setTrigger] = useState<HTMLElement | null>(null);
   const pngRef = useRef<Blob | null>(null);
   const supportsSystemShare = typeof navigator !== 'undefined' && typeof (navigator as { share?: unknown }).share === 'function';
 
@@ -210,6 +214,7 @@ export default function GuanyuCardButton({ auditId, title, reportLanguage }: { a
   }, [previewUrl]);
 
   const generate = async () => {
+    setTrigger(document.activeElement instanceof HTMLElement ? document.activeElement : null);
     setIsGenerating(true);
     setError(null);
     try {
@@ -266,26 +271,20 @@ export default function GuanyuCardButton({ auditId, title, reportLanguage }: { a
 
   return (
     <>
-      <button type="button" onClick={generate} disabled={isGenerating} className="rounded-lg border border-[var(--color-primary)] bg-[var(--color-primary-soft)] px-3 py-1.5 text-xs font-bold text-[var(--color-primary)] transition hover:bg-[var(--color-card-hover)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60">
-        {isGenerating ? <span className="inline-flex items-center gap-1.5"><LoaderCircle className="h-3.5 w-3.5 animate-spin" />{copy.generating}</span> : <span className="inline-flex items-center gap-1.5"><Sparkles className="h-3.5 w-3.5" />{copy.generate}</span>}
-      </button>
+      <Button variant="secondary" type="button" onClick={generate} disabled={isGenerating}>
+        {isGenerating ? <span className="inline-flex items-center gap-1.5"><LoaderCircle className="h-3.5 w-3.5 animate-spin" />{copy.generating}</span> : <span className="inline-flex items-center gap-1.5"><ImageDown className="h-3.5 w-3.5" />{copy.generate}</span>}
+      </Button>
       {error && <span className="w-full text-right text-xxs font-semibold text-[var(--color-danger)]">{error}</span>}
       {previewUrl && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/55 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={copy.preview}>
-          <section className="max-h-[94vh] w-full max-w-md overflow-y-auto rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-3 shadow-2xl sm:p-4">
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <h3 className="text-sm font-black text-[var(--color-text)]">{copy.preview}</h3>
-              <button type="button" onClick={() => setPreviewUrl(null)} className="rounded-md p-1.5 text-[var(--color-text-muted)] transition hover:bg-[var(--color-card-hover)]" aria-label={copy.close}><X className="h-4 w-4" /></button>
-            </div>
+        <Dialog open title={copy.preview} closeLabel={copy.close} returnFocus={trigger} onClose={() => setPreviewUrl(null)}>
             {/* Blob previews are generated in the browser and cannot use the Next image optimizer. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={previewUrl} alt={copy.title} className="mx-auto block w-full max-w-[360px] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)]" />
+            <img src={previewUrl} alt={copy.title} width={360} height={450} className="mx-auto block w-full max-w-[360px] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)]" />
             <div className="mt-3 flex flex-wrap justify-end gap-2">
-              <button type="button" onClick={download} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border-strong)] px-3 py-2 text-xs font-bold text-[var(--color-text)] transition hover:bg-[var(--color-card-hover)]"><Download className="h-3.5 w-3.5" />{copy.download}</button>
-              {supportsSystemShare && <button type="button" onClick={() => void share()} className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-primary)] px-3 py-2 text-xs font-bold text-white transition hover:bg-[var(--color-primary-hover)]"><Share2 className="h-3.5 w-3.5" />{copy.share}</button>}
+              <Button variant="secondary" type="button" onClick={download}><Download className="h-3.5 w-3.5" />{copy.download}</Button>
+              {supportsSystemShare && <Button variant="primary" type="button" onClick={() => void share()}><Share2 className="h-3.5 w-3.5" />{copy.share}</Button>}
             </div>
-          </section>
-        </div>
+        </Dialog>
       )}
     </>
   );

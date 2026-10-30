@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { getWorkspaceCopy } from '@/lib/workspace-copy';
 import { useUiLanguage } from '@/components/LanguageProvider';
+import { Button, Select } from '@/components/ui/controls';
+import { getWorkspaceCopy } from '@/lib/workspace-copy';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 export type RssHeadline = {
   id: string;
@@ -87,30 +88,30 @@ export default function RssNewsPanel({
       <div className="border-b border-[var(--color-border)] px-3 py-3">
         <div className="flex items-start justify-between gap-2">
           <div>
-            <h2 className="text-sm font-black text-[var(--color-text)]">{t('rss.title')}</h2>
+            <h2 className="text-sm font-bold text-[var(--color-text)]">{t('rss.title')}</h2>
             <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{c.rssDescription}</p>
           </div>
-          <button
+          <Button variant="secondary"
             type="button"
             onClick={() => void loadHeadlines()}
             disabled={isLoading || isAnalyzing}
-            className="min-h-11 shrink-0 whitespace-nowrap rounded-md border border-[var(--color-border)] px-2 py-1 text-xxs font-bold text-[var(--color-link)] transition hover:bg-[var(--color-card-hover)] disabled:cursor-not-allowed disabled:opacity-50"
-          >
+            className="shrink-0"
+         >
             {isLoading ? t('rss.loading') : t('rss.refresh')}
-          </button>
+          </Button>
         </div>
 
         {payload?.sources?.length ? (
-          <label className="mt-3 block">
+          <label className="ui-label mt-3 block">
             <span className="sr-only">{t('rss.sourceFilter')}</span>
-            <select
+            <Select
               value={activeSourceId}
               onChange={(event) => setActiveSourceId(event.target.value)}
-              className="w-full rounded-md border border-[var(--color-input-border)] bg-[var(--color-input-bg)] px-2 py-1.5 text-xxs font-semibold text-[var(--color-text)] outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary-soft)]"
-            >
+              className="w-full"
+           >
               <option value="all">{t('rss.allSources', undefined, { count: payload.sources.length })}</option>
               {payload.sources.map((source) => <option key={source.id} value={source.id}>{sourceName(source)}</option>)}
-            </select>
+            </Select>
           </label>
         ) : null}
 
@@ -122,7 +123,7 @@ export default function RssNewsPanel({
         ) : error ? (
           <div className="space-y-2 px-2 py-5 text-center">
             <p className="text-xs font-semibold text-[var(--color-danger)]">{error}</p>
-            <button type="button" onClick={() => void loadHeadlines()} className="text-xs font-bold text-[var(--color-link)]">{t('common.retry')}</button>
+            <Button variant="ghost" type="button" onClick={() => void loadHeadlines()}>{t('common.retry')}</Button>
           </div>
         ) : headlines.length === 0 ? (
           <p role="status" className="px-2 py-8 text-center text-xs text-[var(--color-text-muted)]">{t(allSourcesUnavailable ? 'rss.allUnavailable' : 'rss.empty')}</p>
@@ -139,14 +140,14 @@ export default function RssNewsPanel({
                   <a href={headline.url} target="_blank" rel="noreferrer" className="mt-1 block text-xs font-bold leading-snug text-[var(--color-text)] underline-offset-2 hover:text-[var(--color-link)] hover:underline">
                     {headline.title}
                   </a>
-                  <button
+                  <Button variant="ghost"
                     type="button"
                     onClick={() => void handleAnalyze(headline)}
                     disabled={isActive}
-                    className="min-h-11 mt-1.5 text-xs font-black text-[var(--color-link)] transition hover:text-[var(--color-primary-hover)] disabled:cursor-not-allowed disabled:opacity-60"
-                  >
+                    className="mt-1.5"
+                 >
                     {isActive && activeHeadlineId === headline.id ? t('rss.starting') : c.read}
-                  </button>
+                  </Button>
                 </article>
               );
             })}

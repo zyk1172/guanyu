@@ -1,5 +1,6 @@
 'use client';
 
+import { Button, Input, Panel } from '@/components/ui/controls';
 import React, { useState } from 'react';
 import { useUiLanguage } from './LanguageProvider';
 import { useActiveModel } from './useActiveModel';
@@ -26,16 +27,16 @@ function renderMarkdownInline(text: string, keyPrefix: string): React.ReactNode[
     const key = keyPrefix + '-inline-' + tokenIndex++;
 
     if (token.startsWith('**') && token.endsWith('**')) {
-      nodes.push(<strong key={key} className="font-bold text-gray-900 dark:text-gray-100">{token.slice(2, -2)}</strong>);
+      nodes.push(<strong key={key} className="font-bold text-[var(--color-text)]">{token.slice(2, -2)}</strong>);
     } else if (token.startsWith('*') && token.endsWith('*')) {
       nodes.push(<em key={key}>{token.slice(1, -1)}</em>);
     } else if (token.startsWith('`') && token.endsWith('`')) {
-      nodes.push(<code key={key} className="rounded bg-gray-200/70 px-1 py-0.5 font-mono text-[0.92em] dark:bg-gray-800">{token.slice(1, -1)}</code>);
+      nodes.push(<code key={key} className="rounded bg-[var(--color-surface)] px-1 py-0.5 font-mono text-[0.92em]">{token.slice(1, -1)}</code>);
     } else {
       const linkMatch = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
       const href = linkMatch ? safeMarkdownHref(linkMatch[2].trim()) : null;
       nodes.push(href && linkMatch
-        ? <a key={key} href={href} target="_blank" rel="noopener noreferrer" className="font-semibold text-indigo-600 underline underline-offset-2 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300">{linkMatch[1]}</a>
+        ? <a key={key} href={href} target="_blank" rel="noopener noreferrer" className="font-semibold text-[var(--color-link)] underline underline-offset-2 hover:text-[var(--color-link)]">{linkMatch[1]}</a>
         : token);
     }
     cursor = match.index + token.length;
@@ -76,7 +77,7 @@ function MarkdownMessage({ content }: { content: string }) {
       while (index < lines.length && !/^```\s*$/.test(lines[index])) codeLines.push(lines[index++]);
       if (index < lines.length) index += 1;
       blocks.push(
-        <pre key={key} className="overflow-x-auto rounded-lg border border-gray-200 bg-gray-950 p-3 text-[11px] leading-relaxed text-gray-100 dark:border-gray-800">
+        <pre key={key} className="overflow-x-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-xs leading-relaxed text-[var(--color-text-subtle)]">
           <code data-language={language || undefined}>{codeLines.join('\n')}</code>
         </pre>,
       );
@@ -87,17 +88,17 @@ function MarkdownMessage({ content }: { content: string }) {
     if (heading) {
       const level = heading[1].length;
       const classes = level <= 2
-        ? 'text-sm font-black text-gray-950 dark:text-white'
+        ? "text-sm font-bold text-[var(--color-text)] "
         : level === 3
-          ? 'text-[13px] font-extrabold text-gray-900 dark:text-gray-100'
-          : 'text-xs font-bold text-gray-900 dark:text-gray-100';
+          ? "text-[13px] font-bold text-[var(--color-text)] "
+          : "text-xs font-bold text-[var(--color-text)] ";
       blocks.push(<div key={key} role="heading" aria-level={level} className={classes}>{renderMarkdownInline(heading[2], key)}</div>);
       index += 1;
       continue;
     }
 
     if (/^\s*([-*_])(?:\s*\1){2,}\s*$/.test(line)) {
-      blocks.push(<hr key={key} className="border-gray-200 dark:border-gray-800" />);
+      blocks.push(<hr key={key} className="border-[var(--color-border)]" />);
       index += 1;
       continue;
     }
@@ -106,7 +107,7 @@ function MarkdownMessage({ content }: { content: string }) {
       const quoteLines: string[] = [];
       while (index < lines.length && /^>\s?/.test(lines[index])) quoteLines.push(lines[index++].replace(/^>\s?/, ''));
       blocks.push(
-        <blockquote key={key} className="border-l-2 border-indigo-300 pl-3 text-gray-600 dark:border-indigo-700 dark:text-gray-300">
+        <blockquote key={key} className="border-l-2 border-[var(--color-primary)] pl-3 text-[var(--color-text-muted)]">
           {quoteLines.map((quote, quoteIndex) => <React.Fragment key={key + '-quote-' + quoteIndex}>{quoteIndex > 0 && <br />}{renderMarkdownInline(quote, key + '-quote-' + quoteIndex)}</React.Fragment>)}
         </blockquote>,
       );
@@ -117,7 +118,7 @@ function MarkdownMessage({ content }: { content: string }) {
       const items: string[] = [];
       while (index < lines.length && /^\s*[-*+]\s+/.test(lines[index])) items.push(lines[index++].replace(/^\s*[-*+]\s+/, ''));
       blocks.push(
-        <ul key={key} className="list-disc space-y-1 pl-5 marker:text-gray-400">
+        <ul key={key} className="list-disc space-y-1 pl-5 marker:text-[var(--color-text-subtle)]">
           {items.map((item, itemIndex) => <li key={key + '-item-' + itemIndex}>{renderMarkdownInline(item, key + '-item-' + itemIndex)}</li>)}
         </ul>,
       );
@@ -128,7 +129,7 @@ function MarkdownMessage({ content }: { content: string }) {
       const items: string[] = [];
       while (index < lines.length && /^\s*\d+[.)]\s+/.test(lines[index])) items.push(lines[index++].replace(/^\s*\d+[.)]\s+/, ''));
       blocks.push(
-        <ol key={key} className="list-decimal space-y-1 pl-5 marker:font-semibold marker:text-gray-500">
+        <ol key={key} className="list-decimal space-y-1 pl-5 marker:font-semibold marker:text-[var(--color-text-muted)]">
           {items.map((item, itemIndex) => <li key={key + '-item-' + itemIndex}>{renderMarkdownInline(item, key + '-item-' + itemIndex)}</li>)}
         </ol>,
       );
@@ -150,7 +151,7 @@ function MarkdownMessage({ content }: { content: string }) {
     );
   }
 
-  return <div className="space-y-2.5 break-words text-gray-700 dark:text-gray-300">{blocks}</div>;
+  return <div className="space-y-2.5 break-words text-[var(--color-text)]">{blocks}</div>;
 }
 
 export interface ChatMessage {
@@ -220,12 +221,12 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
   };
 
   return (
-    <div className="bg-white dark:bg-gray-950 p-5 rounded-xl border border-gray-150 dark:border-gray-900 shadow-sm space-y-4">
-      <div className="border-b border-gray-100 dark:border-gray-900 pb-2.5 flex justify-between items-center">
-        <h3 className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
+    <Panel as="div" className="space-y-4">
+      <div className="border-b border-[var(--color-border)] pb-2.5 flex justify-between items-center">
+        <h3 className="text-xs font-bold text-[var(--color-text)] uppercase tracking-wider flex items-center gap-1.5">
           <span>💬 {t('qa.title')}</span>
         </h3>
-        <span className="text-xxs font-bold bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded">
+        <span className="ui-badge bg-[var(--color-primary-soft)] text-[var(--color-link)]">
           {t('qa.badge')}
         </span>
       </div>
@@ -233,7 +234,7 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
       {/* 追问历史对话框 */}
       <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
         {messages.length === 0 ? (
-          <div className="text-center py-6 text-xxs text-gray-400 dark:text-gray-500 font-medium border border-dashed border-gray-100 dark:border-gray-900 rounded-lg">
+          <div className="text-center py-6 text-xxs text-[var(--color-text-subtle)] font-medium border border-dashed border-[var(--color-border)] rounded-lg">
             {t('qa.empty').split('\n').map((line, index) => <React.Fragment key={line}>{index > 0 && <br />}{line}</React.Fragment>)}
           </div>
         ) : (
@@ -243,54 +244,54 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
                 key={idx}
                 className={`p-3 rounded-lg flex flex-col space-y-1 ${
                   m.role === 'user'
-                    ? 'bg-indigo-50/40 dark:bg-indigo-950/15 border border-indigo-100/30 align-end ml-6'
-                    : 'bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 mr-6'
+                    ? 'bg-[var(--color-primary-soft)]  border border-[var(--color-primary)] align-end ml-6'
+                    : 'bg-[var(--color-surface-muted)]  border border-[var(--color-border)]  mr-6'
                 }`}
-              >
-                <span className="text-xxs font-bold uppercase tracking-wider text-gray-400">
+             >
+                <span className="text-xxs font-bold uppercase tracking-wider text-[var(--color-text-subtle)]">
                   {m.role === 'user' ? `👤 ${t('qa.user')}` : `🤖 ${t('qa.assistant')}`}
                 </span>
                 {m.role === 'assistant'
                   ? <MarkdownMessage content={m.content} />
-                  : <p className="whitespace-pre-wrap font-normal text-gray-700 dark:text-gray-300">{m.content}</p>}
+                  : <p className="whitespace-pre-wrap font-normal text-[var(--color-text)]">{m.content}</p>}
               </div>
             ))}
           </div>
         )}
 
         {isSending && (
-          <div className="text-xxs font-bold text-gray-400 flex items-center gap-2 pl-2">
-            <span className="animate-pulse h-1.5 w-1.5 bg-indigo-500 rounded-full" />
+          <div className="text-xxs font-bold text-[var(--color-text-subtle)] flex items-center gap-2 pl-2">
+            <span className="animate-pulse h-1.5 w-1.5 bg-[var(--color-primary)] rounded-full" />
             <span>{t('qa.loading')}</span>
           </div>
         )}
 
         {error && (
-          <div className="p-2.5 rounded bg-red-50 dark:bg-red-950/10 text-xxs font-bold text-red-600 border border-red-100 dark:border-red-900/30">
+          <div className="p-2.5 rounded bg-[var(--color-danger-soft)] text-xxs font-bold text-[var(--color-danger)] border border-[var(--color-danger)]">
             ⚠️ {error}
           </div>
         )}
       </div>
 
       {/* 提问表单输入 */}
-      <form onSubmit={handleSend} className="flex gap-2 border-t border-gray-100 dark:border-gray-900 pt-3">
-        <input
+      <form onSubmit={handleSend} className="flex gap-2 border-t border-[var(--color-border)] pt-3">
+        <Input
           type="text"
           required
           value={input}
           onChange={(e) => setInput(e.target.value)}
           aria-label={t('qa.title')}
           placeholder={t('qa.placeholder')}
-          className="flex-1 px-3 py-2 border border-gray-250 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 dark:text-white"
-        />
-        <button
+          className="flex-1"
+       />
+        <Button variant="primary"
           type="submit"
           disabled={isSending || !input.trim() || activeModel.loading}
-          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-200 dark:disabled:bg-gray-850 text-white rounded-lg font-bold text-xs shadow-sm transition flex-shrink-0"
-        >
+          className="flex-shrink-0"
+       >
           {t('qa.ask')} · {activeModel.source === 'custom' ? '0' : activeModel.estimatedCost} {t('modelSelector.credits', '点')}
-        </button>
+        </Button>
       </form>
-    </div>
+    </Panel>
   );
 }

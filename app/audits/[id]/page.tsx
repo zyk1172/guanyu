@@ -1,18 +1,18 @@
-import type { Metadata } from 'next';
-import { after, NextRequest } from 'next/server';
-import { headers } from 'next/headers';
-import { notFound } from 'next/navigation';
-import Link from 'next/link';
-import Header from '@/components/Header';
-import ErrorMessage from '@/components/ErrorMessage';
 import AuditDetailsClient from '@/components/AuditDetailsClient';
+import ErrorMessage from '@/components/ErrorMessage';
+import Header from '@/components/Header';
 import { getSuperAdminStatus } from '@/lib/admin';
-import { getCurrentUser } from '@/lib/auth';
-import { prisma } from '@/lib/prisma';
-import { cacheDelByPrefix, CACHE_KEYS } from '@/lib/cache';
-import { getClientIp, reserveAuditViewCount } from '@/lib/rate-limit';
-import { withHistoricalAuditModelName } from '@/lib/audit-model-display';
 import { auditDtoForAccess } from '@/lib/audit-dto';
+import { withHistoricalAuditModelName } from '@/lib/audit-model-display';
+import { getCurrentUser } from '@/lib/auth';
+import { CACHE_KEYS, cacheDelByPrefix } from '@/lib/cache';
+import { prisma } from '@/lib/prisma';
+import { getClientIp, reserveAuditViewCount } from '@/lib/rate-limit';
+import type { Metadata } from 'next';
+import { headers } from 'next/headers';
+import Link from 'next/link';
+import { notFound } from 'next/navigation';
+import { after, NextRequest } from 'next/server';
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
 
@@ -83,12 +83,12 @@ export default async function AuditDetailsPage({ params }: { params: Promise<{ i
   if (!loaded) notFound();
   if ('forbidden' in loaded) {
     return (
-      <main className="min-h-screen bg-gray-50 dark:bg-black font-sans">
+      <main className="min-h-screen bg-[var(--color-surface-muted)] font-sans">
         <Header />
         <div className="max-w-xl mx-auto px-3 sm:px-4 py-10">
           <ErrorMessage message="你没有权限查看这条审视记录。" />
           <div className="text-center pt-4">
-            <Link href="/" className="text-xs font-bold text-indigo-600 hover:underline">← 返回首页</Link>
+            <Link href="/" className="text-xs font-bold text-[var(--color-link)] hover:underline">← 返回首页</Link>
           </div>
         </div>
       </main>

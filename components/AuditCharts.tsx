@@ -1,3 +1,5 @@
+import { Panel } from '@/components/ui/controls';
+
 import React from 'react';
 import {
   Bar,
@@ -10,8 +12,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { EvidenceGrade, MissingPerspectiveMatrixItem, InterestCostMapItem } from '../lib/types';
 import { getReportText } from '../lib/report-display-core.mjs';
+import { EvidenceGrade, InterestCostMapItem, MissingPerspectiveMatrixItem } from '../lib/types';
 
 interface AuditChartsProps {
   credibilityScore: number;
@@ -117,11 +119,11 @@ export default function AuditCharts({
   }));
 
   return (
-    <div data-gsap-reveal data-verification-pulse className="grid grid-cols-1 gap-3 md:grid-cols-2">
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
       <ChartCard
         title={text('chartCoreMetrics')}
         note={text('chartStructureScore')}
-      >
+     >
         <div className="h-56 w-full min-w-0 overflow-hidden">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={auditMetrics} layout="vertical" margin={{ top: 6, right: 20, left: 8, bottom: 6 }}>
@@ -138,7 +140,7 @@ export default function AuditCharts({
             </BarChart>
           </ResponsiveContainer>
         </div>
-        <p className="text-xxs font-semibold text-gray-400">{text('scoreDisclaimer')}</p>
+        <p className="text-xxs font-semibold text-[var(--color-text-subtle)]">{text('scoreDisclaimer')}</p>
       </ChartCard>
 
       <ChartCard title={text('chartElementCounts')} note={text('chartCoverage')}>
@@ -182,47 +184,47 @@ export default function AuditCharts({
       <ChartCard title={text('chartMissingStatus')} note={text('chartCoverageLevel')}>
         <div className="grid grid-cols-3 gap-2">
           {statusData.map((item) => (
-            <div key={item.name} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-center dark:border-gray-850 dark:bg-gray-900">
+            <div key={item.name} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-center">
               <div className="mx-auto mb-2 h-1.5 w-8 rounded-full" style={{ backgroundColor: item.fill }} />
-              <div className="text-lg font-black text-gray-950 dark:text-white">{item.value}</div>
-              <div className="mt-1 text-xxs font-bold text-gray-500">{item.name}</div>
+              <div className="text-lg font-bold text-[var(--color-text)]">{item.value}</div>
+              <div className="mt-1 text-xxs font-bold text-[var(--color-text-muted)]">{item.name}</div>
             </div>
           ))}
         </div>
       </ChartCard>
 
-      <div className="rounded-xl border border-gray-150 bg-white p-4 shadow-sm dark:border-gray-900 dark:bg-gray-950 md:col-span-2">
-        <div className="mb-3 flex flex-col gap-1 border-b border-gray-100 pb-2 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
-          <h4 className="text-xs font-black uppercase tracking-wide text-gray-800 dark:text-gray-200">{text('chartInterestCost')}</h4>
-          <span className="text-xxs font-semibold text-gray-400">{text('chartInterestCostNote')}</span>
+      <Panel as="div" className="md:col-span-2">
+        <div className="mb-3 flex flex-col gap-1 border-b border-[var(--color-border)] pb-2 sm:flex-row sm:items-center sm:justify-between">
+          <h4 className="text-xs font-bold uppercase tracking-wide text-[var(--color-text)]">{text('chartInterestCost')}</h4>
+          <span className="text-xxs font-semibold text-[var(--color-text-subtle)]">{text('chartInterestCostNote')}</span>
         </div>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
           {roleData.map((item) => (
-            <div key={item.role} className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-850 dark:bg-gray-900">
+            <div key={item.role} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-black text-gray-900 dark:text-white">{item.role}</span>
-                <span className="rounded bg-white px-2 py-0.5 text-xxs font-bold text-gray-600 dark:bg-gray-950 dark:text-gray-300">{item.count}</span>
+                <span className="text-xs font-bold text-[var(--color-text)]">{item.role}</span>
+                <span className="ui-badge bg-[var(--color-surface)] text-[var(--color-text-muted)]">{item.count}</span>
               </div>
-              <p className="mt-2 line-clamp-3 text-xxs leading-relaxed text-gray-500 dark:text-gray-400">
+              <p className="mt-2 line-clamp-3 text-xxs leading-relaxed text-[var(--color-text-muted)]">
                 {item.actors.length > 0 ? item.actors.join(!reportLanguage.startsWith('zh-') ? ', ' : '、') : text('noItems')}
               </p>
             </div>
           ))}
         </div>
-      </div>
+      </Panel>
     </div>
   );
 }
 
 function ChartCard({ title, note, children }: { title: string; note: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-gray-150 bg-white p-4 shadow-sm dark:border-gray-900 dark:bg-gray-950">
-      <div className="mb-3 flex flex-col gap-1 border-b border-gray-100 pb-2 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
-        <h4 className="text-xs font-black uppercase tracking-wide text-gray-800 dark:text-gray-200">{title}</h4>
-        <span className="text-xxs font-semibold text-gray-400">{note}</span>
+    <Panel as="div">
+      <div className="mb-3 flex flex-col gap-1 border-b border-[var(--color-border)] pb-2 sm:flex-row sm:items-center sm:justify-between">
+        <h4 className="text-xs font-bold uppercase tracking-wide text-[var(--color-text)]">{title}</h4>
+        <span className="text-xxs font-semibold text-[var(--color-text-subtle)]">{note}</span>
       </div>
       {children}
-    </div>
+    </Panel>
   );
 }
 
@@ -239,20 +241,20 @@ function MetricTooltip({ active, payload, label, reportLanguage = 'zh-CN' }: any
           ? text('scoreHelpBias')
           : text('scoreHelpRisk');
   return (
-    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-xs text-[var(--color-text)] shadow-sm">
+    <Panel as="div" className="text-xs text-[var(--color-text)]">
       <div className="font-bold">{label}</div>
       <div className="mt-1 text-[var(--color-text-muted)]">{payload[0].value}/100</div>
       <div className="mt-1 max-w-48 text-xxs text-[var(--color-text-muted)]">{helper}</div>
-    </div>
+    </Panel>
   );
 }
 
 function CountTooltip({ active, payload, label, reportLanguage = 'zh-CN' }: any) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-xs text-[var(--color-text)] shadow-sm">
+    <Panel as="div" className="text-xs text-[var(--color-text)]">
       <div className="font-bold">{label}</div>
       <div className="mt-1 text-[var(--color-text-muted)]">{!reportLanguage.startsWith('zh-') ? `${payload[0].value} items` : `${payload[0].value} 项`}</div>
-    </div>
+    </Panel>
   );
 }

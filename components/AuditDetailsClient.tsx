@@ -1,13 +1,13 @@
 'use client';
 
-import React, { useState, useSyncExternalStore } from 'react';
-import Link from 'next/link';
-import Header from '@/components/Header';
 import AnalysisResultView from '@/components/AnalysisResult';
-import { getReportLanguageLabel, getThinkingDepthLabel } from '@/lib/types';
+import Header from '@/components/Header';
 import { useUiLanguage } from '@/components/LanguageProvider';
 import ReanalyzeControl from '@/components/ReanalyzeControl';
 import RelatedCoverage from '@/components/RelatedCoverage';
+import { Button, ButtonLink, Panel } from '@/components/ui/controls';
+import { getReportLanguageLabel, getThinkingDepthLabel } from '@/lib/types';
+import { useState, useSyncExternalStore } from 'react';
 
 // Use a stable timezone during hydration, then display the reader's local time.
 const subscribeToTimezone = () => () => {};
@@ -59,20 +59,20 @@ export default function AuditDetailsClient({ auditRecord: initialAuditRecord, ca
   return (
     <main className="workspace-page">
       <Header />
-      <div className="reading-container space-y-5">
+      <div id="main-content" tabIndex={-1} className="reading-container space-y-5">
         <div className="reading-heading flex flex-col justify-between gap-5 md:flex-row md:items-start">
           <div className="min-w-0 space-y-1">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xxs font-bold bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded tracking-wide uppercase">
+              <span className="ui-badge bg-[var(--color-primary-soft)] text-[var(--color-link)] tracking-wide uppercase">
                 {t('audit.thinking', undefined, { depth: getDepthLabel(auditRecord.reasoningDepth) })}
               </span>
-              <span className="text-xxs font-bold bg-gray-150 dark:bg-gray-900 text-gray-600 dark:text-gray-400 px-2 py-0.5 rounded tracking-wide uppercase">
+              <span className="ui-badge bg-[var(--color-surface)] text-[var(--color-text-muted)] tracking-wide uppercase">
                 {getModeLabel(auditRecord.analysisMode)}
               </span>
-              <span className="text-xxs font-bold bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300 px-2 py-0.5 rounded tracking-wide">
+              <span className="ui-badge bg-[var(--color-primary-soft)] text-[var(--color-link)] tracking-wide">
                 {getReportLanguageLabel(auditRecord.reportLanguage, language)}
               </span>
-              <span className="text-xxs text-gray-400 dark:text-gray-500 font-semibold">
+              <span className="text-xxs text-[var(--color-text-subtle)] font-semibold">
                 {t('audit.source')}: {auditRecord.source} · {createdAtText}
               </span>
             </div>
@@ -80,11 +80,11 @@ export default function AuditDetailsClient({ auditRecord: initialAuditRecord, ca
           </div>
           <div className="flex w-full flex-wrap items-center gap-2 text-xs font-bold md:w-auto md:justify-end">
             {isAuthor && (
-              <button onClick={togglePublic} className={`px-3 py-1.5 rounded-lg border text-xxs font-black transition ${auditRecord.isPublic ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 text-emerald-700' : 'bg-gray-50 dark:bg-gray-900 border-gray-200 text-gray-500'}`}>
+              <Button variant="secondary" aria-pressed={auditRecord.isPublic} onClick={togglePublic}>
                 {auditRecord.isPublic ? `🟢 ${t('audit.public')}` : `🔒 ${t('audit.private')}`}
-              </button>
+              </Button>
             )}
-            <span className="text-xxs text-gray-400 font-semibold bg-gray-50 dark:bg-gray-900 border border-gray-150 dark:border-gray-800 px-2 py-1.5 rounded-lg">🔥 {t('audit.views', undefined, { count: auditRecord.viewCount })}</span>
+            <span className="ui-badge text-[var(--color-text-subtle)] bg-[var(--color-surface-muted)] border border-[var(--color-border)]">🔥 {t('audit.views', undefined, { count: auditRecord.viewCount })}</span>
           </div>
         </div>
 
@@ -111,15 +111,15 @@ export default function AuditDetailsClient({ auditRecord: initialAuditRecord, ca
                 isPublic: auditRecord.isPublic,
               }}
               canUpdateVerification={canManage}
-            />
+           />
           </div>
         ) : (
-          <div className="bg-white dark:bg-gray-950 p-6 rounded-xl border border-gray-150 dark:border-gray-900 shadow-sm text-center text-xs text-gray-400 font-semibold">{language.startsWith('zh-') ? '报告暂时无法显示，请刷新重试。若问题持续，请重新分析原文。' : 'This report could not be displayed. Refresh the page or analyze the original article again.'}</div>
+          <Panel as="div" className="text-center text-xs text-[var(--color-text-subtle)] font-semibold">{language.startsWith('zh-') ? '报告暂时无法显示，请刷新重试。若问题持续，请重新分析原文。' : 'This report could not be displayed. Refresh the page or analyze the original article again.'}</Panel>
         )}
 
         <div className="flex flex-col justify-between gap-2 pt-2 sm:flex-row sm:items-center">
-          <Link href="/" className="px-4 py-2 border border-gray-200 dark:border-gray-850 hover:bg-gray-100 dark:hover:bg-gray-900 text-gray-600 dark:text-gray-400 rounded-lg text-xs font-bold transition flex items-center gap-1">← {t('audit.backHome')}</Link>
-          {isAuthor && <Link href="/my-audits" className="px-4 py-2 bg-indigo-550 hover:bg-indigo-600 text-white rounded-lg text-xs font-bold shadow-sm transition">{t('audit.manageRecords')}</Link>}
+          <ButtonLink variant="secondary" href="/">← {t('audit.backHome')}</ButtonLink>
+          {isAuthor && <ButtonLink variant="primary" href="/my-audits">{t('audit.manageRecords')}</ButtonLink>}
         </div>
       </div>
     </main>
