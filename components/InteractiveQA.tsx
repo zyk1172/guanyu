@@ -1,7 +1,7 @@
 'use client';
 
 import { Button, Input, Panel } from '@/components/ui/controls';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
 import { useUiLanguage } from './LanguageProvider';
 import { useActiveModel } from './useActiveModel';
 import type { FollowupResearch } from '@/lib/followup-types';
@@ -177,11 +177,25 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
   const pending = useRef<{ question: string; requestId: string; history: ChatMessage[]; webSearch: boolean; language: string } | null>(null);
   const thread = useRef<HTMLDivElement>(null);
   const followLatest = useRef(true);
+  const threadWidth = useRef(0);
   const activeModel = useActiveModel('followup');
   const messages = controlledMessages ?? localMessages;
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (followLatest.current && thread.current) thread.current.scrollTop = thread.current.scrollHeight;
   }, [messages.length, isSending]);
+  useLayoutEffect(() => {
+    const element = thread.current;
+    if (!element) return;
+    threadWidth.current = element.clientWidth;
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      if (element.clientWidth === threadWidth.current) return;
+      threadWidth.current = element.clientWidth;
+      if (followLatest.current) element.scrollTop = element.scrollHeight;
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   const updateMessages = (nextMessages: ChatMessage[]) => {
     if (onMessagesChange) onMessagesChange(nextMessages);
     else setLocalMessages(nextMessages);
@@ -250,6 +264,8 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
       {/* 追问历史对话框 */}
       <div ref={thread} className="space-y-3 max-h-72 overflow-y-auto pr-1" onScroll={event => {
         const element = event.currentTarget;
+        // A responsive reflow is not the reader deliberately scrolling upward.
+        if (element.clientWidth !== threadWidth.current) return;
         followLatest.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
       }}>
         {messages.length === 0 ? (
