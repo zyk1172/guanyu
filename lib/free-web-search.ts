@@ -90,6 +90,28 @@ export function parseBingNewsHtml(html: string): WebSearchSource[] {
   });
 }
 
+/** Public Brave result pages expose publisher links without a paid API key. */
+export function parseBraveSearchHtml(html: string, news = false): WebSearchSource[] {
+  if (challenge(html)) throw new Error('search_challenge');
+  const $ = cheerio.load(html);
+  const results: WebSearchSource[] = [];
+  $('.snippet').each((_index, element) => {
+    const block = $(element);
+    if (news && !block.find('.favicon.news').length) return;
+    if (block.is('.ad, [data-type="ad"]') || block.closest('[data-type="ad"]').length) return;
+    const link = block.find('a[href]').filter((_i, anchor) => $(anchor).find('.title').length > 0).first();
+    const url = resultUrl(link.attr('href') || '', 'https://search.brave.com');
+    const title = link.find('.title').text().trim();
+    if (!url || !title || /(^|\.)brave\.com$/i.test(new URL(url).hostname) || results.some(item => item.url === url)) return;
+    results.push({ title: title.slice(0, 300), url, snippet: block.find('.description').first().text().trim().slice(0, 800),
+      sourceName: block.find('.site-name-content span').first().text().trim().slice(0, 100),
+      // Relative labels are not converted into invented publication timestamps.
+      publishedAt: block.find('time[datetime]').first().attr('datetime') || null, provider: 'brave' });
+  });
+  if (!results.length && !$('.snippet, #no-results, .no-results').length) throw new Error('search_unavailable');
+  return results;
+}
+
 /** Bing's news feed includes publisher links and machine-readable publication dates. */
 export function parseBingNewsRss(xml: string): WebSearchSource[] {
   if (/<!\s*(?:DOCTYPE|ENTITY)\b/i.test(xml) || XMLValidator.validate(xml) !== true) throw new Error('search_unavailable');
@@ -136,7 +158,7 @@ export async function searchFreeWeb(query: string, limit = 5, options: FreeSearc
   const deadline = options.deadline ?? Date.now() + 15_000;
   const request = options.request || safeOutboundRequest;
   const configured = options.searxngUrl ?? process.env.WEB_RESEARCH_SEARXNG_URL;
-  const targets: Array<{ url: string; provider: 'searxng' | 'bing' | 'duckduckgo'; private: boolean; kind?: 'news-rss' | 'news-html' }> = [];
+  const targets: Array<{ url: string; provider: 'searxng' | 'bing' | 'duckduckgo' | 'brave'; private: boolean; kind?: 'news-rss' | 'news-html' }> = [];
   if (configured) {
     try {
       const url = new URL(configured);
@@ -159,6 +181,10 @@ export async function searchFreeWeb(query: string, limit = 5, options: FreeSearc
     targets.push({ url: rss.toString(), provider: 'bing', private: false, kind: 'news-rss' });
     targets.push({ url: bing.toString(), provider: 'bing', private: false, kind: 'news-html' });
   } else targets.push({ url: bing.toString(), provider: 'bing', private: false });
+  const brave = new URL(options.category === 'news' ? 'https://search.brave.com/news' : 'https://search.brave.com/search');
+  brave.searchParams.set('q', normalized);
+  if (options.locale) brave.searchParams.set('search_lang', options.locale === 'zh-CN' ? 'zh-hans' : options.locale === 'zh-TW' ? 'zh-hant' : options.locale.split('-')[0]);
+  targets.push({ url: brave.toString(), provider: 'brave', private: false });
   // Ordinary web results must never be presented as news reports.
   for (const endpoint of options.category === 'news' || options.timeRange ? [] : ['https://html.duckduckgo.com/html/', 'https://lite.duckduckgo.com/lite/']) {
     const url = new URL(endpoint); url.searchParams.set('q', normalized);
@@ -168,6 +194,7 @@ export async function searchFreeWeb(query: string, limit = 5, options: FreeSearc
   const newsGroups: WebSearchSource[][] = [];
   for (const target of targets) {
     if (target.kind === 'news-html' && newsGroups.length > 0) continue;
+    if (target.provider === 'brave' && newsGroups.length > 0) continue;
     if (Date.now() >= deadline) break;
     try {
       const targetDeadline = Math.min(deadline, Date.now() + 4_000);
@@ -202,6 +229,9 @@ export async function searchFreeWeb(query: string, limit = 5, options: FreeSearc
           const title = typeof item.title === 'string' ? item.title.trim() : '';
           return link && title ? [{ url: link, title: title.slice(0, 300), snippet: typeof item.content === 'string' ? cheerio.load(item.content.slice(0, 5000)).text().trim().slice(0, 800) : '', publishedAt: typeof item.publishedDate === 'string' ? item.publishedDate : null, provider: 'searxng' }] : [];
         }).filter((item: WebSearchSource, i: number, all: WebSearchSource[]) => all.findIndex(other => other.url === item.url) === i);
+      } else if (target.provider === 'brave') {
+        if (options.category === 'news' && new URL(url).pathname.replace(/\/$/, '') !== '/news') throw new Error('search_unavailable');
+        sources = parseBraveSearchHtml(body, options.category === 'news');
       } else if (target.kind === 'news-rss') sources = parseBingNewsRss(body);
       else if (target.kind === 'news-html') {
         // A consent/challenge/error page with HTTP 200 is not evidence of an empty search.

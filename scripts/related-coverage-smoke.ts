@@ -25,7 +25,13 @@ function research(empty = false) {
 async function main() {
   let calls = 0; let output: 'valid' | 'invalid' | 'unrelated' = 'valid'; let duringModel: (() => Promise<unknown>) | undefined;
   const server = createServer(async (request, response) => {
-    for await (const chunk of request) void chunk;
+    let body = ''; for await (const chunk of request) body += chunk;
+    const params = JSON.parse(body);
+    if (String(params.messages?.[0]?.content).includes('Plan public-web research')) {
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ needsSearch: true, queries: ['海城图书馆 延长开放', '海城图书馆 试点 2026'] }) } }], usage: { prompt_tokens: 25, completion_tokens: 30 } }));
+      return;
+    }
     calls++;
     if (duringModel) await duringModel();
     const value = output === 'unrelated' ? { matches: [], summary: null, sharedClaims: [], differences: [], missingEvidence: [] } : synthesis();
