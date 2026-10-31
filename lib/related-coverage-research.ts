@@ -1,20 +1,28 @@
 import { WebResearchSession } from './web-research';
 import { coverageUrl, duplicateCoverage, type CoverageArticle, type CoverageOriginal } from './related-coverage';
+import { fallbackEventQueries } from './event-query';
 
 export type CoverageResearch = Pick<WebResearchSession, 'execute'>;
-export async function collectRelatedCoverage(original: CoverageOriginal, query: string, research: CoverageResearch) {
+export async function collectRelatedCoverage(original: CoverageOriginal, query: string, research: CoverageResearch, plannedQueries?: string[]) {
   const candidates: Array<{ title: string; url: string }> = [];
-  const queries = [...new Set([query, `${query.slice(0, 180)} ${original.publishedAt.slice(0, 10)}`.trim()])];
+  const queries = (plannedQueries?.length ? plannedQueries : fallbackEventQueries(query, original.originalContent, '', original.publishedAt)).slice(0, 3);
+  const groups: typeof candidates[] = [];
   for (const query of queries) {
     const result = await research.execute('web_search', { query });
     if (!result.ok || !Array.isArray(result.results)) continue;
+    const group: typeof candidates = [];
     for (const item of result.results) {
       if (!item || typeof item !== 'object') continue;
       const value = item as Record<string, unknown>;
       const url = typeof value.url === 'string' ? coverageUrl(value.url) : null;
-      if (url && !candidates.some(item => item.url === url)) candidates.push({ title: String(value.title || '').slice(0, 300), url });
+      if (url && !group.some(item => item.url === url)) group.push({ title: String(value.title || '').slice(0, 300), url });
     }
-    if (candidates.length >= 4) break;
+    groups.push(group);
+  }
+  // Give alternative keyword queries a chance instead of reading only the first query's results.
+  for (let index = 0; index < 5; index++) for (const group of groups) {
+    const item = group[index];
+    if (item && !candidates.some(other => other.url === item.url)) candidates.push(item);
   }
   // Prefer separate publishers, without claiming that different domains are independent evidence.
   const seenHosts = new Set<string>();
@@ -32,5 +40,5 @@ export async function collectRelatedCoverage(original: CoverageOriginal, query: 
     if (articles.some(item => item.url === url || duplicateCoverage(item.content, content)) || duplicateCoverage(original.originalContent, content)) { excludedCount++; continue; }
     articles.push({ number: articles.length + 1, title: String(page.title || candidate.title).slice(0, 300), url, content });
   }
-  return { articles, unreadableCount, excludedCount };
+  return { articles, unreadableCount, excludedCount, searchQueries: queries };
 }

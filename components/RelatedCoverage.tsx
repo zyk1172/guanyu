@@ -35,7 +35,7 @@ export default function RelatedCoverage({ auditId }: { auditId: string }) {
     fetch(endpoint, { cache: 'no-store', signal: controller.signal }).then(async response => {
       const data = await response.json();
       if (!response.ok) throw new Error(data.code);
-      if (!controller.signal.aborted) { receive(data); setQuery(data.query || data.defaultQuery || ''); }
+      if (!controller.signal.aborted) { receive(data); setQuery(data.query && data.query.length <= 80 ? data.query : data.defaultQuery || ''); }
     }).catch(e => { if (!controller.signal.aborted) { setJob({ status: 'idle' }); setError(e.message); } });
     return () => controller.abort();
   }, [endpoint, receive]);
@@ -90,7 +90,8 @@ export default function RelatedCoverage({ auditId }: { auditId: string }) {
     {job.status === 'loading' && <p role="status" className="mt-3 text-sm text-[var(--color-text-muted)]">{c.loading}</p>}
     {(expanded || busy) && <form onSubmit={start} className="mt-5 space-y-3">
       <label htmlFor="related-coverage-query" className="ui-label ui-field-label">{c.query}</label>
-      <Input id="related-coverage-query"  value={query} minLength={2} maxLength={200} onChange={event => setQuery(event.target.value)} disabled={busy} required />
+      <Input id="related-coverage-query" aria-describedby="related-coverage-help" value={query} minLength={2} maxLength={200} onChange={event => setQuery(event.target.value)} disabled={busy} required />
+      <p id="related-coverage-help" className="text-xs text-[var(--color-text-muted)]">{c.queryHint}</p>
       <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">{c.fees}</p>
       {model.source === 'custom' && <p className="text-xs text-[var(--color-text-muted)]">{c.custom}</p>}
       {model.error && <p role="alert" className="text-sm text-[var(--color-danger)]">{model.error}</p>}
@@ -102,6 +103,7 @@ export default function RelatedCoverage({ auditId }: { auditId: string }) {
     {result && <div className="mt-5 border-t border-[var(--color-border)] pt-5">
       <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">{c.saved} · {new Date(result.generatedAt).toLocaleString(language, { timeZoneName: 'short' })} · {result.usage.model} · {result.usage.cost} {c.credits}</p>
       <p className="mt-2 break-words text-xs text-[var(--color-text-muted)]">{c.query}: {result.query}</p>
+      {!!result.searchQueries?.length && <p className="mt-2 break-words text-xs text-[var(--color-text-muted)]">{c.executedQueries}: {result.searchQueries.join(' · ')}</p>}
       <h3 className="mt-5 text-lg font-bold">{c.summary}</h3>{result.synthesis.summary && renderFinding(result.synthesis.summary, 'summary')}
       {([['sharedClaims', c.shared], ['differences', c.differences], ['missingEvidence', c.missing]] as const).filter(([key]) => result.synthesis[key].length > 0).map(([key, label]) => <div key={key} className="mt-5"><h3 className="text-base font-bold">{label}</h3>{result.synthesis[key].map(renderFinding)}</div>)}
       <div className="mt-6 border-t border-[var(--color-border)] pt-5"><h3 className="text-base font-bold">{c.sources}</h3><ol className="mt-3 space-y-4">{result.articles.map(article => <li key={article.number} id={`coverage-source-${article.number}`}><a href={article.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-start gap-2 break-words text-sm font-semibold text-[var(--color-link)] underline"><span>[{article.number}] {article.title}</span><ExternalLink size={15} className="mt-1 shrink-0" aria-hidden="true" /></a><p className="mt-1 text-xs leading-relaxed text-[var(--color-text-muted)]">{new URL(article.url).hostname} · <ReportText>{result.synthesis.matches.find(match => match.article === article.number)?.reason}</ReportText></p></li>)}</ol></div>

@@ -29,7 +29,7 @@ export function usageCostBreakdown(params: {
   const count = Object.values(counts).reduce((sum, n) => sum + n, 0);
   if (!params.searchCounts && params.fallbackSearchCount) missing.push('search_provider_usage');
   for (const [provider, requests] of Object.entries(counts)) {
-    const rate = provider === 'deepseek_unbilled' ? 0 : params.rates[provider] ?? (provider === 'deepseek' ? 750 : ['searxng', 'bing', 'duckduckgo'].includes(provider) ? 0 : undefined);
+    const rate = provider === 'deepseek_unbilled' ? 0 : params.rates[provider] ?? (provider === 'deepseek' ? 750 : ['searxng', 'bing', 'duckduckgo', 'brave'].includes(provider) ? 0 : undefined);
     if (!Number.isSafeInteger(rate) || rate < 0) missing.push(`search_price:${provider}`);
     else { unitRatesMicros[provider] = rate; knownSearchMicros += requests * rate; }
   }

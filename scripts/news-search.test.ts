@@ -58,7 +58,7 @@ test('news category and native time range reach SearXNG and Bing; dates are inde
   assert.deepEqual(result.sources.map(item => item.title), ['Current']);
   const onlyNews: string[] = [];
   assert.deepEqual((await searchFreeWeb('event', 10, { category: 'news', searxngUrl: '', request: async url => { onlyNews.push(String(url)); return reply(feed('')); } })).sources, []);
-  assert.equal(onlyNews.length, 2); assert.ok(onlyNews.every(url => new URL(url).pathname === '/news/search'));
+  assert.equal(onlyNews.length, 3); assert.ok(onlyNews.every(url => ['/news/search', '/news'].includes(new URL(url).pathname)));
   await assert.rejects(searchFreeWeb('event', 10, { category: 'news', searxngUrl: '', request: async () => reply('upstream error') }), /search_unavailable/);
 });
 test('news search combines indexes, deduplicates tracking links, and falls back from a broken feed to Bing news cards', async () => {
