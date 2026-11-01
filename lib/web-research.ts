@@ -39,6 +39,11 @@ export function parseSearchHtml(html: string, base: string, limit = 5): WebSearc
 }
 
 export function extractWebpage(html: string | Buffer, url: string, contentType = 'text/html') {
+  // Many UTF-8 news pages omit both HTTP charset and a meta declaration. Avoid
+  // the HTML parser's Windows-1252 default, while respecting declared encodings.
+  if (Buffer.isBuffer(html) && !/charset\s*=/i.test(contentType) && !/<meta[^>]+charset\s*=/i.test(html.subarray(0, 4096).toString('latin1'))) {
+    try { new TextDecoder('utf-8', { fatal: true }).decode(html); contentType += '; charset=utf-8'; } catch { /* Let jsdom handle other encodings. */ }
+  }
   // jsdom's script execution and resource loading remain disabled.
   const dom = new JSDOM(html, { url, contentType });
   try {
@@ -71,6 +76,7 @@ export type WebResearchSessionOptions = {
 
 export class WebResearchSession {
   readonly sources: WebSearchSource[] = [];
+  readonly queries: string[] = [];
   searchRequests = 0;
   calls = 0;
   private reads = 0;
@@ -116,7 +122,7 @@ export class WebResearchSession {
       });
       return { sources, attempts: [{ provider: 'deepseek', outcome: sources.length ? 'success' : 'empty' }] };
     }
-    return searchFreeWeb(query, 5, {
+    try { return await searchFreeWeb(query, 5, {
       request: (url, options) => this.request(String(url), options),
       searxngUrl: this.options.searxngUrl,
       allowPrivateSearxng: this.options.allowPrivateSearxng,
@@ -126,7 +132,10 @@ export class WebResearchSession {
         this.searchRequests += 1;
         this.options.searchOptions?.onRequest?.(provider);
       },
-    });
+    }); } catch (error) {
+      if (error instanceof FreeSearchError && error.attempts.length && error.attempts.every(attempt => attempt.outcome === 'empty')) return { sources: [], attempts: error.attempts };
+      throw error;
+    }
   }
 
   private async read(url: string) {
@@ -168,6 +177,7 @@ export class WebResearchSession {
       let result: ToolResult;
       if (name === 'web_search') {
         if (++this.searches > 4) throw new Error('search_budget_exhausted');
+        this.queries.push(normalized);
         const { sources, attempts } = await this.search(normalized);
         this.remember(sources);
         result = { ok: true, untrusted: true, query: normalized, results: sources, attempts };

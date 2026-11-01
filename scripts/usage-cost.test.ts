@@ -20,6 +20,12 @@ test('missing and invalid search pricing is unknown, while explicit zero is a co
   assert.equal(complete.searchRequestCount, 3);
 });
 
+test('Brave public-page searches are counted with zero external API price', () => {
+  const cost = usageCostBreakdown({ usage, searchCounts: { brave: 2 }, fallbackSearchCount: 0, rates: {}, searchOnly: true });
+  assert.equal(cost.searchRequestCount, 2);assert.equal(cost.estimatedSearchCostMicros, 0);
+  assert.ok(!cost.details.missing.includes('search_price:brave'));
+});
+
 test('missing usage, provider counts, cache prices and excessive costs remain incomplete', () => {
   const result = usageCostBreakdown({ usage: { ...usage, inputTokens: 0, outputTokens: 0, cacheReadTokens: 3 }, fallbackSearchCount: 2, rates: {} });
   assert.ok(result.details.missing.includes('search_provider_usage'));

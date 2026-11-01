@@ -1,6 +1,7 @@
 const en = {
   title: 'Other coverage of this event', intro: 'Find other reports online and compare them with this article, right here.', open: 'Find other reports',
   query: 'Search terms', start: 'Search and append analysis', credits: 'credits', adjust: 'Adjust search terms',
+  queryHint: 'Use people, organisations and event keywords, not the full headline. The search will try several focused variants.', executedQueries: 'Keywords searched',
   fees: 'Search uses free engines; analysis uses the follow-up model rate. Failed searches, unreadable pages, no event match or invalid analysis refund reserved credits. The same material and search terms reuse saved results.',
   custom: 'Search uses free engines. Your API provider may charge for model usage.', privacy: 'This supplement is private to you. Different sites and repeated claims do not establish independent verification.',
   search: 'Searching and reading articles…', compare: 'Comparing retrieved articles…', wait: 'You can leave and return to this report to check the result.',
@@ -19,6 +20,7 @@ const en = {
 };
 const zh = {
   title: '同一事件的其他报道', intro: '联网查找其他报道，与当前原文对照，并将补充分析保存在这里。', open: '查找其他报道', query: '搜索词', start: '查找并追加分析', credits: '点', adjust: '调整搜索词再查找',
+  queryHint: '使用人物、机构和事件关键词，无需粘贴整条标题。检索时会提取关键词并尝试不同组合。', executedQueries: '实际检索关键词',
   fees: '网页检索使用免费引擎，分析按当前模型的追问费率计费。搜索失败、无法读取、没有同事件报道或分析引用无效时，退回预扣点数。相同材料与搜索词复用已保存结果。',
   custom: '搜索使用免费引擎；自定义 API 的模型用量仍可能由服务商收费。', privacy: '补充仅你可见。不同网站或重复说法不代表独立来源，也不等于已证实。',
   search: '正在检索并读取报道…', compare: '正在对照已读取的报道…', wait: '可以离开页面，回到这份报告继续查看结果。', saved: '已保存到这份报告', summary: '其他报道带来了什么', shared: '相同主张', differences: '报道差异与不同主张', missing: '仍需哪些证据', sources: '已读取的相关报道', references: '查看引用摘录', original: '当前原文', empty: '当前材料未形成可支持的判断。', reused: '已复用保存的补充，本次未扣点。', caution: '对比依据已提取的正文片段，未必覆盖全文；报道侧重不同不自动等于事实冲突。', counts: '部分网页无法读取，或因重复而未纳入。', listHint: '打开一份报告，即可联网查找同一事件的其他报道并追加分析。', loading: '正在读取已保存的补充…', failed: '补充暂时无法完成，失败任务会释放预扣点数，请稍后重试。',

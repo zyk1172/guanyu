@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { eventKeywordSeed } from './event-query';
 
 export type CoverageArticle = { number: number; title: string; url: string; content: string };
 export type CoverageOriginal = { title: string; source: string; publishedAt: string; originalContent: string; reportVersion: number };
@@ -13,6 +14,7 @@ export const coverageSynthesisSchema = z.object({
 export type CoverageSynthesis = z.infer<typeof coverageSynthesisSchema>;
 export type CoverageResult = {
   query: string; generatedAt: string; sourceFingerprint: string;
+  searchQueries?: string[];
   articles: Array<Omit<CoverageArticle, 'content'>>;
   synthesis: CoverageSynthesis; unreadableCount: number; excludedCount: number;
   usage: { model: string; source: 'platform' | 'custom'; cost: string };
@@ -20,6 +22,7 @@ export type CoverageResult = {
 
 export const coverageResultSchema = z.object({
   query: coverageQuerySchema, generatedAt: z.string().datetime(), sourceFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  searchQueries: z.array(z.string().min(2).max(120)).max(3).optional(),
   articles: z.array(z.object({ number: z.number().int().min(1).max(3), title: z.string().max(300), url: z.string().refine(value => coverageUrl(value) !== null) }).strict()).min(1).max(3),
   synthesis: coverageSynthesisSchema.refine(value => value.matches.length > 0 && value.summary !== null),
   unreadableCount: z.number().int().min(0).max(4), excludedCount: z.number().int().min(0).max(4),
@@ -27,8 +30,7 @@ export const coverageResultSchema = z.object({
 }).strict();
 
 export function defaultCoverageQuery(title: string, content = '') {
-  const text = title.trim() || content.replace(/\s+/g, ' ').trim().slice(0, 80);
-  return text.replace(/[\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').slice(0, 160);
+  return eventKeywordSeed(title, content);
 }
 
 export function coverageUrl(raw: string): string | null {

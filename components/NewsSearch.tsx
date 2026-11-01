@@ -105,7 +105,7 @@ export default function NewsSearch({ onSelect, busy }: { onSelect: (article: New
     if (!saved && status !== 'authenticated') { setError(text('浏览器无法保存选择，请先登录后再选择报道。', 'Your browser could not save this selection. Sign in before choosing an article.')); return; }
     onSelect(article);
   }
-  const actualSource = result?.providers.map(name => ({ bing: 'Bing News', searxng: 'SearXNG', duckduckgo: 'DuckDuckGo', deepseek: 'DeepSeek API' }[name] || name)).join(' / ');
+  const actualSource = result?.providers.map(name => ({ bing: 'Bing News', brave: 'Brave News', searxng: 'SearXNG', duckduckgo: 'DuckDuckGo', deepseek: 'DeepSeek API' }[name] || name)).join(' / ');
 
   return <div className="space-y-5">
     <form onSubmit={event => { event.preventDefault(); void search(); }} className="space-y-3" role="search" aria-label={text('搜索新闻', 'Search news')}>

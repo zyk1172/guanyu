@@ -1,14 +1,15 @@
 'use client';
 
 import { Button, Input, Panel } from '@/components/ui/controls';
-import React, { useState } from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
 import { useUiLanguage } from './LanguageProvider';
 import { useActiveModel } from './useActiveModel';
+import type { FollowupResearch } from '@/lib/followup-types';
 
 function safeMarkdownHref(value: string) {
   try {
     const url = new URL(value);
-    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : null;
+    return (url.protocol === 'http:' || url.protocol === 'https:') && !url.username && !url.password ? url.toString() : null;
   } catch {
     return null;
   }
@@ -157,6 +158,7 @@ function MarkdownMessage({ content }: { content: string }) {
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  research?: FollowupResearch;
 }
 
 interface InteractiveQAProps {
@@ -171,8 +173,29 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
   const [input, setInput] = useState('');
   const [isSending, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [webSearch, setWebSearch] = useState(true);
+  const pending = useRef<{ question: string; requestId: string; history: ChatMessage[]; webSearch: boolean; language: string } | null>(null);
+  const thread = useRef<HTMLDivElement>(null);
+  const followLatest = useRef(true);
+  const threadWidth = useRef(0);
   const activeModel = useActiveModel('followup');
   const messages = controlledMessages ?? localMessages;
+  useLayoutEffect(() => {
+    if (followLatest.current && thread.current) thread.current.scrollTop = thread.current.scrollHeight;
+  }, [messages.length, isSending]);
+  useLayoutEffect(() => {
+    const element = thread.current;
+    if (!element) return;
+    threadWidth.current = element.clientWidth;
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      if (element.clientWidth === threadWidth.current) return;
+      threadWidth.current = element.clientWidth;
+      if (followLatest.current) element.scrollTop = element.scrollHeight;
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   const updateMessages = (nextMessages: ChatMessage[]) => {
     if (onMessagesChange) onMessagesChange(nextMessages);
     else setLocalMessages(nextMessages);
@@ -183,11 +206,15 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
     if (!input.trim() || isSending) return;
 
     const userQuestion = input.trim();
+    const retry = pending.current?.question === userQuestion && pending.current.webSearch === webSearch && pending.current.language === language;
+    const attempt = retry ? pending.current! : { question: userQuestion, requestId: crypto.randomUUID(), history: messages, webSearch, language };
+    pending.current = attempt;
+    followLatest.current = true;
     setInput('');
     setError(null);
 
     // 1. 本地立即追加用户消息
-    const updatedMessages = [...messages, { role: 'user' as const, content: userQuestion }];
+    const updatedMessages = [...attempt.history, { role: 'user' as const, content: userQuestion }];
     updateMessages(updatedMessages);
     setIsSaving(true);
 
@@ -199,21 +226,24 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
         body: JSON.stringify({
           auditId,
           question: userQuestion,
-          requestId: crypto.randomUUID(),
-          chatHistory: messages,
+          requestId: attempt.requestId,
+          chatHistory: attempt.history.map(({ role, content }) => ({ role, content })),
           interfaceLanguage: language,
+          webSearch,
         }),
       });
 
       const data = await res.json();
+      if (res.status === 202) throw new Error(language.startsWith('zh') ? '这个问题仍在生成回答，请稍后再试。' : 'This answer is still being generated. Please try again shortly.');
       if (!res.ok) {
         throw new Error(data.error || '大模型未能做出解答，请重试');
       }
 
       // 3. 追加 AI 答复
-      updateMessages([...updatedMessages, { role: 'assistant' as const, content: data.reply }]);
+      updateMessages([...updatedMessages, { role: 'assistant' as const, content: data.reply, research: data.research }]);
+      pending.current = null;
     } catch (err: any) {
-      console.error(err);
+      setInput(current => current.trim() ? current : userQuestion);
       setError(err?.message || '提问交互失败，请重试。');
     } finally {
       setIsSaving(false);
@@ -223,8 +253,8 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
   return (
     <Panel as="div" className="space-y-4">
       <div className="border-b border-[var(--color-border)] pb-2.5 flex justify-between items-center">
-        <h3 className="text-xs font-bold text-[var(--color-text)] uppercase tracking-wider flex items-center gap-1.5">
-          <span>💬 {t('qa.title')}</span>
+        <h3 className="ui-panel-title">
+          <span>{t('qa.title')}</span>
         </h3>
         <span className="ui-badge bg-[var(--color-primary-soft)] text-[var(--color-link)]">
           {t('qa.badge')}
@@ -232,7 +262,12 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
       </div>
 
       {/* 追问历史对话框 */}
-      <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+      <div ref={thread} className="space-y-3 max-h-72 overflow-y-auto pr-1" onScroll={event => {
+        const element = event.currentTarget;
+        // A responsive reflow is not the reader deliberately scrolling upward.
+        if (element.clientWidth !== threadWidth.current) return;
+        followLatest.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
+      }}>
         {messages.length === 0 ? (
           <div className="text-center py-6 text-xxs text-[var(--color-text-subtle)] font-medium border border-dashed border-[var(--color-border)] rounded-lg">
             {t('qa.empty').split('\n').map((line, index) => <React.Fragment key={line}>{index > 0 && <br />}{line}</React.Fragment>)}
@@ -249,44 +284,50 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
                 }`}
              >
                 <span className="text-xxs font-bold uppercase tracking-wider text-[var(--color-text-subtle)]">
-                  {m.role === 'user' ? `👤 ${t('qa.user')}` : `🤖 ${t('qa.assistant')}`}
+                  {m.role === 'user' ? t('qa.user') : t('qa.assistant')}
                 </span>
                 {m.role === 'assistant'
                   ? <MarkdownMessage content={m.content} />
                   : <p className="whitespace-pre-wrap font-normal text-[var(--color-text)]">{m.content}</p>}
+                {m.role === 'assistant' && m.research && <ResearchEvidence research={m.research} chinese={language.startsWith('zh')} />}
               </div>
             ))}
           </div>
         )}
 
         {isSending && (
-          <div className="text-xxs font-bold text-[var(--color-text-subtle)] flex items-center gap-2 pl-2">
+          <div role="status" className="text-xxs font-bold text-[var(--color-text-subtle)] flex items-center gap-2 pl-2">
             <span className="animate-pulse h-1.5 w-1.5 bg-[var(--color-primary)] rounded-full" />
             <span>{t('qa.loading')}</span>
           </div>
         )}
 
         {error && (
-          <div className="p-2.5 rounded bg-[var(--color-danger-soft)] text-xxs font-bold text-[var(--color-danger)] border border-[var(--color-danger)]">
+          <div role="alert" className="p-2.5 rounded bg-[var(--color-danger-soft)] text-xxs font-bold text-[var(--color-danger)] border border-[var(--color-danger)]">
             ⚠️ {error}
           </div>
         )}
       </div>
 
       {/* 提问表单输入 */}
-      <form onSubmit={handleSend} className="flex gap-2 border-t border-[var(--color-border)] pt-3">
+      <label className="ui-label"><Input type="checkbox" checked={webSearch} disabled={isSending} onChange={event => setWebSearch(event.target.checked)} />{language.startsWith('zh') ? '联网查找事件资料' : 'Search online for event information'}</label>
+      <p id="qa-research-help" className="text-xs text-[var(--color-text-muted)]">{language.startsWith('zh') ? '可追问背景、具体言论、官方回应和后续进展；涉及新事实时会尝试联网，并列出实际检索来源。' : 'Ask about background, exact remarks, official responses or developments. New factual questions can use web research with visible sources.'}</p>
+      <form onSubmit={handleSend} className="flex flex-col gap-2 border-t border-[var(--color-border)] pt-3 sm:flex-row">
         <Input
           type="text"
           required
+          maxLength={2000}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           aria-label={t('qa.title')}
+          aria-describedby="qa-research-help"
           placeholder={t('qa.placeholder')}
-          className="flex-1"
+          className="min-w-0 flex-1"
        />
         <Button variant="primary"
           type="submit"
           disabled={isSending || !input.trim() || activeModel.loading}
+          aria-busy={isSending}
           className="flex-shrink-0"
        >
           {t('qa.ask')} · {activeModel.source === 'custom' ? '0' : activeModel.estimatedCost} {t('modelSelector.credits', '点')}
@@ -294,4 +335,20 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
       </form>
     </Panel>
   );
+}
+
+function ResearchEvidence({ research, chinese }: { research: FollowupResearch; chinese: boolean }) {
+  const labels = chinese ? {
+    searched: '已检索事件资料', empty: '本轮检索未返回可用资料', unavailable: '本轮搜索未成功，未核实新事实', disabled: '本次未联网，依据现有材料回答', not_needed: '本次依据现有材料解读',
+  } : { searched: 'Event research completed', empty: 'No usable sources returned', unavailable: 'Search unavailable; new facts were not verified', disabled: 'Web research off; existing material only', not_needed: 'Explanation from existing material' };
+  return <div className="mt-3 border-t border-[var(--color-border)] pt-3 text-xs text-[var(--color-text-muted)]">
+    <p role="status">{labels[research.status]}</p>
+    {research.disabledReason === 'model_offline' && <p className="mt-1">{chinese ? '当前模型关闭了联网，请在账号设置中选择启用联网的模型。' : 'This model has web research disabled. Select a web-enabled model in account settings.'}</p>}
+    {research.disabledReason === 'deployment_disabled' && <p className="mt-1">{chinese ? '当前站点未开放此模型的联网功能。' : 'Web research for this model is disabled on this site.'}</p>}
+    {!!research.queries.length && <details className="mt-2"><summary className="cursor-pointer">{chinese ? '查看检索关键词' : 'Search keywords'}</summary><ul className="mt-2 list-disc space-y-1 pl-5">{research.queries.map(query => <li key={query}>{query}</li>)}</ul></details>}
+    {!!research.sources.length && <details className="mt-2"><summary className="cursor-pointer">{chinese ? `实际检索来源（${research.sources.length}）` : `Retrieved sources (${research.sources.length})`}</summary><ul className="mt-3 space-y-3">{research.sources.map(source => {
+      const href = safeMarkdownHref(source.url);
+      return href ? <li key={source.url}><a href={href} target="_blank" rel="noopener noreferrer" className="break-words text-[var(--color-link)] underline">{source.title}</a><p className="mt-1">{source.kind === 'page' ? (chinese ? '已读取正文' : 'Page text read') : (chinese ? '仅检索摘要，未读到全文' : 'Search snippet; full text not read')}{source.publishedAt ? ` · ${source.publishedAt}` : ''}</p></li> : null;
+    })}</ul></details>}
+  </div>;
 }
