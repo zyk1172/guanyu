@@ -39,7 +39,8 @@ import {
 import AuditCharts from './AuditCharts';
 import DiscussionBoard from './DiscussionBoard';
 import GuanyuCardButton from './GuanyuCardButton';
-import InteractiveQA, { ChatMessage } from './InteractiveQA';
+import InteractiveQA, { ChatMessage, type InteractiveQAHandle } from './InteractiveQA';
+import SuggestedQuestions, { type QuestionAction } from './SuggestedQuestions';
 import { useUiLanguage } from './LanguageProvider';
 import ReadingNavigation from './ReadingNavigation';
 import ReadWorthVerdict from './ReadWorthVerdict';
@@ -1100,7 +1101,7 @@ function DownloadButton({ report, originalContent, qaMessages, auditId, canGener
   );
 }
 
-function QuickReportView({ report, originalContent, qaMessages }: { report: QuickAnalysisResult; originalContent?: string; qaMessages: ChatMessage[] }) {
+function QuickReportView({ report, originalContent, qaMessages, questionAction }: { report: QuickAnalysisResult; originalContent?: string; qaMessages: ChatMessage[]; questionAction?: QuestionAction }) {
   const reportLanguage = normalizeReportLanguage(report.meta.reportLanguage);
   const questions = limitedItems(report.questionsToAsk, 3);
   return (
@@ -1125,7 +1126,7 @@ function QuickReportView({ report, originalContent, qaMessages }: { report: Quic
       </Section>
       <ScoresSection report={report} />
       <Section title={reportLanguage === 'en-US' ? '7. Three questions worth asking next' : '7. 最值得追问的 3 个问题'}>
-        <ul className="grid grid-cols-1 gap-2 md:grid-cols-3">{questions.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-xs font-semibold leading-relaxed text-[var(--color-text)]"><ReportText>{item}</ReportText></li>)}</ul>
+        <SuggestedQuestions questions={questions} action={questionAction} columns={3} />
       </Section>
       <Section title={reportLanguage === 'en-US' ? '8. Quick conclusion' : '8. 快速结论'}><p className="text-sm leading-relaxed text-[var(--color-text)]"><ReportText>{report.quickConclusion}</ReportText></p></Section>
       <DownloadButton report={report} originalContent={originalContent} qaMessages={qaMessages} />
@@ -1133,7 +1134,7 @@ function QuickReportView({ report, originalContent, qaMessages }: { report: Quic
   );
 }
 
-function DeepReportView({ relatedCoverage, report, originalContent, qaMessages, displayLimit, auditId, canUpdateVerification, onVerificationUpdated }: { report: DeepAnalysisResult; originalContent?: string; qaMessages: ChatMessage[]; displayLimit: number; auditId?: string; canUpdateVerification?: boolean; onVerificationUpdated?: (result: unknown, outcome: ManualVerificationOutcome) => void; relatedCoverage?: React.ReactNode }) {
+function DeepReportView({ relatedCoverage, report, originalContent, qaMessages, displayLimit, auditId, canUpdateVerification, onVerificationUpdated, questionAction }: { report: DeepAnalysisResult; originalContent?: string; qaMessages: ChatMessage[]; displayLimit: number; auditId?: string; canUpdateVerification?: boolean; onVerificationUpdated?: (result: unknown, outcome: ManualVerificationOutcome) => void; relatedCoverage?: React.ReactNode; questionAction?: QuestionAction }) {
   const reportLanguage = normalizeReportLanguage(report.meta.reportLanguage);
   const text = (key: string) => getReportText(key, reportLanguage);
   const keyFindings = limitedItems(report.keyFindings, displayLimit);
@@ -1222,7 +1223,7 @@ function DeepReportView({ relatedCoverage, report, originalContent, qaMessages, 
        />
       </Section>
       <Section id="report-web-verification" title={text('webVerification')}><WebVerificationView report={report} /></Section>
-      <Section id="report-questions" title={text('questions')} aside={compactAside(report.questionsToAsk.length, displayLimit, reportLanguage)}><ul className="grid grid-cols-1 gap-2 md:grid-cols-2">{questions.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-xs font-semibold leading-relaxed text-[var(--color-text)]"><ReportText>{item}</ReportText></li>)}</ul></Section>
+      <Section id="report-questions" title={text('questions')} aside={compactAside(report.questionsToAsk.length, displayLimit, reportLanguage)}><SuggestedQuestions questions={questions} action={questionAction} /></Section>
       <Section id="report-limits" title={text('notConcluded')}><ul className="space-y-2 text-xs leading-relaxed text-[var(--color-text)]">{report.cannotConclude.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">- <ReportText>{item}</ReportText></li>)}</ul></Section>
       <Section id="report-risk" title={text('riskNotice')}><p className="text-xs leading-relaxed text-[var(--color-text-muted)]"><ReportText>{report.riskNotice}</ReportText></p></Section>
       <Section id="report-metadata" title={text('meta')}>
@@ -1252,6 +1253,14 @@ export default function AnalysisResultView({ result: rawResult, relatedCoverage,
   const [verificationNotice, setVerificationNotice] = useState<string | null>(null);
   const result = useNormalizedResult(workingResult, auditMeta);
   const [qaMessages, setQaMessages] = useState<ChatMessage[]>([]);
+  const qa = useRef<InteractiveQAHandle>(null);
+  const [isAsking, setIsAsking] = useState(false);
+  const followupModel = useActiveModel('followup', Boolean(auditId));
+  const questionAction: QuestionAction | undefined = auditId ? {
+    ask: question => qa.current?.askQuestion(question),
+    disabled: isAsking || followupModel.loading || !!followupModel.error,
+    loading: followupModel.loading, cost: followupModel.estimatedCost, error: followupModel.error,
+  } : undefined;
   const readWorth = result.read_worth || computeReadWorth(result);
   const readingLimit = 12;
 
@@ -1273,14 +1282,14 @@ export default function AnalysisResultView({ result: rawResult, relatedCoverage,
         <div ref={contentRef} className="report-content min-w-0">
           <div className="space-y-4 sm:space-y-5">
             {isQuick(result)
-              ? <QuickReportView report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} />
-              : <DeepReportView relatedCoverage={relatedCoverage} report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} displayLimit={readingLimit} auditId={auditId} canUpdateVerification={canUpdateVerification} onVerificationUpdated={handleVerificationUpdated} />}
+              ? <QuickReportView report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} questionAction={questionAction} />
+              : <DeepReportView relatedCoverage={relatedCoverage} report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} displayLimit={readingLimit} auditId={auditId} canUpdateVerification={canUpdateVerification} onVerificationUpdated={handleVerificationUpdated} questionAction={questionAction} />}
             {isQuick(result) && relatedCoverage}
           </div>
         </div>
         {!isQuick(result) && <ReadingNavigation language={result.meta.reportLanguage} contentRef={contentRef} />}
       </div>
-      {auditId && <InteractiveQA auditId={auditId} messages={qaMessages} onMessagesChange={setQaMessages} />}
+      {auditId && <InteractiveQA ref={qa} auditId={auditId} activeModel={followupModel} onBusyChange={setIsAsking} messages={qaMessages} onMessagesChange={setQaMessages} />}
       {auditId && <DiscussionBoard auditId={auditId} />}
     </div>
   );
