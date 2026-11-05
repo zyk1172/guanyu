@@ -36,6 +36,7 @@ import type {
 } from '@/lib/types';
 import { toClientError } from '@/lib/app-error';
 import { ReportSchema, reportSchemaErrorPaths } from '@/lib/report-schema';
+import { assertArticleText, assertModelArticleAssessment, ArticleInputError } from '@/lib/article-input';
 
 const MAX_NEWS_CONTENT_LENGTH = 30000;
 const EMPTY_ONLINE_TITLES = new Set(['相关背景来源', '待核验线索', '来源标题', '未提供', '暂无']);
@@ -539,9 +540,7 @@ export async function handleAnalyze(userId: string, body: any, executionContext:
     const internalJobId = String(executionContext.jobId || '').trim().slice(0, 120);
     const isInternalRequest = Boolean(internalJobId);
 
-    if (!content || content.trim().length < 50) {
-      return NextResponse.json({ error: '新闻正文太短，最少需要 50 个字符。' }, { status: 400 });
-    }
+    assertArticleText(content, String(title || ''));
 
     const truncatedContent = content.slice(0, MAX_NEWS_CONTENT_LENGTH);
     const sourceContentIsWeb = /^https?:\/\/[^\s]+$/i.test(String(sourceUrl || '').trim());
@@ -779,6 +778,15 @@ export async function handleAnalyze(userId: string, body: any, executionContext:
       }
     }
 
+    try {
+      assertModelArticleAssessment(parsedJSON?.inputAssessment, truncatedContent);
+    } catch (error) {
+      if (!(error instanceof ArticleInputError)) throw error;
+      await recordFailedUsage(error.code);
+      await releaseReservation();
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+    }
+
     const sourceCleanup = applyModelSourceCleanup(
       truncatedContent,
       parsedJSON?.sourceCleanup,
@@ -809,6 +817,7 @@ export async function handleAnalyze(userId: string, body: any, executionContext:
         await releaseReservation();
         return NextResponse.json({ error: getLanguageRepairErrorMessage(actualReportLanguage) }, { status: 502 });
       }
+      assertModelArticleAssessment(parsedJSON?.inputAssessment, truncatedContent);
     }
 
     const validatedReport = ReportSchema.safeParse(parsedJSON);
@@ -947,7 +956,7 @@ export async function handleAnalyze(userId: string, body: any, executionContext:
     await releaseReservation();
     console.error('Route analyze error', { code: 'internal_analyze', message: error instanceof Error ? error.message.slice(0, 500) : 'unknown' });
     const clientError = toClientError(error);
-    return NextResponse.json({ error: clientError.message }, { status: clientError.status });
+    return NextResponse.json({ error: clientError.message, code: clientError.code }, { status: clientError.status });
   }
 }
 

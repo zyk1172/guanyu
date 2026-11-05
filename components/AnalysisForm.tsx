@@ -22,12 +22,12 @@ interface AnalysisFormProps {
     mode: AnalysisMode;
     reportLanguage: ReportLanguage;
     sourceUrl?: string;
-  }) => void;
+  }) => Promise<void> | void;
   isLoading: boolean;
   articleUrl?: { url: string; selectedAt: number };
 }
 
-type ParseFailure = { code: string; message: string };
+type ParseFailure = { code: string; message: string; article?: NewsArticle };
 
 function explainParseFailure(code: string) {
   switch (code) {
@@ -48,7 +48,12 @@ function explainParseFailure(code: string) {
     case 'UPSTREAM_ERROR':
       return { reasonKey: 'parse.serverReason', explanationKey: 'parse.serverExplanation' };
     case 'ARTICLE_EXTRACTION_FAILED':
+    case 'ARTICLE_BODY_MISSING':
       return { reasonKey: 'parse.noContentReason', explanationKey: 'parse.noContentExplanation' };
+    case 'ARTICLE_ACCESS_BLOCKED':
+      return { reasonKey: 'parse.accessReason', explanationKey: 'parse.accessExplanation' };
+    case 'NOT_NEWS_ARTICLE':
+      return { reasonKey: 'parse.notArticleReason', explanationKey: 'parse.notArticleExplanation' };
     default:
       return { reasonKey: 'parse.genericReason', explanationKey: 'parse.genericExplanation' };
   }
@@ -74,6 +79,7 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
   const [parseFailure, setParseFailure] = useState<ParseFailure | null>(null);
   const [parseTrigger, setParseTrigger] = useState<HTMLElement | null>(null);
   const [canAnalyze, setCanAnalyze] = useState(false);
+  const [analysisCostCents, setAnalysisCostCents] = useState<number | null>(null);
   const parseController = useRef<AbortController | null>(null);
   const parseNumber = useRef(0);
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
@@ -105,7 +111,7 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
   const handleParseUrl = async (selectedUrl?: string, selectedArticle?: NewsArticle) => {
     const trimmed = (selectedUrl ?? urlInput).trim();
     if (!trimmed) return;
-    setParseTrigger(document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    if (!parseFailure) setParseTrigger(document.activeElement instanceof HTMLElement ? document.activeElement : null);
 
     try { new URL(trimmed); } catch {
       setParseFailure({ code: 'INVALID_URL', message: 'URL 格式无效' });
@@ -133,27 +139,40 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
 
       if (!res.ok) {
         setSelectedNews(null);
-        setParseFailure({ code: String(data.code || 'PARSE_FAILED'), message: data.error || '解析失败' });
+        setParseFailure({ code: String(data.code || 'PARSE_FAILED'), message: data.error || '解析失败', article: selectedArticle });
         return;
       }
 
-      if (data.title || selectedArticle?.title) setTitle(data.title || selectedArticle?.title || '');
-      if (data.source || selectedArticle?.source) setSource(data.source || selectedArticle?.source || '');
-      if (data.content) setContent(data.content);
-      setParsedSourceUrl(String(data.url || trimmed));
+      if (typeof data.content !== 'string' || data.content.trim().length < 50) {
+        setParseFailure({ code: 'ARTICLE_BODY_MISSING', message: '', article: selectedArticle });
+        return;
+      }
+
+      const parsedUrl = String(data.url || trimmed);
+      const parsedTitle = selectedArticle?.provider === 'rss' ? selectedArticle.title : data.title || selectedArticle?.title || '';
+      const parsedSource = data.source || selectedArticle?.source || '';
+      if (parsedTitle) setTitle(parsedTitle);
+      if (parsedSource) setSource(parsedSource);
+      setContent(data.content);
+      setParsedSourceUrl(parsedUrl);
+      if (selectedArticle?.provider === 'rss') {
+        // Use this response directly, never a previous article or the user's draft.
+        await onSubmit({ title: parsedTitle, source: parsedSource, content: data.content, focus, mode, reportLanguage, sourceUrl: parsedUrl });
+      }
       if (!selectedUrl) requestAnimationFrame(() => contentRef.current?.focus());
     } catch {
       if (controller.signal.aborted || current !== parseNumber.current) return;
       setSelectedNews(null);
-      setParseFailure({ code: 'NETWORK_ERROR', message: '网络错误，请重试' });
+      setParseFailure({ code: 'NETWORK_ERROR', message: '网络错误，请重试', article: selectedArticle });
     } finally {
-      if (current === parseNumber.current) setIsParsing(false);
+      if (current === parseNumber.current) { setIsParsing(false); parseController.current = null; }
     }
   };
 
   useEffect(() => () => { parseController.current?.abort(); }, []);
 
-  const handleNewsSelect = (article: NewsArticle) => {
+  const handleNewsSelect = async (article: NewsArticle) => {
+    if (isLoading || parseController.current) return;
     setSelectedNews(article);
     setUrlInput(article.url); setInputMode('url'); setParseFailure(null);
     document.getElementById('analysis')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });
@@ -164,7 +183,7 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
       } catch { setDraftNotice('storageError'); }
       return;
     }
-    void handleParseUrl(article.url, article);
+    await handleParseUrl(article.url, article);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -198,13 +217,13 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
     <>
     <Panel id="news-search">
       <div className="ui-section-heading"><div><h2>{language.startsWith('zh') ? '搜索新闻' : 'Search news'}</h2><p>{language.startsWith('zh') ? '输入关键词，查找相关报道。' : 'Find reporting on a topic that matters to you.'}</p></div><ButtonLink variant="ghost" href="/demo">{c.demoNav}</ButtonLink></div>
-      <NewsSearch onSelect={handleNewsSelect} busy={isLoading || isParsing} />
+      <NewsSearch onSelect={handleNewsSelect} busy={isLoading || isParsing} canAnalyze={canAnalyze} analysisCostCents={analysisCostCents} />
     </Panel>
     <Panel id="analysis" className="scroll-mt-24">
       <div className="ui-section-heading"><div><h2>{language.startsWith('zh') ? '分析一篇报道' : 'Analyze an article'}</h2><p>{language.startsWith('zh') ? '粘贴链接获取正文，或直接输入正文。' : 'Read from a link or paste the article text below.'}</p></div></div>
       {draftNotice && <p role="status" className="mb-4 rounded-lg bg-[var(--color-primary-soft)] p-3 text-sm">{c[draftNotice]}</p>}
       <form onSubmit={handleSubmit} className="space-y-4">
-        {selectedNews && <div className="rounded-lg bg-[var(--color-surface-muted)] p-4"><p className="text-xs text-[var(--color-text-muted)]">{isParsing ? (language.startsWith('zh') ? '正在读取报道正文…' : 'Reading article text…') : (language.startsWith('zh') ? '已选报道' : 'Selected article')}</p><h3 className="mt-1 break-words text-base font-semibold">{selectedNews.title}</h3><p className="mt-1 text-xs text-[var(--color-text-muted)]">{selectedNews.source}</p></div>}
+        {selectedNews && <div className="rounded-lg bg-[var(--color-surface-muted)] p-4"><p className="text-xs text-[var(--color-text-muted)]">{isLoading ? (language.startsWith('zh') ? '正在分析所选报道…' : 'Analyzing the selected article…') : isParsing ? (language.startsWith('zh') ? '正在读取报道正文…' : 'Reading article text…') : (language.startsWith('zh') ? '已选报道' : 'Selected article')}</p><h3 className="mt-1 break-words text-base font-semibold">{selectedNews.title}</h3><p className="mt-1 text-xs text-[var(--color-text-muted)]">{selectedNews.source}</p></div>}
         <div className="space-y-2">
           <label htmlFor="article-url" className="ui-label ui-field-label">{language.startsWith('zh') ? '新闻链接（可选）' : 'Article link (optional)'}</label>
           <div className="flex flex-col gap-2 sm:flex-row">
@@ -227,14 +246,14 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
             <div><label htmlFor="focus" className="ui-label ui-field-label">{t('form.focusLabel')}</label><Input id="focus" value={focus} onChange={(e) => setFocus(e.target.value)} maxLength={2000} placeholder={t('form.focusPlaceholder')} /></div>
           </div>
         </details>
-        <TaskBudget compact onAvailabilityChange={setCanAnalyze} />
+        <TaskBudget compact onAvailabilityChange={setCanAnalyze} onAnalysisCostChange={setAnalysisCostCents} />
         <Button variant="primary" type="submit" disabled={isLoading || isParsing || status === 'loading' || !isFormValid || (status === 'authenticated' && !canAnalyze)} className="w-full">{isLoading ? t('form.analyzing') : status === 'authenticated' ? t('form.start') : c.continue}</Button>
       </form>
 
       {parseFailure && parseFailureInfo && <Dialog open onClose={() => setParseFailure(null)} title={t('parse.modalTitle')} closeLabel={t('common.close')} role="alertdialog" returnFocus={parseTrigger} description={`${t('parse.reasonLabel', undefined, { reason: t(parseFailureInfo.reasonKey) })} ${t(parseFailureInfo.explanationKey)}`}>
-        <p className="rounded-lg bg-[var(--color-surface-muted)] p-4 text-sm leading-relaxed text-[var(--color-text-muted)]">{t('parse.modalInstructions')}</p>
+        <p className="rounded-lg bg-[var(--color-surface-muted)] p-4 text-sm leading-relaxed text-[var(--color-text-muted)]">{t('parse.noReportNotice')} {t('parse.modalInstructions')}</p>
         <div className="ui-dialog-actions">
-          <Button onClick={() => void handleParseUrl()}>{t('common.retry')}</Button>
+          <Button onClick={() => void handleParseUrl(parseFailure.article?.url, parseFailure.article)} disabled={isParsing}>{t('common.retry')}</Button>
           <Button variant="primary" onClick={focusManualContent}>{t('parse.manualPaste')}</Button>
         </div>
       </Dialog>}

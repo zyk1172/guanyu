@@ -4,6 +4,7 @@ import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { createAnalyzeJob, runAnalyzeJob } from '@/lib/analyze-job';
 import { normalizeReportLanguage } from '@/lib/types';
 import { sameOriginResponse } from '@/lib/request-security';
+import { AppError } from '@/lib/app-error';
 
 export const maxDuration = 300;
 
@@ -39,6 +40,7 @@ export async function POST(request: Request) {
       reportLanguage: body.reportLanguage || reportLanguageFromRequest(request),
     });
   } catch (error) {
+    if (error instanceof AppError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
     return NextResponse.json({ error: error instanceof Error ? error.message : '创建观隅分析任务失败。' }, { status: 400 });
   }
 

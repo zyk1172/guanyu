@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useUiLanguage } from './LanguageProvider';
 import RssNewsPanel from './RssNewsPanel';
 
-export default function NewsSearch({ onSelect, busy }: { onSelect: (article: NewsArticle) => void; busy: boolean }) {
+export default function NewsSearch({ onSelect, busy, canAnalyze, analysisCostCents }: { onSelect: (article: NewsArticle) => Promise<void> | void; busy: boolean; canAnalyze: boolean; analysisCostCents: number | null }) {
   const { language } = useUiLanguage();
   const { status } = useSession();
   const text = (zh: string, en: string) => language.startsWith('zh') ? zh : en;
@@ -50,7 +50,7 @@ export default function NewsSearch({ onSelect, busy }: { onSelect: (article: New
     const pending = restored.current.pending;
     restored.current = { ...restored.current, pending: null };
     try { sessionStorage.setItem(NEWS_SEARCH_DRAFT_KEY, encodeNewsSearchDraft(restored.current)); } catch {}
-    onSelect(pending);
+    void onSelect(pending);
   }, [status, onSelect]);
 
   useEffect(() => {
@@ -103,7 +103,7 @@ export default function NewsSearch({ onSelect, busy }: { onSelect: (article: New
   function choose(article: NewsArticle) {
     const saved = persist({ query: resultQuery || query || article.title.slice(0, 128), provider, period, result, pending: status === 'authenticated' ? null : article });
     if (!saved && status !== 'authenticated') { setError(text('浏览器无法保存选择，请先登录后再选择报道。', 'Your browser could not save this selection. Sign in before choosing an article.')); return; }
-    onSelect(article);
+    return onSelect(article);
   }
   const actualSource = result?.providers.map(name => ({ bing: 'Bing News', brave: 'Brave News', searxng: 'SearXNG', duckduckgo: 'DuckDuckGo', deepseek: 'DeepSeek API' }[name] || name)).join(' / ');
 
@@ -129,6 +129,6 @@ export default function NewsSearch({ onSelect, busy }: { onSelect: (article: New
         <div className="flex flex-wrap items-center gap-3 sm:flex-col sm:items-end sm:justify-center"><Button variant="secondary" type="button" disabled={busy || status === 'loading'}  aria-label={text(`分析这篇：${article.title}`, `Analyze article: ${article.title}`)} onClick={() => choose(article)}>{text('分析这篇', 'Analyze article')}</Button><a href={article.url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-1 text-xs text-[var(--color-link)]">{text('查看原文', 'Open original')}<ArrowUpRight size={14} aria-hidden="true" /></a></div>
       </li>)}</ol>
     </section>}
-    <details className="workspace-disclosure" open={rssOpen} onToggle={event => setRssOpen(event.currentTarget.open)}><summary>{text('从 RSS 订阅源选一篇', 'Browse RSS subscriptions')}</summary>{rssOpen && <RssNewsPanel isAnalyzing={busy} onAnalyzeHeadline={headline => { setRssOpen(false); choose({ title: headline.title, source: headline.sourceName || new URL(headline.url).hostname, url: headline.url, snippet: '', publishedAt: null, provider: 'rss' }); }} />}</details>
+    <details className="workspace-disclosure" open={rssOpen} onToggle={event => setRssOpen(event.currentTarget.open)}><summary>{text('从 RSS 订阅源选一篇', 'Browse RSS subscriptions')}</summary>{rssOpen && <RssNewsPanel isAnalyzing={busy} canAnalyze={canAnalyze} analysisCostCents={analysisCostCents} onAnalyzeHeadline={headline => choose({ title: headline.title, source: headline.sourceName || new URL(headline.url).hostname, url: headline.url, snippet: '', publishedAt: headline.publishedAt || null, provider: 'rss' })} />}</details>
   </div>;
 }

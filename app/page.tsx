@@ -60,6 +60,12 @@ export default function Home() {
   const submitting = useRef(false);
   const activePollingJobRef = useRef<string | null>(null);
   const pageIsMountedRef = useRef(true);
+  const errorPanel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!error) return;
+    errorPanel.current?.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+    errorPanel.current?.focus({ preventScroll: true });
+  }, [error]);
 
   const storeActiveJob = useCallback((jobId: string) => {
     if (typeof window !== 'undefined') window.sessionStorage.setItem(ACTIVE_ANALYSIS_JOB_STORAGE_KEY, jobId);
@@ -216,7 +222,7 @@ export default function Home() {
             <AnalysisForm onSubmit={handleAnalyze} isLoading={isLoading} />
             {isLoading && <LoadingState />}
             {activeJobId && !isLoading && <p role="status" className="text-sm text-[var(--color-text-muted)]">{t('home.backgroundJob')}</p>}
-            {error && <ErrorMessage message={error} onRetry={handleRetry} />}
+            {error && <div ref={errorPanel} tabIndex={-1} className="scroll-mt-24"><ErrorMessage message={error} onRetry={handleRetry} /></div>}
         </div>
         <Panel className="mt-7">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
