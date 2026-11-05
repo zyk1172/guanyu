@@ -1,12 +1,14 @@
 'use client';
 
-import { Button, ButtonLink, Input, Panel, Textarea } from '@/components/ui/controls';
+import { Button, Input, Textarea } from '@/components/ui/controls';
 import Dialog from '@/components/ui/Dialog';
 import { ANALYSIS_DRAFT_KEY, decodeAnalysisDraft, encodeAnalysisDraft } from '@/lib/analysis-draft';
+import { NEWS_SEARCH_DRAFT_KEY, decodeNewsSearchDraft, encodeNewsSearchDraft } from '@/lib/news-search-core';
 import type { NewsArticle } from '@/lib/news-search-types';
 import { getWorkspaceCopy } from '@/lib/workspace-copy';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import { ChevronDown } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { AnalysisMode, ReportLanguage, normalizeReportLanguage } from '../lib/types';
 import { useUiLanguage } from './LanguageProvider';
@@ -64,6 +66,7 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
   const router = useRouter();
   const { language, t } = useUiLanguage();
   const c = getWorkspaceCopy(language);
+  const [manualOpen,setManualOpen]=useState(false);
   const [inputMode, setInputMode] = useState<'text' | 'url'>('text');
   const [draftNotice, setDraftNotice] = useState<'restored' | 'storageError' | null>(null);
   const [title, setTitle] = useState('');
@@ -90,7 +93,8 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
       if (draft) {
         setTitle(draft.title); setSource(draft.source); setContent(draft.content); setFocus(draft.focus);
         setUrlInput(draft.urlInput); setParsedSourceUrl(draft.parsedSourceUrl); setInputMode(draft.inputMode);
-        setDraftNotice('restored');
+        const pending=decodeNewsSearchDraft(sessionStorage.getItem(NEWS_SEARCH_DRAFT_KEY))?.pending;
+        setDraftNotice('restored');setManualOpen(pending?.provider!=='rss');
       }
       window.sessionStorage.removeItem(ANALYSIS_DRAFT_KEY);
     } catch { /* Storage restrictions must not prevent manual entry. */ }
@@ -98,12 +102,15 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
 
   useEffect(() => {
     if (!articleUrl) return;
-    setUrlInput(articleUrl.url); setInputMode('url'); setSelectedNews(null); setParseFailure(null);
+    setManualOpen(true);setUrlInput(articleUrl.url); setInputMode('url'); setSelectedNews(null); setParseFailure(null);
   }, [articleUrl]);
 
   const signInWithDraft = () => {
     try {
       window.sessionStorage.setItem(ANALYSIS_DRAFT_KEY, encodeAnalysisDraft({ title, source, content, focus, urlInput, parsedSourceUrl, inputMode: inputMode === 'url' ? 'url' : 'text' }));
+      // A manual login must not resume an earlier one-click RSS selection.
+      const newsDraft=decodeNewsSearchDraft(sessionStorage.getItem(NEWS_SEARCH_DRAFT_KEY));
+      if(newsDraft?.pending)sessionStorage.setItem(NEWS_SEARCH_DRAFT_KEY,encodeNewsSearchDraft({...newsDraft,pending:null}));
       router.push('/login?callbackUrl=/');
     } catch { setDraftNotice('storageError'); }
   };
@@ -173,9 +180,10 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
 
   const handleNewsSelect = async (article: NewsArticle) => {
     if (isLoading || parseController.current) return;
+    if(article.provider!=='rss')setManualOpen(true);
     setSelectedNews(article);
     setUrlInput(article.url); setInputMode('url'); setParseFailure(null);
-    document.getElementById('analysis')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });
+    if(article.provider!=='rss')requestAnimationFrame(()=>document.getElementById('analysis')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' }));
     if (status !== 'authenticated') {
       try {
         sessionStorage.setItem(ANALYSIS_DRAFT_KEY, encodeAnalysisDraft({ title, source, content, focus, urlInput: article.url, parsedSourceUrl, inputMode: 'url' }));
@@ -205,7 +213,7 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
   const parseFailureInfo = parseFailure ? explainParseFailure(parseFailure.code) : null;
 
   const focusManualContent = () => {
-    setParseFailure(null);
+    setParseFailure(null);setManualOpen(true);
     requestAnimationFrame(() => {
       setInputMode('text');
       contentRef.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'center' });
@@ -215,12 +223,9 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
 
   return (
     <>
-    <Panel id="news-search">
-      <div className="ui-section-heading"><div><h2>{language.startsWith('zh') ? '搜索新闻' : 'Search news'}</h2><p>{language.startsWith('zh') ? '输入关键词，查找相关报道。' : 'Find reporting on a topic that matters to you.'}</p></div><ButtonLink variant="ghost" href="/demo">{c.demoNav}</ButtonLink></div>
-      <NewsSearch onSelect={handleNewsSelect} busy={isLoading || isParsing} canAnalyze={canAnalyze} analysisCostCents={analysisCostCents} />
-    </Panel>
-    <Panel id="analysis" className="scroll-mt-24">
-      <div className="ui-section-heading"><div><h2>{language.startsWith('zh') ? '分析一篇报道' : 'Analyze an article'}</h2><p>{language.startsWith('zh') ? '粘贴链接获取正文，或直接输入正文。' : 'Read from a link or paste the article text below.'}</p></div></div>
+    <NewsSearch onSelect={handleNewsSelect} busy={isLoading||isParsing} canAnalyze={canAnalyze} analysisCostCents={analysisCostCents} onOpenManual={()=>{setManualOpen(true);requestAnimationFrame(()=>{contentRef.current?.scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});contentRef.current?.focus({preventScroll:true})})}}/>
+    <details id="analysis" className="news-analysis-disclosure scroll-mt-24" open={manualOpen} onToggle={event=>setManualOpen(event.currentTarget.open)}><summary>{language.startsWith('zh')?'分析一篇报道':'Analyze an article'}<ChevronDown size={18} strokeWidth={1.75} aria-hidden="true"/></summary>
+    <div className="news-analysis-panel">
       {draftNotice && <p role="status" className="mb-4 rounded-lg bg-[var(--color-primary-soft)] p-3 text-sm">{c[draftNotice]}</p>}
       <form onSubmit={handleSubmit} className="space-y-4">
         {selectedNews && <div className="rounded-lg bg-[var(--color-surface-muted)] p-4"><p className="text-xs text-[var(--color-text-muted)]">{isLoading ? (language.startsWith('zh') ? '正在分析所选报道…' : 'Analyzing the selected article…') : isParsing ? (language.startsWith('zh') ? '正在读取报道正文…' : 'Reading article text…') : (language.startsWith('zh') ? '已选报道' : 'Selected article')}</p><h3 className="mt-1 break-words text-base font-semibold">{selectedNews.title}</h3><p className="mt-1 text-xs text-[var(--color-text-muted)]">{selectedNews.source}</p></div>}
@@ -250,6 +255,8 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
         <Button variant="primary" type="submit" disabled={isLoading || isParsing || status === 'loading' || !isFormValid || (status === 'authenticated' && !canAnalyze)} className="w-full">{isLoading ? t('form.analyzing') : status === 'authenticated' ? t('form.start') : c.continue}</Button>
       </form>
 
+    </div>
+    </details>
       {parseFailure && parseFailureInfo && <Dialog open onClose={() => setParseFailure(null)} title={t('parse.modalTitle')} closeLabel={t('common.close')} role="alertdialog" returnFocus={parseTrigger} description={`${t('parse.reasonLabel', undefined, { reason: t(parseFailureInfo.reasonKey) })} ${t(parseFailureInfo.explanationKey)}`}>
         <p className="rounded-lg bg-[var(--color-surface-muted)] p-4 text-sm leading-relaxed text-[var(--color-text-muted)]">{t('parse.noReportNotice')} {t('parse.modalInstructions')}</p>
         <div className="ui-dialog-actions">
@@ -257,7 +264,6 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
           <Button variant="primary" onClick={focusManualContent}>{t('parse.manualPaste')}</Button>
         </div>
       </Dialog>}
-    </Panel>
     </>
   );
 }

@@ -9,9 +9,9 @@ import { ArrowUpRight, LoaderCircle, Search } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { useEffect, useRef, useState } from 'react';
 import { useUiLanguage } from './LanguageProvider';
-import RssNewsPanel from './RssNewsPanel';
+import HomeNewsFeed from './HomeNewsFeed';
 
-export default function NewsSearch({ onSelect, busy, canAnalyze, analysisCostCents }: { onSelect: (article: NewsArticle) => Promise<void> | void; busy: boolean; canAnalyze: boolean; analysisCostCents: number | null }) {
+export default function NewsSearch({ onSelect, busy, canAnalyze, analysisCostCents, onOpenManual }: { onSelect: (article: NewsArticle) => Promise<void> | void; busy: boolean; canAnalyze: boolean; analysisCostCents: number | null; onOpenManual: () => void }) {
   const { language } = useUiLanguage();
   const { status } = useSession();
   const text = (zh: string, en: string) => language.startsWith('zh') ? zh : en;
@@ -24,8 +24,8 @@ export default function NewsSearch({ onSelect, busy, canAnalyze, analysisCostCen
   const [resultQuery, setResultQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState('');
-  const [rssOpen, setRssOpen] = useState(false);
   const [configRetry, setConfigRetry] = useState(0);
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const restored = useRef<NewsSearchDraft | null>(null);
   const initialized = useRef(false);
   const changed = useRef(false);
@@ -107,16 +107,20 @@ export default function NewsSearch({ onSelect, busy, canAnalyze, analysisCostCen
   }
   const actualSource = result?.providers.map(name => ({ bing: 'Bing News', brave: 'Brave News', searxng: 'SearXNG', duckduckgo: 'DuckDuckGo', deepseek: 'DeepSeek API' }[name] || name)).join(' / ');
 
-  return <div className="space-y-5">
+  return <div id="news-search" className="news-home-content">
+    <div className="news-home-heading"><h1 className="news-home-title">{text('今日关注', 'Today’s focus')}</h1><Button variant="ghost" aria-expanded={optionsOpen} aria-controls="news-search-options" onClick={()=>setOptionsOpen(!optionsOpen)}>{text('搜索选项','Search options')}</Button></div>
     <form onSubmit={event => { event.preventDefault(); void search(); }} className="space-y-3" role="search" aria-label={text('搜索新闻', 'Search news')}>
-      <label htmlFor="news-query" className="ui-label ui-field-label">{text('你想了解什么新闻？', 'What news would you like to understand?')}</label>
-      <div className="flex flex-col gap-2 sm:flex-row"><Input ref={input} id="news-query" type="search" autoComplete="off" maxLength={256} value={query} onChange={event => setQuery(event.target.value)} placeholder={text('输入事件、人物或关键词，例如：新能源汽车出口', 'Search an event, person or topic, e.g. renewable energy')} className="min-w-0 flex-1" /><Button variant="primary" type="submit" disabled={configFailed || !capabilities || status === 'loading'} className="shrink-0">{searching ? <LoaderCircle size={18} className="animate-spin" aria-hidden="true" /> : <Search size={18} aria-hidden="true" />}{searching ? text('重新搜索', 'Search again') : text('搜索新闻', 'Search news')}</Button></div>
+      <label htmlFor="news-query" className="sr-only">{text('搜索新闻', 'Search news')}</label>
+      <div className="news-search-row"><Input ref={input} id="news-query" type="search" autoComplete="off" maxLength={256} value={query} onChange={event=>setQuery(event.target.value)} placeholder={text('搜索事件、人物或关键词','Search an event, person or topic')} className="min-w-0 flex-1"/><Button variant="primary" type="submit" disabled={configFailed||!capabilities||status==='loading'}>{searching?<LoaderCircle className="animate-spin" aria-hidden="true"/>:<Search aria-hidden="true"/>}{text('搜索新闻','Search news')}</Button><Button type="button" onClick={onOpenManual}>{text('粘贴文章分析','Analyze your article')}</Button></div>
+      <div id="news-search-options" className="news-search-options" hidden={!optionsOpen}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:max-w-2xl">
         <label className="ui-label">{text('搜索来源', 'Search source')}<Select aria-label={text('搜索来源', 'Search source')} className="mt-2" value={provider} disabled={!capabilities} onChange={event => { changed.current = true; setProvider(event.target.value as NewsProvider); if (event.target.value === 'deepseek') setPeriod('any'); }}><option value="free">{text('免费新闻搜索', 'Free news search')}</option><option value="deepseek" disabled={!capabilities?.deepseekAvailable}>DeepSeek API{!capabilities?.deepseekAvailable ? text('（未开放）', ' (unavailable)') : capabilities.deepseekSource === 'personal' ? text('（个人密钥）', ' (your key)') : text('（平台提供）', ' (platform)')}</option></Select></label>
         <label className="ui-label">{text('报道时间', 'Time range')}<Select aria-label={text('报道时间', 'Time range')} className="mt-2" value={period} disabled={provider === 'deepseek'} onChange={event => setPeriod(event.target.value as NewsPeriod)}>{[['any', text('不限时间', 'Any time')], ['day', text('近一天', 'Past day')], ['week', text('近一周', 'Past week')], ['month', text('近一月', 'Past month')]].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select></label>
       </div>
       <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">{provider === 'free' ? text('搜索不扣分析点数。选择报道后获取正文，再确认费用。', 'Searching uses no analysis credits. Choose a report to read it and review the analysis cost.') : capabilities?.deepseekSource === 'personal' ? text('使用你的 DeepSeek 密钥，仅展示新闻索引中确认的报道，结果可能较少；搜索费用由服务商收取。暂不支持时间筛选。', 'Uses your DeepSeek key. Only matches confirmed by a news index are shown, so results may be limited. Provider fees apply; time filtering is unavailable.') : text('使用平台 DeepSeek API，仅展示新闻索引中确认的报道，结果可能较少；受平台每日限额约束。', 'Uses the platform DeepSeek API. Only matches confirmed by a news index are shown, so results may be limited; daily limits apply.')}</p>
       {status === 'unauthenticated' && <p className="text-xs text-[var(--color-text-muted)]">{text('无需登录即可搜索。生成分析时登录，关键词和所选报道会为你保留。', 'Search without an account. Sign in when you want analysis; your search and selection will be restored.')}</p>}
+      </div>
+      {provider==='deepseek'&&!optionsOpen&&<p className="text-xs leading-relaxed text-[var(--color-text-muted)]">{capabilities?.deepseekSource==='personal'?text('当前使用个人 DeepSeek 密钥搜索，服务商将收取调用费用。','Search uses your DeepSeek key; provider fees apply.'):text('当前使用平台 DeepSeek API 搜索，受平台每日限额约束。','Search uses the platform DeepSeek API; daily limits apply.')}</p>}
     </form>
     {configFailed && <p role="alert" className="text-sm text-[var(--color-danger)]">{text('搜索设置加载失败。', 'Search settings could not be loaded.')} <Button variant="ghost" type="button"  onClick={() => setConfigRetry(configRetry + 1)}>{text('重试', 'Retry')}</Button></p>}
     {searching && <p role="status" className="flex items-center gap-2 rounded-lg bg-[var(--color-surface-muted)] p-4 text-sm"><LoaderCircle size={18} className="animate-spin" aria-hidden="true" />{text('正在查找相关报道…', 'Finding related news…')}</p>}
@@ -129,6 +133,6 @@ export default function NewsSearch({ onSelect, busy, canAnalyze, analysisCostCen
         <div className="flex flex-wrap items-center gap-3 sm:flex-col sm:items-end sm:justify-center"><Button variant="secondary" type="button" disabled={busy || status === 'loading'}  aria-label={text(`分析这篇：${article.title}`, `Analyze article: ${article.title}`)} onClick={() => choose(article)}>{text('分析这篇', 'Analyze article')}</Button><a href={article.url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-1 text-xs text-[var(--color-link)]">{text('查看原文', 'Open original')}<ArrowUpRight size={14} aria-hidden="true" /></a></div>
       </li>)}</ol>
     </section>}
-    <details className="workspace-disclosure" open={rssOpen} onToggle={event => setRssOpen(event.currentTarget.open)}><summary>{text('从 RSS 订阅源选一篇', 'Browse RSS subscriptions')}</summary>{rssOpen && <RssNewsPanel isAnalyzing={busy} canAnalyze={canAnalyze} analysisCostCents={analysisCostCents} onAnalyzeHeadline={headline => choose({ title: headline.title, source: headline.sourceName || new URL(headline.url).hostname, url: headline.url, snippet: '', publishedAt: headline.publishedAt || null, provider: 'rss' })} />}</details>
+    {result ? <Button variant="ghost" onClick={()=>{setResult(null);persist({query:resultQuery||query,provider,period,result:null,pending:null})}}>{text('返回今日关注','Back to today’s focus')}</Button> : <HomeNewsFeed onSelect={choose} busy={busy} canAnalyze={canAnalyze} cost={analysisCostCents}/>}
   </div>;
 }
