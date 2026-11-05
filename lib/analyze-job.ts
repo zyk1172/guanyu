@@ -9,6 +9,7 @@ import { buildUsagePlan, getUsageSource } from '@/lib/billing';
 import { operationCostCents } from '@/lib/platform-model-core.mjs';
 import { encodePlatformModelSnapshot, platformModelSnapshot, resolvePlatformModel } from '@/lib/platform-models';
 import { withHistoricalAuditModelName } from '@/lib/audit-model-display';
+import { assertArticleText } from '@/lib/article-input';
 
 const MAX_NEWS_CONTENT_LENGTH = 30_000;
 const JOB_LEASE_MS = 6 * 60 * 1000;
@@ -51,9 +52,7 @@ export function normalizeAnalyzeJobInput(input: Partial<AnalyzeJobInput>) {
 export async function createAnalyzeJob(userId: string, input: Partial<AnalyzeJobInput>) {
   await ensureRuntimeSchema();
   const normalizedInput = normalizeAnalyzeJobInput(input);
-  if (normalizedInput.content.length < 50) {
-    throw new Error('新闻正文太短，最少需要 50 个字符。');
-  }
+  assertArticleText(normalizedInput.content, normalizedInput.title);
 
   const admission = await reserveAnalyzeJobAdmission(userId);
   try {
@@ -220,7 +219,7 @@ export async function runAnalyzeJob(jobId: string) {
 
     if (data.auditId) await completeJobWithAudit(jobId, data.auditId);
   } catch (error: any) {
-    const retryable = job.attemptCount < JOB_MAX_ATTEMPTS;
+    const retryable = error?.status !== 422 && job.attemptCount < JOB_MAX_ATTEMPTS;
     if (!retryable) {
       try {
         const storedInput = JSON.parse(job.inputJson);

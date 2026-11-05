@@ -31,6 +31,10 @@ export interface RssHeadline {
   title: string;
   url: string;
   publishedAt: string;
+  summary?: string;
+  imageUrl?: string;
+  imageWidth?: number;
+  imageHeight?: number;
 }
 
 export const RSS_SOURCE_CATALOG: RssSource[];
