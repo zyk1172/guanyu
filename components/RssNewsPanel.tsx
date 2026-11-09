@@ -2,7 +2,8 @@
 
 import { useUiLanguage } from '@/components/LanguageProvider';
 import { Button, Select } from '@/components/ui/controls';
-import { getWorkspaceCopy } from '@/lib/workspace-copy';
+import { formatCreditCents } from '@/lib/platform-model-core.mjs';
+import { useSession } from 'next-auth/react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 export type RssHeadline = {
@@ -29,12 +30,16 @@ type RssPayload = {
 export default function RssNewsPanel({
   onAnalyzeHeadline,
   isAnalyzing,
+  canAnalyze,
+  analysisCostCents,
 }: {
   onAnalyzeHeadline: (headline: RssHeadline) => Promise<void> | void;
   isAnalyzing: boolean;
+  canAnalyze: boolean;
+  analysisCostCents: number | null;
 }) {
   const { language, t } = useUiLanguage();
-  const c = getWorkspaceCopy(language);
+  const { status } = useSession();
   const [payload, setPayload] = useState<RssPayload | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -89,7 +94,8 @@ export default function RssNewsPanel({
         <div className="flex items-start justify-between gap-2">
           <div>
             <h2 className="text-sm font-bold text-[var(--color-text)]">{t('rss.title')}</h2>
-            <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{c.rssDescription}</p>
+            <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('rss.directDescription')}</p>
+            <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{analysisCostCents === null ? t('rss.costUnavailable') : t('rss.analysisCost', undefined, { cost: formatCreditCents(analysisCostCents) })}</p>
           </div>
           <Button variant="secondary"
             type="button"
@@ -143,10 +149,12 @@ export default function RssNewsPanel({
                   <Button variant="ghost"
                     type="button"
                     onClick={() => void handleAnalyze(headline)}
-                    disabled={isActive}
+                    disabled={isActive || status === 'loading' || (status === 'authenticated' && !canAnalyze)}
+                    aria-label={t('rss.analyzeArticle', undefined, { title: headline.title })}
+                    aria-busy={isActive && activeHeadlineId === headline.id}
                     className="mt-1.5"
                  >
-                    {isActive && activeHeadlineId === headline.id ? t('rss.starting') : c.read}
+                    {isActive && activeHeadlineId === headline.id ? t('rss.starting') : t('rss.analyzeNow')}
                   </Button>
                 </article>
               );

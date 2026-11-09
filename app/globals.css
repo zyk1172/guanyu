@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./news-home.css";
 
 :root,
 html[data-theme="newspaper"] {
