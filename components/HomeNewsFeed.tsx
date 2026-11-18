@@ -57,7 +57,7 @@ function NewsFeed({ onSelect, busy, canAnalyze, cost, identity, signedIn }: Feed
   const zh = language.startsWith('zh');
   const storageKey = `guanyu:home-news:v1:${language}:${signedIn ? 'account' : 'guest'}`;
   const [data, setData] = useState<HomeNewsResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [initialLoad, setInitialLoad] = useState<'restoring' | 'loading' | 'ready'>('restoring');
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [mode, setMode] = useState<'hot' | 'latest'>('hot');
@@ -130,7 +130,7 @@ function NewsFeed({ onSelect, busy, canAnalyze, cost, identity, signedIn }: Feed
     } finally {
       if (controller.current === abort) {
         controller.current = null;
-        setLoading(false);
+        setInitialLoad('ready');
         if (manual) setRefreshing(false);
       }
     }
@@ -143,6 +143,7 @@ function NewsFeed({ onSelect, busy, canAnalyze, cost, identity, signedIn }: Feed
       if (!mounted) return;
       const cached = readBrowserNews(storageKey, identity);
       if (cached) show(cached);
+      else setInitialLoad('loading');
       void load();
     });
 
@@ -189,9 +190,9 @@ function NewsFeed({ onSelect, busy, canAnalyze, cost, identity, signedIn }: Feed
     </div>
     {data&&!data.hotCount&&mode==='latest'&&<p role="status" className="news-feed-notice">{zh?'暂未发现有足够依据的热点，当前展示最新报道。':'No supported hot topics are available. Showing the latest reports.'}</p>}
     {error&&<div role="alert" className="news-feed-notice"><p>{error}</p><Button busy={refreshing} onClick={() => void load(true)}>{zh?'重试':'Retry'}</Button></div>}
-    {loading&&!data?<p role="status" className="news-feed-loading">{zh?'正在同步新闻与热点…':'Loading news and topic coverage…'}</p>:stories.length?<>
+    {initialLoad==='loading'&&!data?<p role="status" className="news-feed-loading">{zh?'正在同步新闻与热点…':'Loading news and topic coverage…'}</p>:stories.length?<>
       <div className="news-card-grid">{stories.slice(0,limit).map(story=><NewsCard key={story.id} story={story} asOf={data?.fetchedAt||''} onAnalyze={story=>void analyze(story)} disabled={busy||!!active||!identity||(signedIn&&!canAnalyze)} active={active===story.id} cost={cost}/>)}</div>
       {stories.length>limit&&<div className="news-feed-more"><Button onClick={()=>setLimit(limit+6)}>{zh?'查看更多报道':'More reports'}</Button></div>}
-    </>:!loading&&!error?<p role="status" className="news-feed-notice">{zh?'当前筛选下暂无报道。可以切换“最新”、选择其他新闻源，或搜索关键词。':'No reports match these filters. Try Latest, another source, or a keyword search.'}</p>:null}
+    </>:initialLoad==='ready'&&!error?<p role="status" className="news-feed-notice">{zh?'当前筛选下暂无报道。可以切换“最新”、选择其他新闻源，或搜索关键词。':'No reports match these filters. Try Latest, another source, or a keyword search.'}</p>:null}
   </section>;
 }
