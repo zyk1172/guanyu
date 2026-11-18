@@ -50,6 +50,7 @@ type CachedFeed = {
 
 const feedCache = new Map<string, CachedFeed>();
 const feedPending = new Map<string, Promise<string>>();
+let activeFetches = 0;
 
 function displaySource(source: RssSource) {
   return {
@@ -76,7 +77,7 @@ async function assertPublicRssUrl(value: string) {
   return target;
 }
 
-export async function fetchFeedXml(feedUrl: string) {
+async function requestFeedXml(feedUrl: string) {
   const deadline=Date.now()+FETCH_TIMEOUT_MS;
   let target = await assertPublicRssUrl(feedUrl);
   for (let attempt = 0; attempt <= MAX_REDIRECTS; attempt += 1) {
@@ -103,6 +104,16 @@ export async function fetchFeedXml(feedUrl: string) {
   throw new Error('RSS 获取失败。');
 }
 
+export async function fetchFeedXml(feedUrl: string) {
+  if (activeFetches >= 48) throw new Error('新闻源同步繁忙，请稍候。');
+  activeFetches += 1;
+  try {
+    return await requestFeedXml(feedUrl);
+  } finally {
+    activeFetches -= 1;
+  }
+}
+
 export async function getCachedFeedXml(feedUrl: string) {
   const cached = feedCache.get(feedUrl);
   if (cached && cached.expiresAt > Date.now()) return cached.xml;
@@ -118,12 +129,6 @@ export async function getCachedFeedXml(feedUrl: string) {
   }
   return pending;
 }
-async function getFeedHeadlines(source: RssSource) {
-  const xml = await getCachedFeedXml(source.feedUrl);
-  const headlines = (parseRssXml(xml, source) as RssHeadline[]).filter((headline): headline is RssHeadline => Boolean(headline));
-  return headlines;
-}
-
 function clientError(error: unknown) {
   const message = error instanceof Error ? error.message : '';
   if (/超时|Timeout|Abort/i.test(message)) return 'RSS 源响应超时。';
@@ -162,19 +167,17 @@ export async function getRssContext(request: Request) {
     return { sources, catalog: (getRssSourceCatalog() as RssSource[]).map(displaySource), config, configSource: canUseOwnApi ? 'personal' : 'admin' };
 }
 
-export async function loadRssSources(sources: RssSource[]) {
-    const settled = await Promise.allSettled(sources.map(async (source) => ({
-      source,
-      headlines: await getFeedHeadlines(source),
-    })));
+export async function loadRssSources(sources: RssSource[], readFeed = getCachedFeedXml) {
+    const settled = await Promise.allSettled(sources.map(async source =>
+      parseRssXml(await readFeed(source.feedUrl), source) as RssHeadline[],
+    ));
     const sourceErrors: Array<{ sourceId: string; message: string }> = [];
     const headlines = settled.flatMap((result, index) => {
-      if (result.status === 'fulfilled') return result.value.headlines.slice(0, 30);
-      console.info('[rss-source-fetch]', JSON.stringify({
-        sourceId: sources[index]?.id || 'unknown',
-        reason: result.reason instanceof Error ? result.reason.message.slice(0, 180) : 'unknown',
-      }));
-      sourceErrors.push({ sourceId: sources[index]?.id || 'unknown', message: clientError(result.reason) });
+      if (result.status === 'fulfilled') return result.value.slice(0, 30);
+      const source = sources[index];
+      const message = clientError(result.reason);
+      console.info('[rss-source-fetch]', source.region === 'custom' ? 'custom' : source.id, message);
+      sourceErrors.push({ sourceId: source.id, message });
       return [];
     });
 
