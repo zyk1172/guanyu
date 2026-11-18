@@ -252,7 +252,15 @@ ${recentHistory.map((h) => `${h.role === 'user' ? '用户' : 'AI'}: ${h.content}
       await completeServiceOperation(serviceOperation.id, serviceOperation.currentAttempt, {
         resultId: auditId,
         resultJson: JSON.stringify({ reply, usage: usagePayload, research: response.research }),
-      });
+      }, tx => tx.reportFollowup.create({ data: {
+        id: serviceOperation.id,
+        reportId: auditId,
+        reportVersion: auditRecord.reportVersion,
+        userId: user.id,
+        question,
+        answer: reply,
+        sources: response.research?.sources,
+      } }));
     } catch {
       await failServiceOperation(serviceOperation.id, serviceOperation.currentAttempt, 'persist_result_failed').catch(() => {});
       return NextResponse.json({ error: '追问结果保存失败，本次点数已释放，请重试。' }, { status: 500 });

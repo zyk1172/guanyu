@@ -1,370 +1,163 @@
 import {
-  AlignmentType,
-  BorderStyle,
-  Document,
-  ExternalHyperlink,
-  Footer,
-  Header,
-  HeadingLevel,
-  PageBreak,
-  PageNumber,
-  Packer,
-  Paragraph,
-  ShadingType,
-  Table,
-  TableCell,
-  TableLayoutType,
-  TableRow,
-  TextRun,
-  VerticalAlign,
-  WidthType,
+  AlignmentType, BorderStyle, Document, ExternalHyperlink, Footer, HeadingLevel, ImageRun,
+  PageNumber, Packer, Paragraph, ShadingType, Table, TableCell, TableLayoutType, TableRow,
+  TextRun, VerticalAlign, WidthType,
 } from 'docx';
-import { exportItems, exportPlainText, parseExportReport, type ExportReportItem } from '@/lib/report-export-content';
-import { getReportEmphasisRuns } from '@/lib/report-emphasis';
-import {
-  exportAppendixNotice,
-  exportCopy,
-  exportDisclaimer,
-  exportFieldLabel,
-  exportLocalizedValue,
-  getExportBrand,
-  normalizeExportLanguage,
-} from '@/lib/export-language-core.mjs';
+import sharp from 'sharp';
+import { buildReportExport, type ExportAudit, type ExportBar, type ExportEntry, type ExportLink, type ExportOptions, type ExportSection, type ReportExport } from './report-export-content';
+import { getReportEmphasisRuns } from './report-emphasis';
 
-export type AuditForWord = {
-  id: string;
-  title: string;
-  source: string;
-  publishedAt: string;
-  newsSummary: string;
-  auditResultJson: string;
-  originalContent: string;
-  modelName: string;
-  reasoningDepth: string;
-  reportLanguage: string;
-  createdAt: Date;
-  reportVersion: number;
-  completionMarkdown?: string | null;
-};
+export type AuditForWord = ExportAudit;
 
-type Report = ExportReportItem;
-type ReportItem = ExportReportItem;
+const CONTENT_WIDTH = 9746;
+const INK = '161B20';
+const MUTED = '4B5563';
+const ACCENT = '196960';
+const TRACK = 'E6EFED';
 
-const PAGE_WIDTH = 9360;
-const MAX_ITEM_CHARS = 2_000;
-const MAX_APPENDIX_CHARS = 32_000;
-// Apple Office and LibreOffice both resolve these installed CJK families. The
-// Latin fields retain a conventional report face while eastAsia keeps Chinese
-// (and the CJK fallbacks) readable without requiring a bundled font file.
-const SERIF = { ascii: 'Times New Roman', hAnsi: 'Times New Roman', eastAsia: 'Songti SC' };
-const SANS = { ascii: 'Arial', hAnsi: 'Arial', eastAsia: 'PingFang SC' };
-const BLACK = '111111';
-const MID = '4B5563';
-const LIGHT = 'F3F4F6';
-const RULE = 'A3A3A3';
-
-function isChinese(language: string) {
-  return language.toLowerCase().startsWith('zh');
+function eastAsia(text: string, language: string) {
+  if (/[\uac00-\ud7af]/u.test(text) || language === 'ko-KR') return 'Malgun Gothic';
+  if (/[\u3040-\u30ff]/u.test(text) || language === 'ja-JP') return 'Yu Gothic';
+  return language === 'zh-TW' ? 'Microsoft JhengHei' : 'PingFang SC';
 }
 
-function copy(language: string, zh: string, en: string) {
-  return exportCopy(language, zh, en);
-}
-
-function fontForText(value: unknown, sans = false) {
-  const raw = String(value || '');
-  if (/[\uac00-\ud7af]/u.test(raw)) {
-    return { ascii: sans ? 'Arial' : 'Times New Roman', hAnsi: sans ? 'Arial' : 'Times New Roman', eastAsia: 'Malgun Gothic' };
-  }
-  if (/[\u3040-\u30ff]/u.test(raw)) {
-    return { ascii: sans ? 'Arial' : 'Times New Roman', hAnsi: sans ? 'Arial' : 'Times New Roman', eastAsia: sans ? 'Yu Gothic' : 'Yu Mincho' };
-  }
-  return sans ? SANS : SERIF;
-}
-
-function documentFont(language: string, sans = false) {
-  if (language === 'ko-KR') return { ascii: sans ? 'Arial' : 'Times New Roman', hAnsi: sans ? 'Arial' : 'Times New Roman', eastAsia: 'Malgun Gothic' };
-  if (language === 'ja-JP') return { ascii: sans ? 'Arial' : 'Times New Roman', hAnsi: sans ? 'Arial' : 'Times New Roman', eastAsia: sans ? 'Yu Gothic' : 'Yu Mincho' };
-  if (language === 'zh-TW') return { ascii: sans ? 'Arial' : 'Times New Roman', hAnsi: sans ? 'Arial' : 'Times New Roman', eastAsia: sans ? 'Microsoft JhengHei' : 'PMingLiU' };
-  return sans ? SANS : SERIF;
-}
-
-const text = exportPlainText;
-
-function truncate(value: string, max = MAX_ITEM_CHARS) {
-  return value.length <= max ? value : `${value.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
-}
-
-const itemList = exportItems;
-
-function itemTitle(item: ReportItem) {
-  return truncate(text(item.title ?? item.supportsNarrative ?? item.supports_narrative ?? item.role ?? item.actor ?? item.question ?? item.target ?? item.explanation ?? item.perspective ?? item.content ?? item.description), 380) || '-';
-}
-
-function itemBody(item: ReportItem) {
-  return truncate(text(item.content ?? item.detail ?? item.description ?? item.reason ?? item.snippet ?? item.whyItMatters ?? item.why_it_matters));
-}
-
-function label(language: string, key: string) {
-  const labels: Record<string, [string, string]> = {
-    judgmentType: ['判断类型', 'Judgment type'], evidenceGrade: ['证据等级', 'Evidence grade'], verificationStatus: ['核验状态', 'Verification status'], speculationRisk: ['推测不确定性', 'Speculation uncertainty'], whyItMatters: ['重要性', 'Why it matters'], nextVerification: ['下一步核验', 'Next verification'], limitation: ['局限', 'Limitation'], possibleBenefit: ['可能利益', 'Potential benefit'], possibleCost: ['可能代价', 'Potential cost'], currentEvidenceStatus: ['当前证据', 'Current evidence'], neededVerification: ['需要核验', 'Required verification'], materialType: ['材料类型', 'Material type'], priority: ['优先级', 'Priority'], source: ['来源', 'Source'],
+export async function renderWordExport(report: ReportExport) {
+  const font = (text = '') => ({
+    ascii: 'Arial',
+    hAnsi: 'Arial',
+    eastAsia: eastAsia(text, report.language),
+    hint: /^(zh|ja|ko)-/.test(report.language) ? 'eastAsia' : undefined,
+  });
+  const run = (text: string, options: { bold?: boolean; color?: string; size?: number; break?: number; linked?: boolean } = {}) => {
+    const { linked, ...style } = options;
+    return new TextRun({ text, font: font(text), color: style.color ?? INK, underline: linked ? { type: 'single' } : undefined, ...style });
   };
-  const fallback = labels[key]?.[isChinese(language) ? 0 : 1] ?? key;
-  return exportFieldLabel(language, key, fallback);
-}
-
-function localized(language: string, value: unknown) {
-  return exportLocalizedValue(language, text(value));
-}
-
-function safeUrl(value: unknown) {
-  const candidate = text(value);
-  try {
-    const url = new URL(candidate);
-    return ['http:', 'https:'].includes(url.protocol) ? url.toString() : null;
-  } catch {
-    return null;
-  }
-}
-
-function proseRuns(value: string, options: { bold?: boolean; size?: number; color?: string; emphasize?: boolean } = {}) {
-  const runs = options.emphasize === false || options.bold ? [{ text: value, bold: Boolean(options.bold) }] : getReportEmphasisRuns(value);
-  return runs.map(run => new TextRun({ text: run.text, bold: run.bold, size: options.size, color: options.color, font: fontForText(value) }));
-}
-
-function paragraph(value: unknown, options: { bold?: boolean; size?: number; color?: string; style?: string; alignment?: (typeof AlignmentType)[keyof typeof AlignmentType]; pageBreakBefore?: boolean; spacing?: { before?: number; after?: number; line?: number }; keepNext?: boolean; emphasize?: boolean } = {}) {
-  return new Paragraph({
-    style: options.style,
-    pageBreakBefore: options.pageBreakBefore,
-    keepNext: options.keepNext,
-    alignment: options.alignment,
-    spacing: options.spacing ?? { after: 120, line: 330 },
-    children: proseRuns(truncate(text(value), MAX_ITEM_CHARS * 6), options),
+  const link = ({ href, label }: ExportLink) => new ExternalHyperlink({
+    link: href, children: [run(label, { linked: true, color: ACCENT })],
   });
-}
-
-function heading(value: string, level: 1 | 2 | 3, pageBreakBefore = false) {
-  return new Paragraph({
-    heading: level === 1 ? HeadingLevel.HEADING_1 : level === 2 ? HeadingLevel.HEADING_2 : HeadingLevel.HEADING_3,
-    pageBreakBefore,
+  const links = (entries: ExportLink[]) => entries.flatMap((entry, i) => [
+    ...(i ? [run(' · ', { color: MUTED })] : []),
+    link(entry),
+  ]);
+  const heading = (title: string, main = true) => new Paragraph({
+    heading: main ? HeadingLevel.HEADING_1 : HeadingLevel.HEADING_2,
     keepNext: true,
-    spacing: { before: level === 1 ? 0 : 260, after: 140, line: 360 },
-    children: [new TextRun({ text: value, font: fontForText(value, true), color: BLACK, bold: true })],
+    spacing: { before: main ? 216 : 110, after: 54, line: 285 },
+    children: [run(title, { bold: true, size: main ? 28 : 22 })],
   });
-}
-
-function bullet(value: unknown) {
-  return new Paragraph({
-    bullet: { level: 0 },
-    spacing: { after: 70, line: 300 },
-    children: proseRuns(truncate(text(value)), { color: BLACK, size: 20 }),
-  });
-}
-
-function cell(value: unknown, options: { bold?: boolean; shade?: string; width?: number; align?: (typeof AlignmentType)[keyof typeof AlignmentType] } = {}) {
-  return new TableCell({
-    width: options.width ? { size: options.width, type: WidthType.DXA } : undefined,
-    verticalAlign: VerticalAlign.CENTER,
-    shading: options.shade ? { type: ShadingType.CLEAR, fill: options.shade } : undefined,
-    margins: { top: 90, bottom: 90, left: 110, right: 110 },
-    children: [new Paragraph({
-      alignment: options.align,
-      spacing: { after: 0, line: 280 },
-      children: proseRuns(truncate(text(value), 900), { bold: options.bold, color: BLACK, size: 18 }),
-    })],
-  });
-}
-
-function table(headers: string[], rows: Array<Array<unknown>>, widths: number[]) {
-  return new Table({
-    width: { size: PAGE_WIDTH, type: WidthType.DXA },
-    columnWidths: widths,
-    layout: TableLayoutType.FIXED,
-    indent: { size: 0, type: WidthType.DXA },
-    margins: { top: 0, bottom: 0, left: 0, right: 0 },
-    borders: {
-      top: { style: BorderStyle.SINGLE, color: RULE, size: 6 }, bottom: { style: BorderStyle.SINGLE, color: RULE, size: 6 },
-      left: { style: BorderStyle.SINGLE, color: RULE, size: 4 }, right: { style: BorderStyle.SINGLE, color: RULE, size: 4 },
-      insideHorizontal: { style: BorderStyle.SINGLE, color: 'D4D4D4', size: 3 }, insideVertical: { style: BorderStyle.SINGLE, color: 'D4D4D4', size: 3 },
-    },
-    rows: [
-      new TableRow({ tableHeader: true, cantSplit: true, children: headers.map((header, index) => cell(header, { bold: true, shade: LIGHT, width: widths[index], align: AlignmentType.CENTER })) }),
-      ...rows.map((row) => new TableRow({ cantSplit: true, children: row.map((value, index) => cell(value, { width: widths[index] })) })),
-    ],
-  });
-}
-
-function sectionItems(title: string, value: unknown, language: string, description?: string) {
-  const items = itemList(value);
-  if (!items.length) return [] as Array<Paragraph | Table>;
-  const children: Array<Paragraph | Table> = [heading(title, 2)];
-  if (description) children.push(paragraph(description, { color: MID }));
-  items.forEach((item, index) => {
-    const title = `${index + 1}. ${itemTitle(item)}`;
-    children.push(new Paragraph({ keepNext: true, spacing: { before: 90, after: 60, line: 300 }, children: [new TextRun({ text: title, font: fontForText(title), bold: true, size: 21, color: BLACK })] }));
-    const body = itemBody(item);
-    if (body && body !== itemTitle(item)) children.push(paragraph(body, { spacing: { after: 60, line: 310 } }));
-    const meta = ['judgmentType', 'evidenceGrade', 'verificationStatus', 'speculationRisk', 'whyItMatters', 'nextVerification', 'limitation', 'possibleBenefit', 'possibleCost', 'currentEvidenceStatus', 'neededVerification']
-      .map((key) => text(item[key]) ? `${label(language, key)}: ${localized(language, item[key])}` : '')
-      .filter(Boolean);
-    if (meta.length) children.push(paragraph(meta.join(' | '), { size: 17, color: MID, spacing: { after: 90, line: 260 } }));
-  });
-  return children;
-}
-
-function score(report: Report, ...keys: string[]) {
-  const scores = (report.scores ?? report.scoreSummary ?? report.score_summary ?? {}) as ReportItem;
-  for (const key of keys) {
-    const value = scores[key];
-    if (typeof value === 'number' || typeof value === 'string') return String(value);
-  }
-  return '-';
-}
-
-function sourceRows(report: Report, language: string) {
-  const online = (report.onlineVerification ?? report.online_verification ?? report.web_verification ?? {}) as ReportItem;
-  const groups: Array<[string, unknown]> = [
-    [copy(language, '已核验来源', 'Verified sources'), online.verifiedSources ?? online.verified_sources],
-    [copy(language, '相关背景来源', 'Background sources'), online.backgroundSources ?? online.background_sources],
-    [copy(language, '待核验线索', 'Pending verification leads'), online.pendingLeads ?? online.pending_leads],
-  ];
-  const rows: Array<Array<unknown>> = [];
-  groups.forEach(([group, collection]) => itemList(collection).forEach((item) => {
-    const url = safeUrl(item.url);
-    rows.push([group, itemTitle(item), text(item.snippet ?? item.description ?? item.content), text(item.evidenceGrade ?? item.evidence_grade), localized(language, item.verificationStatus ?? item.verification_status), url ?? '']);
+  const paragraphs = (value: string, options: { muted?: boolean; raw?: boolean } = {}) => value.split(/\n\s*\n/).filter(Boolean).map(block => new Paragraph({
+    spacing: { after: options.muted ? 68 : 85, line: 286 },
+    children: block.split('\n').flatMap((line, i) => {
+      const runs = options.raw || options.muted ? [{ text: line, bold: false }] : getReportEmphasisRuns(line);
+      return runs.map((part, j) => run(part.text, { bold: part.bold, color: options.muted ? MUTED : INK, size: options.muted ? 18 : 21, break: i && j === 0 ? 1 : undefined }));
+    }),
   }));
-  return rows;
-}
+  function entry(item: ExportEntry, reference = false) {
+    const sourceLinks = item.links ?? [];
+    if (reference) {
+      return [new Paragraph({
+        spacing: { after: 70, line: 255 },
+        children: [
+          ...links(sourceLinks.map(source => ({ ...source, label: `[${source.label}] ${item.heading || source.href}` }))),
+          ...(item.detail ? [run(` · ${item.detail}`, { color: MUTED, size: 18 })] : []),
+        ],
+      })];
+    }
+    return [
+      ...(item.heading ? [heading(item.heading.replaceAll('\n', ' '), false)] : []),
+      ...paragraphs(item.body || '', { raw: item.verbatim }),
+      ...(item.detail || sourceLinks.length ? [new Paragraph({
+        spacing: { after: 90, line: 258 },
+        children: [
+          ...(item.detail ? [run(item.detail, { color: MUTED, size: 18 })] : []),
+          ...(item.detail && sourceLinks.length ? [run(' · ', { size: 18 })] : []),
+          ...links(sourceLinks.map(source => ({ ...source, label: `[${source.label}]` }))),
+        ],
+      })] : []),
+    ];
+  }
+  const section = ({ title, entries }: ExportSection, reference = false) => entries.length
+    ? [heading(title), ...entries.flatMap(item => entry(item, reference))]
+    : [];
 
-function sourceParagraphs(rows: Array<Array<unknown>>) {
-  if (!rows.length) return [] as Paragraph[];
-  const result: Paragraph[] = [];
-  rows.forEach((row, index) => {
-    const url = safeUrl(row[5]);
-    result.push(new Paragraph({ spacing: { after: 80, line: 300 }, children: [
-      new TextRun({ text: `[${index + 1}] ${text(row[1])}. `, font: fontForText(row[1]), bold: true, color: BLACK, size: 19 }),
-      ...proseRuns(`${text(row[0])}; ${text(row[2])} `, { color: MID, size: 19 }),
-      ...(url ? [new ExternalHyperlink({ link: url, children: [new TextRun({ text: url, font: SERIF, color: '1A5A8A', underline: { type: 'single' }, size: 18 })] })] : []),
-    ] }));
-  });
-  return result;
-}
+  async function chart(rows: ExportBar[], limit: number, columns: [string, string]) {
+    const widths = [3446, 5100, 1200];
+    const cell = (contents: Array<TextRun | ImageRun>, width: number, header = false) => new TableCell({
+      width: { size: width, type: WidthType.DXA },
+      verticalAlign: VerticalAlign.CENTER,
+      margins: { top: 42, bottom: 42, left: 84, right: 84 },
+      shading: header ? { type: ShadingType.CLEAR, fill: TRACK } : undefined,
+      children: [new Paragraph({ spacing: { after: 0, line: 247 }, children: contents })],
+    });
+    const body = await Promise.all(rows.map(async row => {
+      const width = Math.round(row.value / limit * 420);
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="420" height="16"><rect width="420" height="16" fill="#${TRACK}"/><rect width="${width}" height="16" fill="#${ACCENT}"/></svg>`;
+      const data = await sharp(Buffer.from(svg)).png().toBuffer();
+      return new TableRow({ cantSplit: true, children: [
+        cell([run(row.label, { size: 19 })], widths[0]),
+        cell([new ImageRun({ type: 'png', data, transformation: { width: 210, height: 8 } })], widths[1]),
+        cell([run(String(row.value), { size: 19, bold: true })], widths[2]),
+      ] });
+    }));
+    return new Table({
+      width: { size: CONTENT_WIDTH, type: WidthType.DXA }, columnWidths: widths, layout: TableLayoutType.FIXED,
+      borders: { insideHorizontal: { style: BorderStyle.SINGLE, color: TRACK, size: 3 } },
+      rows: [new TableRow({ tableHeader: true, cantSplit: true, children: [
+        cell([run(columns[0], { size: 19, bold: true })], widths[0]),
+        cell([], widths[1]),
+        cell([run(columns[1], { size: 19, bold: true })], widths[2]),
+      ] }), ...body],
+    });
+  }
 
-function appendix(content: string, language: string) {
-  if (content.length <= MAX_APPENDIX_CHARS) return content;
-  return `${content.slice(0, MAX_APPENDIX_CHARS)}${exportAppendixNotice(language, MAX_APPENDIX_CHARS, 'document')}`;
-}
-
-export async function renderProfessionalWord(audit: AuditForWord) {
-  const language = normalizeExportLanguage(audit.reportLanguage || 'zh-CN');
-  const brand = getExportBrand(language);
-  const report = parseExportReport(audit.auditResultJson);
-  const title = `${brand.name} · ${copy(language, '新闻叙事审视报告', 'News Narrative Review Report')}`;
-  const now = audit.createdAt.toISOString().slice(0, 10);
-  const sourceTableRows = sourceRows(report, language);
-  const source = (report.sourceInterpretation ?? report.source_interpretation ?? {}) as ReportItem;
-  const conclusion = text(report.oneSentenceConclusion ?? report.one_sentence_conclusion) || copy(language, '当前材料不足，无法形成可靠判断。', 'The available material is insufficient for a reliable conclusion.');
-  const documentControl = [
-    [copy(language, '报告编号', 'Report ID'), audit.id], [copy(language, '版本', 'Version'), String(audit.reportVersion)],
-    [copy(language, '生成时间', 'Generated'), audit.createdAt.toISOString()], [copy(language, '语言', 'Language'), audit.reportLanguage],
-    [copy(language, '分析方法', 'Method'), text(report.methodology) || copy(language, '观隅九镜审读法', 'Guanyu Nine-Lens Reading')], [copy(language, '生成模型', 'Model'), audit.modelName],
-  ];
-  // A static contents list avoids Word's opening-time field update prompt and
-  // remains stable across Word, WPS, LibreOffice, and browser previews.
-  const tocEntries = [
-    copy(language, '文档控制', 'Document control'), copy(language, '目录', 'Table of contents'), copy(language, '执行摘要', 'Executive summary'),
-    copy(language, '新闻事件与原始主张', 'News event and original claims'), copy(language, '证据评估', 'Evidence assessment'),
-    copy(language, '叙事结构与倾向分析', 'Narrative structure and framing'), copy(language, '风险与不确定性', 'Risk and uncertainty'),
-    copy(language, '验证路线图', 'Verification roadmap'), copy(language, 'AI 补充分析', 'AI supplementary analysis'),
-    copy(language, 'AI 追问记录', 'AI follow-up record'), copy(language, '来源与引用', 'Sources and references'),
-    copy(language, '附录：新闻原文', 'Appendix: original article'),
-  ].map((entry) => ({ title: entry, level: 1 }));
-
-  const children: Array<Paragraph | Table> = [
-    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 2200, after: 260 }, children: [new TextRun({ text: brand.name, font: fontForText(brand.name, true), bold: true, size: 34, color: BLACK, characterSpacing: 36 })] }),
-    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 520 }, children: [new TextRun({ text: title, font: fontForText(title, true), bold: true, size: 42, color: BLACK })] }),
-    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 700 }, children: [new TextRun({ text: audit.title, font: fontForText(audit.title), size: 27, color: MID })] }),
-    table([copy(language, '项目', 'Item'), copy(language, '信息', 'Information')], [
-      [copy(language, '新闻来源', 'Source'), audit.source || copy(language, '未提供', 'Not provided')],
-      [copy(language, '新闻发布时间', 'Published'), audit.publishedAt || copy(language, '未能可靠识别', 'Not reliably identified')],
-      [copy(language, '报告编号', 'Report ID'), audit.id],
-      [copy(language, '报告版本', 'Report version'), String(audit.reportVersion)],
-      [copy(language, '报告语言', 'Report language'), audit.reportLanguage],
-    ], [2300, 7060]),
-    new Paragraph({ spacing: { before: 600, after: 0, line: 300 }, children: [new TextRun({ text: exportDisclaimer(language), font: fontForText(exportDisclaimer(language)), color: MID, size: 18, italics: true })] }),
-    new Paragraph({ children: [new PageBreak()] }),
-    heading(copy(language, '文档控制', 'Document control'), 1),
-    table([copy(language, '字段', 'Field'), copy(language, '内容', 'Content')], documentControl, [2300, 7060]),
-    heading(copy(language, '目录', 'Table of contents'), 1, true),
-    ...tocEntries.map((entry, index) => new Paragraph({
-      spacing: { after: 90, line: 300 },
-      children: [new TextRun({ text: `${index + 1}. ${entry.title}`, font: fontForText(entry.title), size: 20, color: BLACK })],
-    })),
-    heading(copy(language, '执行摘要', 'Executive summary'), 1, true),
-    paragraph(audit.newsSummary || text(source.whatItSays) || copy(language, '报告未提供可用摘要。', 'No usable summary was provided.')),
-    heading(copy(language, '一句话结论', 'One-sentence conclusion'), 2),
-    paragraph(conclusion, { bold: true, size: 22 }),
-    heading(copy(language, '核心指标总览', 'Core metrics'), 2),
-    table([copy(language, '指标', 'Metric'), copy(language, '数值', 'Score'), copy(language, '释义', 'Interpretation')], [
-      [copy(language, '可信度', 'Credibility'), `${score(report, 'credibility', 'credibilityScore')}/100`, copy(language, '越高表示原文主张越有可追溯支撑。', 'Higher indicates more traceable support for the article’s claims.')],
-      [copy(language, '信息完整度', 'Information completeness'), `${score(report, 'informationCompleteness', 'information_completeness')}/100`, copy(language, '越高表示关键事实、范围和口径披露越完整。', 'Higher indicates fuller disclosure of material facts, scope, and methods.')],
-      [copy(language, '叙事倾向性', 'Narrative framing'), `${score(report, 'narrativeBias', 'narrative_bias')}/100`, copy(language, '越高表示引导性表达或单向框架越明显。', 'Higher indicates stronger directional framing.')],
-      [copy(language, '证据强度', 'Evidence strength'), `${score(report, 'evidenceStrength', 'evidence_strength')}/100`, copy(language, '越高表示可核验材料越充分。', 'Higher indicates more sufficient verifiable evidence.')],
-      [copy(language, '推测不确定性', 'Speculation uncertainty'), `${score(report, 'speculationRisk', 'speculation_risk')}/100`, copy(language, '越高表示应更谨慎区分假设与事实。', 'Higher calls for greater caution in distinguishing hypotheses from facts.')],
-    ], [2600, 1300, 5460]),
-    ...sectionItems(copy(language, '关键发现', 'Key findings'), report.keyFindings ?? report.key_findings, language),
-    heading(copy(language, '新闻事件与原始主张', 'News event and original claims'), 1, true),
-    paragraph(text(source.whatItSays) || audit.newsSummary),
-    ...sectionItems(copy(language, '核心主张', 'Core claims'), source.coreClaims ?? source.core_claims, language),
-    ...sectionItems(copy(language, '原文关键证据', 'Key evidence in the article'), source.keyEvidence ?? source.key_evidence, language),
-    heading(copy(language, '证据评估', 'Evidence assessment'), 1, true),
-    table([copy(language, '核心主张', 'Claim'), copy(language, '支持证据', 'Evidence'), copy(language, '来源', 'Source'), copy(language, '强度', 'Strength'), copy(language, '当前状态', 'Current status')], [
-      ...itemList(report.supportingEvidence ?? report.narrative_supporting_evidence).map((item) => [itemTitle(item), itemBody(item), text(item.source ?? item.sourceName ?? copy(language, '报告材料', 'Report material')), text(item.evidenceGrade ?? item.evidence_grade ?? '-'), localized(language, item.verificationStatus ?? item.verification_status ?? '-')]),
-      ...itemList(report.keyFindings ?? report.key_findings).map((item) => [itemTitle(item), itemBody(item), text(item.source ?? copy(language, '报告材料', 'Report material')), text(item.evidenceGrade ?? item.evidence_grade ?? '-'), localized(language, item.verificationStatus ?? item.verification_status ?? '-')]),
-    ].filter((row) => text(row[0]) !== '-'), [2600, 2750, 1500, 950, 1560]),
-    heading(copy(language, '叙事结构与倾向分析', 'Narrative structure and framing'), 1, true),
-    paragraph(text(source.narrativeStyle ?? source.narrative_style) || copy(language, '报告未提供叙事结构说明。', 'The report does not provide a narrative-structure note.')),
-    ...sectionItems(copy(language, '主要信息缺口', 'Major information gaps'), report.informationGaps ?? report.major_information_gaps, language),
-    ...sectionItems(copy(language, '关键利益关系', 'Key interest relationships'), report.interestRelationships ?? report.stakeholderRelations ?? ((report.nine_mirror_review as ReportItem | undefined)?.interest_cost_map), language),
-    ...sectionItems(copy(language, '替代解释', 'Alternative explanations'), report.alternativeExplanations ?? report.alternative_explanations, language),
-    heading(copy(language, '风险与不确定性', 'Risk and uncertainty'), 1, true),
-    table([copy(language, '风险层级', 'Risk level'), copy(language, '说明', 'Explanation')], [
-      [copy(language, '高', 'High'), text(report.riskNotice ?? report.risk_notice) || copy(language, '高风险判断必须有外部可复核材料支持；当前缺口应明确保留。', 'High-risk judgments require externally reviewable material; unresolved gaps remain explicit.')],
-      [copy(language, '中', 'Medium'), copy(language, '基于原文可作合理推断，但不得当作既成事实。', 'A reasonable inference from the article, but not an established fact.')],
-      [copy(language, '低', 'Low'), copy(language, '原文明确陈述或有相对可追溯材料支持的基础信息。', 'Basic information explicitly stated in the article or supported by traceable material.')],
-    ], [1650, 7710]),
-    heading(copy(language, '验证路线图', 'Verification roadmap'), 1, true),
-    ...sectionItems(copy(language, '优先核验事项', 'Priority verification items'), report.verificationRoadmap ?? report.verification_roadmap, language),
-    heading(copy(language, 'AI 补充分析', 'AI supplementary analysis'), 1, true),
-    paragraph(audit.completionMarkdown || text(report.completionMarkdown) || copy(language, '当前报告尚无 AI 补全内容。', 'No AI completion has been generated for this report.')),
-    heading(copy(language, 'AI 追问记录', 'AI follow-up record'), 1, true),
-    paragraph(copy(language, '当前版本未保存独立的追问问答记录；下列为报告建议继续追问的问题。', 'This version does not store a separate follow-up conversation record; the following are the report’s recommended questions.')),
-    ...itemList(report.questionsToAsk ?? report.questions_to_ask_next).map((item) => bullet(itemTitle(item))),
-    heading(copy(language, '来源与引用', 'Sources and references'), 1, true),
-    ...sourceParagraphs(sourceTableRows),
-    heading(copy(language, '附录：新闻原文', 'Appendix: original article'), 1, true),
-    paragraph(appendix(audit.originalContent || copy(language, '未提供原始新闻正文。', 'The original article text was not provided.'), language), { spacing: { after: 100, line: 330 }, emphasize: false }),
-  ];
+  const measures = report.metrics.length ? [
+    heading(report.metricsTitle),
+    await chart(report.metrics, 100, [report.columns.metric, `${report.columns.score}/100`]),
+    ...report.metrics.flatMap(item => item.reason ? paragraphs(`${item.label} · ${item.reason}`, { muted: true }) : []),
+    ...paragraphs(report.metricsNote, { muted: true }),
+  ] : [];
+  const grades = report.grades.length ? [
+    heading(report.gradesTitle),
+    await chart(report.grades, Math.max(...report.grades.map(grade => grade.value)), [report.columns.grade, report.columns.count]),
+    ...paragraphs(report.gradesNote, { muted: true }),
+  ] : [];
 
   const doc = new Document({
-    creator: brand.name,
-    title: `${title} — ${audit.title}`,
-    subject: copy(language, '新闻叙事审视与证据评估', 'News narrative review and evidence assessment'),
-    keywords: `Guanyu,news narrative review,evidence assessment,${audit.id}`,
-    description: copy(language, '观隅正式新闻叙事审视报告', 'Guanyu formal news narrative review report'),
-    revision: audit.reportVersion,
-    customProperties: [
-      { name: 'Company', value: brand.name }, { name: 'Category', value: 'Narrative Intelligence Report' }, { name: 'Language', value: audit.reportLanguage }, { name: 'Version', value: String(audit.reportVersion) }, { name: 'Report ID', value: audit.id },
-    ],
+    title: report.title,
     styles: {
-      default: { document: { run: { font: documentFont(language), size: 21, color: BLACK }, paragraph: { spacing: { after: 120, line: 330 } } }, heading1: { run: { font: documentFont(language, true), size: 31, bold: true, color: BLACK }, paragraph: { spacing: { before: 0, after: 170 } } }, heading2: { run: { font: documentFont(language, true), size: 25, bold: true, color: BLACK }, paragraph: { spacing: { before: 260, after: 140 } } }, heading3: { run: { font: documentFont(language, true), size: 22, bold: true, color: BLACK }, paragraph: { spacing: { before: 180, after: 100 } } } },
+      default: { document: { run: { font: font(), size: 21, color: INK, language: { value: report.language, eastAsia: report.language } } } },
+      paragraphStyles: [{ id: 'Title', name: 'Title', basedOn: 'Normal', next: 'Normal' }],
     },
     sections: [{
-      properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 1020, right: 1080, bottom: 1080, left: 1080 } } },
-      headers: { default: new Header({ children: [new Paragraph({ border: { bottom: { style: BorderStyle.SINGLE, color: RULE, size: 6, space: 5 } }, spacing: { after: 60 }, children: [new TextRun({ text: `${brand.name}  |  ${copy(language, '新闻叙事审视', 'News narrative review')}`, font: fontForText(brand.name, true), size: 16, color: MID, bold: true }), new TextRun({ text: `                                                                 ${audit.id}`, font: SANS, size: 15, color: MID })] })] }) },
-      footers: { default: new Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 60 }, children: [new TextRun({ text: `${copy(language, '观隅 · 仅供研究与事实核验辅助', 'Guanyu · For research and factual review support only')}  |  `, font: documentFont(language), size: 15, color: MID }), new TextRun({ children: [PageNumber.CURRENT, ' / ', PageNumber.TOTAL_PAGES], font: documentFont(language), size: 15, color: MID }), new TextRun({ text: `  |  guanyu-seven.vercel.app  |  ${now}`, font: documentFont(language), size: 15, color: MID })] })] }) },
-      children,
+      properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 1020, right: 1080, bottom: 1050, left: 1080 } } },
+      footers: { default: new Footer({ children: [new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [new TextRun({ children: [PageNumber.CURRENT], size: 18, color: MUTED })],
+      })] }) },
+      children: [
+        new Paragraph({ style: 'Title', keepNext: true, spacing: { after: 120, line: 445 }, children: [run(report.title, { size: 42, bold: true })] }),
+        ...(report.publisher || report.original ? [new Paragraph({
+          keepNext: true, spacing: { after: 165, line: 275 },
+          children: [
+            ...(report.publisher ? [run(report.publisher, { size: 19, color: MUTED })] : []),
+            ...(report.original ? [...(report.publisher ? [run(' · ')] : []), link(report.original)] : []),
+          ],
+        })] : []),
+        ...paragraphs(report.summary),
+        ...(report.conclusion ? [heading(report.conclusionLabel), ...paragraphs(report.conclusion)] : []),
+        ...paragraphs(report.evidenceNote, { muted: true }),
+        ...measures, ...grades,
+        ...report.sections.flatMap(item => section(item)),
+        ...section(report.references, true),
+        ...paragraphs(report.metadata, { muted: true }),
+        ...paragraphs(report.disclaimer, { muted: true }),
+        ...(report.appendix ? section(report.appendix) : []),
+      ],
     }],
   });
   return Packer.toBuffer(doc);
+}
+
+export function renderProfessionalWord(audit: AuditForWord, options?: ExportOptions) {
+  return renderWordExport(buildReportExport(audit, options));
 }
