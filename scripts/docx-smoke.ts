@@ -33,7 +33,7 @@ async function main() {
     modelName: 'DeepSeek V4 Pro', reasoningDepth: 'high', reportLanguage: 'zh-CN', createdAt: new Date('2026-07-17T10:00:00Z'), reportVersion: 3,
     completionMarkdown: 'AI 补全内容示例：应将已核验的事实与待核验的判断明确区分。', auditResultJson: JSON.stringify(report),
   };
-  const docx = await renderProfessionalWord(audit);
+  const docx = await renderProfessionalWord(audit, { includeOriginal: true });
   const chineseFile = path.join(output, 'guanyu-professional-zh.docx');
   await writeFile(chineseFile, docx);
   console.log(`${chineseFile}: ${docx.byteLength} bytes`);
@@ -63,7 +63,7 @@ async function main() {
       riskNotice: 'This report is limited by the availability of public material and the scope of external verification. It is not a factual verdict.',
     }),
   };
-  const englishDocx = await renderProfessionalWord(englishAudit);
+  const englishDocx = await renderProfessionalWord(englishAudit, { includeOriginal: true });
   const englishFile = path.join(output, 'guanyu-professional-en.docx');
   await writeFile(englishFile, englishDocx);
   console.log(`${englishFile}: ${englishDocx.byteLength} bytes`);
