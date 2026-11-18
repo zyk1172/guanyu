@@ -6,6 +6,7 @@ import { newsImageUrl } from '../lib/news-image-core.mjs';
 import { parseHeadlineIndex, publisherKey, rankHomeNews } from '../lib/home-news-core';
 import { coverFromHtml, fetchNewsThumbnail, newsImageHref, readImageTicket } from '../lib/news-media';
 import { loadHomeSnapshot } from '../lib/home-news-service';
+import { adoptSharedNews } from '../lib/home-news-client';
 import type { HomeHeadline } from '../lib/home-news-types';
 const now=Date.parse('2026-11-05T08:00:00Z');
 const source={id:'fixture',name:'虚构新闻源',feedUrl:'https://news.example/feed.xml'};
@@ -90,4 +91,15 @@ test('image loading validates raster type, limits redirects and preserves same-a
  await assert.rejects(fetchNewsThumbnail({...ticket,image:''},{request:async()=>({status:200,headers:new Headers({'content-type':'text/html'}),body:Buffer.from('<meta property="og:image" content="http://127.0.0.1/a.jpg">')})}));
  await assert.rejects(fetchNewsThumbnail(ticket,{request:async()=>({status:200,headers:new Headers({'content-type':'image/png'}),body:Buffer.from('<svg><script>alert(1)</script></svg>')})}));
  assert.deepEqual(coverFromHtml('<meta property="og:image" content="/photo.jpg"><meta name="twitter:image" content="/logo.png">','https://news.example/article'),['https://news.example/photo.jpg']);
+});
+
+test('manual news survives shared reads until a newer server version or source configuration is published', () => {
+ const original = { cacheKey: 'sources-a', sharedVersion: '2026-11-05T08:00:00.000Z', fetchedAt: '2026-11-05T08:00:00.000Z', sources: [], stories: [], hotCount: 0, sourceErrors: [], indexAvailable: false };
+ const local = { data: { ...original, fetchedAt: '2026-11-05T08:47:00.000Z' }, manual: true, etag: null };
+ assert.deepEqual(adoptSharedNews(local, original, '"original"'), { ...local, etag: '"original"' });
+ assert.equal(adoptSharedNews(local, { ...original, sharedVersion: '2026-11-05T07:00:00.000Z' }, null).data, local.data);
+ const next = { ...original, sharedVersion: '2026-11-05T09:00:00.000Z' };
+ assert.deepEqual(adoptSharedNews(local, next, '"next"'), { data: next, etag: '"next"', manual: false });
+ const differentSources = { ...original, cacheKey: 'sources-b' };
+ assert.equal(adoptSharedNews(local, differentSources, null).data, differentSources);
 });
