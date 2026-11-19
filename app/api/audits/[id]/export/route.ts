@@ -10,9 +10,9 @@ import { withHistoricalAuditModelName } from '@/lib/audit-model-display';
 import { sameOriginResponse } from '@/lib/request-security';
 
 const FORMATS = {
-  PDF: { extension: 'pdf', mime: 'application/pdf', version: '9', cost: CREDIT_COSTS.PDF_EXPORT },
-  WORD: { extension: 'docx', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', version: '5', cost: CREDIT_COSTS.WORD_EXPORT },
-  MARKDOWN: { extension: 'md', mime: 'text/markdown; charset=utf-8', version: '4', cost: CREDIT_COSTS.MARKDOWN_EXPORT },
+  PDF: { extension: 'pdf', mime: 'application/pdf', version: '10', cost: CREDIT_COSTS.PDF_EXPORT },
+  WORD: { extension: 'docx', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', version: '6', cost: CREDIT_COSTS.WORD_EXPORT },
+  MARKDOWN: { extension: 'md', mime: 'text/markdown; charset=utf-8', version: '5', cost: CREDIT_COSTS.MARKDOWN_EXPORT },
 } as const;
 type ExportFormat = keyof typeof FORMATS;
 type Context = { params: Promise<{ id: string }> };

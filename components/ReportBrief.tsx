@@ -25,7 +25,7 @@ export default function ReportBrief({ report, originalContent = '' }: { report: 
   const tasks = [...(report.verificationRoadmap || [])].sort((a, b) => Number(b.priority === '高') - Number(a.priority === '高')).slice(0, 2);
   return (
     <section id="report-brief" data-reading-section={c[0]} aria-label={c[0]} className="report-brief">
-      <h2 className="text-lg font-bold text-[var(--color-text)]">{c[0]}</h2>
+      <h2 data-reading-title="" className="text-lg font-bold text-[var(--color-text)]">{c[0]}</h2>
       <p className="mt-2 text-sm leading-relaxed text-[var(--color-text-muted)]"><ReportText>{report.newsSummary}</ReportText></p>
       <div className="report-conclusion"><h3>{c[1]}</h3><p><ReportText>{report.oneSentenceConclusion}</ReportText></p></div>
       <div className="mt-6 grid gap-6 text-sm sm:grid-cols-2">

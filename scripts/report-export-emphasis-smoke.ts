@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { NextRequest } from 'next/server';
 import { encode } from 'next-auth/jwt';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFName } from 'pdf-lib';
+import JSZip from 'jszip';
 import { prisma } from '../lib/prisma';
 import { getDemoReport } from '../lib/demo-report';
 import { GET, POST } from '../app/api/audits/[id]/export/route';
@@ -25,8 +26,8 @@ try {
   const post = async (req: NextRequest) => { const response = await POST(req, ctx); assert.ok(response); return response; };
   const get = async (req: NextRequest) => { const response = await GET(req, ctx); assert.ok(response); return response; };
   const formats = ['PDF', 'WORD', 'MARKDOWN'] as const;
-  const versions = { PDF: '9', WORD: '5', MARKDOWN: '4' };
-  const oldVersions = { PDF: '8', WORD: '4', MARKDOWN: '3' };
+  const versions = { PDF: '10', WORD: '6', MARKDOWN: '5' };
+  const oldVersions = { PDF: '9', WORD: '5', MARKDOWN: '4' };
 
   const concurrent = await Promise.all([
     post(request('WORD')),
@@ -73,13 +74,24 @@ try {
       assert.equal(bytes.subarray(0, 5).toString(), '%PDF-');
       assert.match(bytes.toString('latin1'), /NotoSansSC-Regular/);
       assert.match(bytes.toString('latin1'), /NotoSansSC-Bold/);
-      assert.ok((await PDFDocument.load(bytes)).getPageCount() <= 5, 'the compact fixture must not acquire extra footer pages');
+      const pdf = await PDFDocument.load(bytes);
+      assert.ok(pdf.getPageCount() <= 6, 'the compact fixture gains a contents page without extra footer pages');
+      assert.ok(pdf.catalog.has(PDFName.of('Outlines')));
+      assert.ok((pdf.getPage(0).node.Annots()?.size() || 0) >= 4, 'the contents page links to the report chapters');
     }
-    if (format === 'WORD') assert.equal(bytes.subarray(0, 2).toString(), 'PK');
+    if (format === 'WORD') {
+      const zip = await JSZip.loadAsync(bytes);
+      const xml = await zip.file('word/document.xml')?.async('string') || '';
+      assert.match(xml, /w:anchor="section_1"/);
+      assert.match(xml, /w:name="section_1"/);
+      assert.match(xml, /w:val="Subtitle"/);
+      assert.match(xml, /w:val="Heading1"/);
+      assert.match(xml, /w:val="Heading2"/);
+    }
     if (format === 'MARKDOWN') {
       assert.ok(bytes.toString().includes('**'));
       const markdown = bytes.toString();
-      assert.match(markdown, /## 已完成追问/);
+      assert.match(markdown, /## \d+\. 已完成追问/);
       assert.match(markdown, /这项核验材料是什么？/);
       assert.match(markdown, /第二段/);
       assert.match(markdown, /https:\/\/evidence\.example\/one/);

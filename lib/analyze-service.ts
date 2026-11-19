@@ -21,6 +21,7 @@ import { decodePlatformModelSnapshot, platformModelSnapshot, resolvePlatformMode
 import { invokeModel, type RuntimeUsage } from '@/lib/model-runtime';
 import { recordModelUsage } from '@/lib/model-usage';
 import { normalizeEvidenceReferences } from '@/lib/report-evidence';
+import { normalizeEmphasisPhrases } from '@/lib/report-emphasis';
 import type { UsagePlan, UsageSource } from '@/lib/billing';
 import type {
   AnalysisMode,
@@ -401,7 +402,11 @@ function normalizeReport(params: {
     riskNotice: String(parsed.riskNotice || '本报告的不确定性主要来自原文证据缺口、外部核验不足和推断链条限制；它影响读者对报道完整性、相关主体责任和后续行动的判断，应通过原始材料、多方报道和当事方回应继续核验。'),
   };
   const readWorth = computeReadWorth(report);
-  return { ...report, readingValue: readWorth.label, read_worth: readWorth };
+  const emphasisSources = [report.newsSummary, report.oneSentenceConclusion, report.riskNotice,
+    ...Object.values(report.scoreReasons), ...report.keyFindings.flatMap(finding => [finding.title, finding.content])];
+  const emphasisPhrases = normalizeEmphasisPhrases(parsed.emphasisPhrases)
+    .filter(phrase => emphasisSources.some(source => source?.includes(phrase)));
+  return { ...report, emphasisPhrases, readingValue: readWorth.label, read_worth: readWorth };
 }
 
 function buildSearchContext(sources: Awaited<ReturnType<typeof searchWeb>>): string {

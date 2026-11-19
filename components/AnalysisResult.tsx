@@ -41,7 +41,7 @@ import { useUiLanguage } from './LanguageProvider';
 import ReadingNavigation from './ReadingNavigation';
 import ReadWorthVerdict from './ReadWorthVerdict';
 import ReportBrief from './ReportBrief';
-import ReportText from './ReportText';
+import ReportText, { ReportEmphasisContext } from './ReportText';
 import { useActiveModel } from './useActiveModel';
 import VerificationRoadmap from './VerificationRoadmap';
 
@@ -144,10 +144,11 @@ function Badge({ children, className, title }: { children: React.ReactNode; clas
 }
 
 function Section({ title, children, aside, id }: { title: string; children: React.ReactNode; aside?: React.ReactNode; id?: string }) {
+  const label = id ? title.replace(/^\d+[.．、]\s*/u, '') : title;
   return (
-    <Panel id={id} data-reading-section={id ? title : undefined} className="result-card">
+    <Panel id={id} data-reading-section={id ? label : undefined} className="result-card">
       <div className="mb-3 flex flex-col gap-2 border-b border-[var(--color-border)] pb-2 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-sm font-bold text-[var(--color-text)]">{title}</h2>
+        <h2 data-reading-title={id ? '' : undefined} className="text-sm font-bold text-[var(--color-text)]">{label}</h2>
         {aside}
       </div>
       {children}
@@ -929,12 +930,14 @@ export default function AnalysisResultView({ result: rawResult, relatedCoverage,
       {verificationNotice && <div data-verification-toast role="status" className="rounded-lg border border-[var(--color-success)]/35 bg-[color-mix(in_srgb,var(--color-success)_10%,var(--color-surface))] px-3 py-2 text-xs font-bold text-[var(--color-success)]">{verificationNotice}</div>}
       <div className={isQuick(result) ? undefined : 'report-layout'}>
         <div ref={contentRef} className="report-content min-w-0">
+          <ReportEmphasisContext.Provider value={isDeep(result) ? result.emphasisPhrases || [] : []}>
           <div className="space-y-4 sm:space-y-5">
             {isQuick(result)
               ? <QuickReportView report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} questionAction={questionAction} />
               : <DeepReportView relatedCoverage={relatedCoverage} report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} displayLimit={readingLimit} auditId={auditId} canUpdateVerification={canUpdateVerification} onVerificationUpdated={handleVerificationUpdated} questionAction={questionAction} />}
             {isQuick(result) && relatedCoverage}
           </div>
+          </ReportEmphasisContext.Provider>
         </div>
         {!isQuick(result) && <ReadingNavigation language={result.meta.reportLanguage} contentRef={contentRef} />}
       </div>

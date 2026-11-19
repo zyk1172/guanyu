@@ -1,6 +1,6 @@
 import { exportAppendixNotice, exportCopy, exportDisclaimer, exportFieldLabel, exportLocalizedValue, getExportBrand, normalizeExportLanguage } from './export-language-core.mjs';
 import { formatJudgmentType, formatMaterialType, formatUnconfirmedItem, formatVerificationStatus, getReportText } from './report-display-core.mjs';
-import { emphasizeReportMarkdown } from './report-emphasis';
+import { emphasizeReportMarkdown, emphasizeReportTextMarkdown, normalizeEmphasisPhrases } from './report-emphasis';
 
 export type ExportAudit = {
   id: string;
@@ -278,7 +278,11 @@ export function buildReportExport(audit: ExportAudit, options: ExportOptions = {
 
   return {
     title: audit.title,
+    subtitle: label('新闻叙事审视报告', 'News Narrative Review Report'),
+    contentsTitle: label('目录', 'Table of contents'),
+    summaryTitle: label('摘要', 'Abstract'),
     language,
+    emphasisPhrases: normalizeEmphasisPhrases(report.emphasisPhrases),
     publisher,
     original: originalLink ? { label: label('查看新闻原文', 'Read the original article'), href: originalLink } : undefined,
     summary,
@@ -306,51 +310,79 @@ export function buildReportExport(audit: ExportAudit, options: ExportOptions = {
 
 export type ReportExport = ReturnType<typeof buildReportExport>;
 
+export function buildReportOutline(report: ReportExport) {
+  const sections: Array<ExportSection & { kind: 'text' | 'metrics' | 'grades' | 'references' | 'appendix' }> = [
+    { kind: 'text', title: report.summaryTitle, entries: report.summary ? [{ body: report.summary }] : [] },
+    { kind: 'text', title: report.conclusionLabel, entries: report.conclusion ? [{ body: report.conclusion, detail: report.evidenceNote }] : [] },
+    { kind: 'metrics', title: report.metricsTitle, entries: [] },
+    { kind: 'grades', title: report.gradesTitle, entries: [] },
+    ...report.sections.map(section => ({ ...section, kind: 'text' as const })),
+    { ...report.references, kind: 'references' },
+    ...(report.appendix ? [{ ...report.appendix, kind: 'appendix' as const }] : []),
+  ];
+  return sections.filter(section => section.kind === 'metrics' ? report.metrics.length : section.kind === 'grades' ? report.grades.length : section.entries.length)
+    .map((section, index) => {
+      const number = index + 1;
+      let subheading = 0;
+      return {
+        ...section,
+        id: `section_${number}`,
+        title: `${number}. ${section.title}`,
+        entries: section.entries.map(entry => ({
+          ...entry,
+          heading: entry.heading && section.kind !== 'references'
+            ? `${number}.${++subheading} ${entry.heading.replaceAll('\n', ' ')}`
+            : entry.heading,
+        })),
+      };
+    });
+}
+
 export function renderMarkdownExport(report: ReportExport) {
   const markdownLink = (link: ExportLink) => `[${link.label}](<${link.href}>)`;
   const tableCell = (value: string) => value.replaceAll('|', '\\|').replaceAll('\n', ' ');
-  const sections = report.sections;
   const { columns } = report;
+  const sections = buildReportOutline(report);
   const body = [
     `# ${report.title}`,
     [report.publisher, report.original && markdownLink(report.original)].filter(Boolean).join(' · '),
-    report.summary,
-    report.conclusion && `## ${report.conclusionLabel}\n\n${report.conclusion}`,
-    report.evidenceNote,
-    report.metrics.length && [
-      `## ${report.metricsTitle}\n`,
-      `| ${columns.metric} | ${columns.score} | ${columns.rationale} |`,
-      '| --- | ---: | --- |',
-      ...report.metrics.map(metric => `| ${metric.label} | ${metric.value}/100 | ${tableCell(metric.reason)} |`),
-      `\n${report.metricsNote}`,
-    ].join('\n'),
-    report.grades.length && [
-      `## ${report.gradesTitle}\n`,
-      `| ${columns.grade} | ${columns.count} |`,
-      '| --- | ---: |',
-      ...report.grades.map(grade => `| ${grade.label} | ${grade.value} |`),
-      `\n${report.gradesNote}`,
-    ].join('\n'),
-    ...sections.filter(section => section.entries.length).map(section => [
-      `## ${section.title}`,
-      ...section.entries.map(entry => [
-        entry.heading && `### ${entry.heading.replaceAll('\n', ' ')}`,
-        entry.body,
-        [entry.detail, ...(entry.links ?? []).map(markdownLink)].filter(Boolean).join(' · '),
-      ].filter(Boolean).join('\n\n')),
-    ].join('\n\n')),
-    report.references.entries.length && [
-      `## ${report.references.title}\n`,
-      ...report.references.entries.map(item => {
-        const source = item.links?.[0];
-        if (!source) return '';
-        const label = `${source.label} · ${item.heading || source.label}`.replaceAll('[', '\\[').replaceAll(']', '\\]');
-        return `- ${markdownLink({ ...source, label })}${item.detail ? ` · ${item.detail}` : ''}`;
-      }),
-    ].join('\n'),
+    ...sections.filter(section => section.kind !== 'appendix').map(section => {
+      const heading = `## ${section.title}`;
+      if (section.kind === 'metrics') return [
+        heading + '\n',
+        `| ${columns.metric} | ${columns.score} | ${columns.rationale} |`,
+        '| --- | ---: | --- |',
+        ...report.metrics.map(metric => `| ${metric.label} | ${metric.value}/100 | ${tableCell(emphasizeReportTextMarkdown(metric.reason, report.emphasisPhrases))} |`),
+        `\n${report.metricsNote}`,
+      ].join('\n');
+      if (section.kind === 'grades') return [
+        heading + '\n',
+        `| ${columns.grade} | ${columns.count} |`,
+        '| --- | ---: |',
+        ...report.grades.map(grade => `| ${grade.label} | ${grade.value} |`),
+        `\n${report.gradesNote}`,
+      ].join('\n');
+      if (section.kind === 'references') return [
+        heading + '\n',
+        ...section.entries.map(item => {
+          const source = item.links?.[0];
+          if (!source) return '';
+          const label = `${source.label} · ${item.heading || source.label}`.replaceAll('[', '\\[').replaceAll(']', '\\]');
+          return `- ${markdownLink({ ...source, label })}${item.detail ? ` · ${item.detail}` : ''}`;
+        }),
+      ].join('\n');
+      return [
+        heading,
+        ...section.entries.map(entry => [
+          entry.heading && `### ${entry.heading}`,
+          entry.verbatim ? entry.body : entry.body && emphasizeReportMarkdown(entry.body, report.emphasisPhrases),
+          [entry.detail, ...(entry.links ?? []).map(markdownLink)].filter(Boolean).join(' · '),
+        ].filter(Boolean).join('\n\n')),
+      ].join('\n\n');
+    }),
     report.metadata,
     report.disclaimer,
   ].filter(Boolean).join('\n\n');
-  const formatted = emphasizeReportMarkdown(body);
-  return report.appendix ? `${formatted}\n\n## ${report.appendix.title}\n\n${report.appendix.entries[0].body}` : formatted;
+  const appendix = sections.find(section => section.kind === 'appendix');
+  return appendix ? `${body}\n\n## ${appendix.title}\n\n${appendix.entries[0].body}` : body;
 }
