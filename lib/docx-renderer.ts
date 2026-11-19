@@ -1,10 +1,10 @@
 import {
-  AlignmentType, BorderStyle, Document, ExternalHyperlink, Footer, HeadingLevel, ImageRun,
+  AlignmentType, Bookmark, BorderStyle, Document, ExternalHyperlink, Footer, HeadingLevel, ImageRun, InternalHyperlink,
   PageNumber, Packer, Paragraph, ShadingType, Table, TableCell, TableLayoutType, TableRow,
   TextRun, VerticalAlign, WidthType,
 } from 'docx';
 import sharp from 'sharp';
-import { buildReportExport, type ExportAudit, type ExportBar, type ExportEntry, type ExportLink, type ExportOptions, type ExportSection, type ReportExport } from './report-export-content';
+import { buildReportExport, buildReportOutline, type ExportAudit, type ExportBar, type ExportEntry, type ExportLink, type ExportOptions, type ReportExport } from './report-export-content';
 import { getReportEmphasisRuns } from './report-emphasis';
 
 export type AuditForWord = ExportAudit;
@@ -22,6 +22,7 @@ function eastAsia(text: string, language: string) {
 }
 
 export async function renderWordExport(report: ReportExport) {
+  const outline = buildReportOutline(report);
   const font = (text = '') => ({
     ascii: 'Arial',
     hAnsi: 'Arial',
@@ -39,16 +40,19 @@ export async function renderWordExport(report: ReportExport) {
     ...(i ? [run(' · ', { color: MUTED })] : []),
     link(entry),
   ]);
-  const heading = (title: string, main = true) => new Paragraph({
-    heading: main ? HeadingLevel.HEADING_1 : HeadingLevel.HEADING_2,
+  const heading = (title: string, sectionId?: string, pageBreakBefore = false) => new Paragraph({
+    heading: sectionId ? HeadingLevel.HEADING_1 : HeadingLevel.HEADING_2,
     keepNext: true,
-    spacing: { before: main ? 216 : 110, after: 54, line: 285 },
-    children: [run(title, { bold: true, size: main ? 28 : 22 })],
+    pageBreakBefore,
+    spacing: { before: sectionId ? 216 : 110, after: 54, line: 285 },
+    children: sectionId
+      ? [new Bookmark({ id: sectionId, children: [run(title, { bold: true, size: 30 })] })]
+      : [run(title, { bold: true, size: 23 })],
   });
   const paragraphs = (value: string, options: { muted?: boolean; raw?: boolean } = {}) => value.split(/\n\s*\n/).filter(Boolean).map(block => new Paragraph({
     spacing: { after: options.muted ? 68 : 85, line: 286 },
     children: block.split('\n').flatMap((line, i) => {
-      const runs = options.raw || options.muted ? [{ text: line, bold: false }] : getReportEmphasisRuns(line);
+      const runs = options.raw ? [{ text: line, bold: false }] : getReportEmphasisRuns(line, report.emphasisPhrases);
       return runs.map((part, j) => run(part.text, { bold: part.bold, color: options.muted ? MUTED : INK, size: options.muted ? 18 : 21, break: i && j === 0 ? 1 : undefined }));
     }),
   }));
@@ -64,7 +68,7 @@ export async function renderWordExport(report: ReportExport) {
       })];
     }
     return [
-      ...(item.heading ? [heading(item.heading.replaceAll('\n', ' '), false)] : []),
+      ...(item.heading ? [heading(item.heading)] : []),
       ...paragraphs(item.body || '', { raw: item.verbatim }),
       ...(item.detail || sourceLinks.length ? [new Paragraph({
         spacing: { after: 90, line: 258 },
@@ -76,10 +80,6 @@ export async function renderWordExport(report: ReportExport) {
       })] : []),
     ];
   }
-  const section = ({ title, entries }: ExportSection, reference = false) => entries.length
-    ? [heading(title), ...entries.flatMap(item => entry(item, reference))]
-    : [];
-
   async function chart(rows: ExportBar[], limit: number, columns: [string, string]) {
     const widths = [3446, 5100, 1200];
     const cell = (contents: Array<TextRun | ImageRun>, width: number, header = false) => new TableCell({
@@ -111,13 +111,11 @@ export async function renderWordExport(report: ReportExport) {
   }
 
   const measures = report.metrics.length ? [
-    heading(report.metricsTitle),
     await chart(report.metrics, 100, [report.columns.metric, `${report.columns.score}/100`]),
     ...report.metrics.flatMap(item => item.reason ? paragraphs(`${item.label} · ${item.reason}`, { muted: true }) : []),
     ...paragraphs(report.metricsNote, { muted: true }),
   ] : [];
   const grades = report.grades.length ? [
-    heading(report.gradesTitle),
     await chart(report.grades, Math.max(...report.grades.map(grade => grade.value)), [report.columns.grade, report.columns.count]),
     ...paragraphs(report.gradesNote, { muted: true }),
   ] : [];
@@ -126,7 +124,10 @@ export async function renderWordExport(report: ReportExport) {
     title: report.title,
     styles: {
       default: { document: { run: { font: font(), size: 21, color: INK, language: { value: report.language, eastAsia: report.language } } } },
-      paragraphStyles: [{ id: 'Title', name: 'Title', basedOn: 'Normal', next: 'Normal' }],
+      paragraphStyles: [
+        { id: 'Title', name: 'Title', basedOn: 'Normal', next: 'Normal' },
+        { id: 'Subtitle', name: 'Subtitle', basedOn: 'Normal', next: 'Normal' },
+      ],
     },
     sections: [{
       properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 1020, right: 1080, bottom: 1050, left: 1080 } } },
@@ -136,6 +137,7 @@ export async function renderWordExport(report: ReportExport) {
       })] }) },
       children: [
         new Paragraph({ style: 'Title', keepNext: true, spacing: { after: 120, line: 445 }, children: [run(report.title, { size: 42, bold: true })] }),
+        new Paragraph({ style: 'Subtitle', keepNext: true, spacing: { after: 100 }, children: [run(report.subtitle, { size: 27, bold: true, color: ACCENT })] }),
         ...(report.publisher || report.original ? [new Paragraph({
           keepNext: true, spacing: { after: 165, line: 275 },
           children: [
@@ -143,15 +145,17 @@ export async function renderWordExport(report: ReportExport) {
             ...(report.original ? [...(report.publisher ? [run(' · ')] : []), link(report.original)] : []),
           ],
         })] : []),
-        ...paragraphs(report.summary),
-        ...(report.conclusion ? [heading(report.conclusionLabel), ...paragraphs(report.conclusion)] : []),
-        ...paragraphs(report.evidenceNote, { muted: true }),
-        ...measures, ...grades,
-        ...report.sections.flatMap(item => section(item)),
-        ...section(report.references, true),
-        ...paragraphs(report.metadata, { muted: true }),
-        ...paragraphs(report.disclaimer, { muted: true }),
-        ...(report.appendix ? section(report.appendix) : []),
+        new Paragraph({ keepNext: true, spacing: { before: 240, after: 115 }, children: [run(report.contentsTitle, { size: 30, bold: true })] }),
+        ...outline.map(item => new Paragraph({
+          keepLines: true, spacing: { after: 60, line: 260 },
+          children: [new InternalHyperlink({ anchor: item.id, children: [run(item.title, { linked: true, color: ACCENT })] })],
+        })),
+        ...outline.flatMap((item, index) => [
+          heading(item.title, item.id, index === 0),
+          ...(item.kind === 'metrics' ? measures : item.kind === 'grades' ? grades : item.entries.flatMap(row => entry(row, item.kind === 'references'))),
+        ]),
+        ...paragraphs(report.metadata, { muted: true, raw: true }),
+        ...paragraphs(report.disclaimer, { muted: true, raw: true }),
       ],
     }],
   });

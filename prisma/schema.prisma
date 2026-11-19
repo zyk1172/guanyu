@@ -488,6 +488,7 @@ model ReportDiscussionMessage {
   userId              String
   user                User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
   parentMessageId     String?
+  replyToMessageId    String? // Specific reply target within the top-level thread.
   parent              ReportDiscussionMessage?  @relation("DiscussionReplies", fields: [parentMessageId], references: [id], onDelete: SetNull)
   replies             ReportDiscussionMessage[] @relation("DiscussionReplies")
   content             String
