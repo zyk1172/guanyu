@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { NextRequest } from 'next/server';
 import { encode } from 'next-auth/jwt';
 import { PDFDocument, PDFName } from 'pdf-lib';
-import JSZip from 'jszip';
+import { strFromU8, unzipSync } from 'fflate';
 import { prisma } from '../lib/prisma';
 import { getDemoReport } from '../lib/demo-report';
 import { GET, POST } from '../app/api/audits/[id]/export/route';
@@ -80,8 +80,9 @@ try {
       assert.ok((pdf.getPage(0).node.Annots()?.size() || 0) >= 4, 'the contents page links to the report chapters');
     }
     if (format === 'WORD') {
-      const zip = await JSZip.loadAsync(bytes);
-      const xml = await zip.file('word/document.xml')?.async('string') || '';
+      const documentXml = unzipSync(bytes)['word/document.xml'];
+      assert.ok(documentXml, 'the Word archive contains its document XML');
+      const xml = strFromU8(documentXml);
       assert.match(xml, /w:anchor="section_1"/);
       assert.match(xml, /w:name="section_1"/);
       assert.match(xml, /w:val="Subtitle"/);
