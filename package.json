@@ -62,14 +62,14 @@
     "next-auth": "4.24.15",
     "nodemailer": "^10.2.0",
     "pdf-lib": "^1.17.1",
-    "pdfkit": "^0.19.1",
+    "pdfkit": "^0.20.2",
     "prisma": "7.9.1",
     "qrcode": "^1.5.4",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "recharts": "^3.10.1",
     "sharp": "0.35.3",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "overrides": {
     "undici": "7.29.0",
@@ -89,6 +89,7 @@
     "brace-expansion": "1.1.18",
     "eslint": "^9",
     "eslint-config-next": "16.4.2",
+    "fflate": "0.8.3",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5"
