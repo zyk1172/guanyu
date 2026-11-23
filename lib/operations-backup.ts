@@ -121,8 +121,8 @@ function readEnvelope(archive: Buffer, passphrase: string): OperationsBackupSnap
 }
 
 export async function createOperationsBackup() {
-  const [appSettings, users, userSettings, audits, pointTransactions, purchaseOrders, rssFeeds, rssItems, discussionMessages, discussionReports, exportArtifacts, emailDeliveries, platformModelConfigs, modelUsageEvents, savedArticles] = await Promise.all([
-    prisma.appSetting.findMany(), prisma.user.findMany(), prisma.userSettings.findMany(), prisma.audit.findMany(), prisma.pointTransaction.findMany(), prisma.purchaseOrder.findMany(), prisma.rssFeed.findMany(), prisma.rssItem.findMany(), prisma.reportDiscussionMessage.findMany(), prisma.discussionReport.findMany(), prisma.exportArtifact.findMany(), prisma.emailDelivery.findMany(), prisma.platformModelConfig.findMany(), prisma.modelUsageEvent.findMany(), prisma.savedArticle.findMany(),
+  const [appSettings, users, userSettings, audits, pointTransactions, purchaseOrders, rssFeeds, rssItems, discussionMessages, discussionReports, exportArtifacts, emailDeliveries, platformModelConfigs, modelUsageEvents, savedArticles, reportFollowups] = await Promise.all([
+    prisma.appSetting.findMany(), prisma.user.findMany(), prisma.userSettings.findMany(), prisma.audit.findMany(), prisma.pointTransaction.findMany(), prisma.purchaseOrder.findMany(), prisma.rssFeed.findMany(), prisma.rssItem.findMany(), prisma.reportDiscussionMessage.findMany(), prisma.discussionReport.findMany(), prisma.exportArtifact.findMany(), prisma.emailDelivery.findMany(), prisma.platformModelConfig.findMany(), prisma.modelUsageEvent.findMany(), prisma.savedArticle.findMany(), prisma.reportFollowup.findMany(),
   ]);
   const appSettingsRows = appSettings.map((row) => removeSecretFields(row as unknown as BackupRecord, ['adminLlmApiKeyEncrypted', 'adminTavilyApiKeyEncrypted', 'adminSerperApiKeyEncrypted']));
   const userSettingsRows = userSettings.map((row) => removeSecretFields(row as unknown as BackupRecord, ['llmApiKeyEncrypted', 'tavilyApiKeyEncrypted', 'serperApiKeyEncrypted', 'deepseekApiKeyEncrypted']));
@@ -143,6 +143,7 @@ export async function createOperationsBackup() {
     platformModelConfigs: platformModelRows,
     modelUsageEvents: modelUsageEvents as unknown as BackupRecord[],
     savedArticles: savedArticles as unknown as BackupRecord[],
+    reportFollowups: reportFollowups as unknown as BackupRecord[],
   };
   const snapshot: OperationsBackupSnapshot = {
     format: FORMAT,
@@ -258,6 +259,10 @@ export async function restoreOperationsBackup(snapshot: OperationsBackupSnapshot
     if (requireRows(snapshot, 'discussionReports').length) await tx.discussionReport.createMany({ data: requireRows(snapshot, 'discussionReports') as any });
     if (safeRows(snapshot.tables.modelUsageEvents).length) await tx.modelUsageEvent.createMany({ data: safeRows(snapshot.tables.modelUsageEvents) as any });
     if (savedArticleRows.length) await tx.savedArticle.createMany({ data: savedArticleRows as any });
+    const followups = safeRows(snapshot.tables.reportFollowups);
+    if (followups.length) await tx.reportFollowup.createMany({
+      data: followups.map(row => ({ ...row, sources: row.sources ?? undefined })) as Prisma.ReportFollowupCreateManyInput[],
+    });
   }, { maxWait: 10_000, timeout: 60_000, isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
   return { restoredAt: new Date().toISOString(), counts: snapshot.counts };

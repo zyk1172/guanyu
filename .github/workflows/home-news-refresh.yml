@@ -1,0 +1,49 @@
+name: Refresh homepage news
+
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: home-news-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      SITE_URL: ${{ vars.GUANYU_SITE_URL || 'https://guanyu-seven.vercel.app' }}
+    steps:
+      - name: Warm and verify public news snapshots
+        shell: bash
+        run: |
+          check_edition() {
+            local locale="$1"
+            local url="${SITE_URL%/}/api/news/home?locale=${locale}"
+            for attempt in 1 2 3; do
+              if curl --fail --silent --show-error --max-time 25 "$url" |
+                jq -e '(.sharedVersion | type == "string") and (.stale != true)' > /dev/null; then
+                echo "${locale}: current snapshot ready"
+                return 0
+              fi
+              if [[ "$attempt" != 3 ]]; then sleep 15; fi
+            done
+            echo "::error::${locale}: could not verify a current news snapshot"
+            return 1
+          }
+
+          checks=()
+          for locale in zh-CN zh-TW en-US; do
+            check_edition "$locale" &
+            checks+=("$!")
+          done
+
+          result=0
+          for check in "${checks[@]}"; do
+            wait "$check" || result=1
+          done
+          exit "$result"

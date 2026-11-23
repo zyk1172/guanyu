@@ -58,6 +58,13 @@ async function main() {
     assert.equal(planning, 1); assert.equal(answering, 1); assert.equal(searching, 2); assert.equal(await balance(), 9900);
     const cached = await request(users[0], id); assert.equal(cached.status, 200);assert.deepEqual((await cached.json()).research, answer.research);
     assert.equal(await balance(), 9900); assert.equal(planning, 1); assert.equal(answering, 1);
+    const savedTurn = await prisma.reportFollowup.findFirstOrThrow({
+      where: { userId: users[0], reportId: audit.id, reportVersion: audit.reportVersion },
+    });
+    assert.match(savedTurn.question, /姆巴佩具体说了什么/);
+    assert.equal(savedTurn.answer, answer.reply);
+    assert.deepEqual(savedTurn.sources, answer.research.sources);
+    assert.equal(await prisma.reportFollowup.count({ where: { userId: users[0], reportId: audit.id } }), 1);
     const logged = await prisma.modelUsageEvent.findFirstOrThrow({ where: { userId: users[0], operation: 'followup', status: 'success' } });
     assert.equal(logged.inputTokens, 70); assert.equal(logged.outputTokens, 30); assert.equal(logged.searchRequestCount, 2);
     const before = searching;
@@ -74,6 +81,8 @@ async function main() {
     const publicReader = await request(users[1]);assert.equal(publicReader.status, 200);
     assert.ok(payloads.length >= 2);assert.ok(payloads.every(body => !body.includes(privateMarker)), 'public followups must not send hidden article text, quotes or owner-only supplements to planning or answer models');
     assert.equal(await prisma.serviceOperation.count({ where: { userId: users[0], status: 'COMPLETED', operation: 'followup' } }), 4);
+    assert.equal(await prisma.reportFollowup.count({ where: { userId: users[0], reportId: audit.id } }), 4);
+    assert.equal(await prisma.reportFollowup.count({ where: { userId: users[1], reportId: audit.id } }), 1);
     console.log('Event followup smoke passed: real HTTP model and search fixtures, platform prefetch, snippet labels, cached research, single charge, summed token/search usage, offline policy, unsupported tools fallback, failure refund, CSRF/auth/private report and hidden-source boundaries.');
   } finally {
     await prisma.modelUsageEvent.deleteMany({ where: { userId: { in: users } } });await prisma.user.deleteMany({ where: { id: { in: users } } });await prisma.platformModelConfig.delete({ where: { id: model.id } });

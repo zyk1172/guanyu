@@ -163,7 +163,7 @@ async function main() {
           reportLanguage: language,
           auditResultJson: JSON.stringify(englishReport),
         };
-    const pdf = await renderProfessionalPdf(audit);
+    const pdf = await renderProfessionalPdf(audit, { includeOriginal: true });
     await writeFile(path.join(output, filename), pdf);
     console.log(`${filename}: ${pdf.byteLength} bytes`);
   }
