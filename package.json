@@ -4,8 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
-    "build": "prisma generate && next build",
-    "vercel-build": "node scripts/check-deployment-env.mjs && prisma generate && prisma migrate deploy && next build",
+    "build": "prisma generate && npm run build:app",
+    "build:app": "next build && npm run typecheck",
+    "typecheck": "tsc --noEmit --incremental false",
+    "vercel-build": "node scripts/check-deployment-env.mjs && prisma generate && prisma migrate deploy && npm run build:app",
     "postinstall": "prisma generate",
     "start": "next start",
     "lint": "eslint",
@@ -86,13 +88,14 @@
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@typescript/native": "npm:typescript@7.0.2",
     "brace-expansion": "1.1.18",
     "eslint": "^9",
     "eslint-config-next": "16.4.2",
     "fflate": "0.8.3",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
-    "typescript": "^5"
+    "typescript": "npm:@typescript/typescript6@6.0.2"
   },
   "type": "module"
 }

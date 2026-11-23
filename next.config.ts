@@ -7,6 +7,9 @@ const allowedDevOrigins = process.env.NEXT_ALLOWED_DEV_ORIGINS
 
 const nextConfig: NextConfig = {
   output: process.env.VERCEL ? undefined : 'standalone',
+  // The TypeScript 6 compatibility package provides the API used by Next.js and ESLint.
+  // build:app also checks the generated route types with the TypeScript 7 CLI.
+  experimental: { useTypeScriptCli: false },
   ...(allowedDevOrigins?.length ? { allowedDevOrigins } : {}),
   outputFileTracingIncludes: {
     '/api/audits/[id]/export': [
