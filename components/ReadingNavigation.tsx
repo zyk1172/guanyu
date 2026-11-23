@@ -93,7 +93,7 @@ export default function ReadingNavigation({ language, contentRef }: {
   return <aside className="report-sidebar">
     <p className="report-sidebar-label">{label}</p>
     <nav ref={navigationRef} className="reading-navigation" aria-label={label}>
-      {entries.map(({ id, title }) => <a key={id} href={`#${id}`} aria-current={active === id ? 'location' : undefined} onClick={() => setActive(id)}>{title}</a>)}
+      {entries.map(({ id, title }, index) => <a key={id} href={`#${id}`} aria-current={active === id ? 'location' : undefined} onClick={() => setActive(id)}><span className="reading-navigation-number">{index + 1}.</span>{title}</a>)}
     </nav>
   </aside>;
 }

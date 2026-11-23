@@ -9,13 +9,14 @@
     "postinstall": "prisma generate",
     "start": "next start",
     "lint": "eslint",
-    "ci": "npm run lint && npm run test:prisma-config && npm run test:analysis-draft && npm run test:report && npm run test:report-schema && npm run test:report-exports && npm run test:round2 && npm run test:backup && npm run test:platform-models && npm run test:analyze-job && npm run test:model-runtime && npm run test:web-research && npm run test:permissions && npm run test:deepseek-settings && npm run test:related-coverage && npm run test:related-coverage-db && npm run test:event-followup && npm run test:access && npm run test:news-search && npm run build",
+    "ci": "npm run lint && npm run test:prisma-config && npm run test:analysis-draft && npm run test:report && npm run test:report-schema && npm run test:report-exports && npm run test:discussion && npm run test:round2 && npm run test:backup && npm run test:platform-models && npm run test:analyze-job && npm run test:article-input && npm run test:model-runtime && npm run test:web-research && npm run test:permissions && npm run test:deepseek-settings && npm run test:related-coverage && npm run test:related-coverage-db && npm run test:event-followup && npm run test:access && npm run test:news-search && npm run test:home-news && npm run build",
     "test:report": "node --test scripts/report-logic.test.mjs",
     "test:report-schema": "tsx --test scripts/report-schema.test.ts scripts/report-evidence.test.ts scripts/onboarding.test.ts scripts/report-comparison.test.ts scripts/report-emphasis.test.ts",
     "test:report-exports": "tsx scripts/report-export-emphasis-smoke.ts",
     "test:task-quote": "tsx scripts/task-quote-smoke.ts",
     "test:order-status": "tsx scripts/order-status-smoke.ts",
     "test:comparison": "tsx scripts/report-comparison-smoke.ts",
+    "test:discussion": "tsx scripts/discussion-smoke.ts",
     "test:round2": "tsx --test scripts/round2-security.test.ts",
     "reset:business-data": "tsx scripts/reset-business-data.ts",
     "test:pdf": "tsx scripts/pdf-smoke.ts",
@@ -36,7 +37,9 @@
     "test:access": "tsx --test scripts/access-traffic.test.ts && tsx scripts/access-account-smoke.ts",
     "test:prisma-config": "node --test scripts/prisma-config.test.mjs",
     "test:news-search": "tsx --test scripts/news-search.test.ts && tsx scripts/news-search-smoke.ts",
-    "test:event-followup": "tsx --test scripts/event-followup.test.ts && tsx scripts/event-followup-smoke.ts"
+    "test:event-followup": "tsx --test scripts/event-followup.test.ts && tsx scripts/event-followup-smoke.ts",
+    "test:article-input": "tsx --test scripts/article-input.test.ts && tsx scripts/article-input-smoke.ts",
+    "test:home-news": "tsx --test scripts/home-news.test.ts && tsx scripts/home-news-smoke.ts"
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
@@ -50,8 +53,8 @@
     "@types/qrcode": "^1.5.6",
     "@upstash/redis": "^1.38.2",
     "cheerio": "^1.2.0",
-    "docx": "^9.7.1",
-    "dotenv": "^18.0.8",
+    "docx": "^9.16.0",
+    "dotenv": "^18.0.9",
     "fast-xml-parser": "^5.11.0",
     "jsdom": "26.1.0",
     "lucide-react": "^1.33.0",
@@ -59,14 +62,14 @@
     "next-auth": "4.24.15",
     "nodemailer": "^10.2.0",
     "pdf-lib": "^1.17.1",
-    "pdfkit": "^0.19.1",
+    "pdfkit": "^0.20.2",
     "prisma": "7.9.1",
     "qrcode": "^1.5.4",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "recharts": "^3.10.1",
     "sharp": "0.35.3",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "overrides": {
     "undici": "7.29.0",
@@ -86,6 +89,7 @@
     "brace-expansion": "1.1.18",
     "eslint": "^9",
     "eslint-config-next": "16.4.2",
+    "fflate": "0.8.3",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5"

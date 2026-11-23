@@ -5,6 +5,7 @@ import { cacheGet, cacheSet, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
 import { getProduct, type PaymentMethod, type ProductId } from '@/lib/product-catalog';
 import { calculateProAccessExpiry } from '@/lib/pro-access-core.mjs';
 import { ANALYZE_ADMISSION_ACTION, reserveAnalyzeJobAdmission } from '@/lib/rate-limit';
+import { discussionAuthorSelect } from '@/lib/discussion-dto';
 
 // All arithmetic uses integer hundredths. The database stores the same value in
 // DECIMAL(12,2); no JS floating-point amount is used for billing decisions.
@@ -212,12 +213,46 @@ export async function grantPoints(userId: string, points: number, reason: string
   return centsToDisplayPoints(result.after);
 }
 
-export async function createDiscussionMessageWithCharge(params: { userId: string; reportId: string; reportVersion: number; parentMessageId?: string | null; content: string; languageCode: string; idempotencyKey: string; }) {
+export async function createDiscussionMessageWithCharge(params: {
+  userId: string; reportId: string; reportVersion: number; replyToMessageId: string | null;
+  content: string; languageCode: string; idempotencyKey: string;
+}) {
   return prisma.$transaction(async (tx) => {
-    const prior = await tx.reportDiscussionMessage.findFirst({ where: { userId: params.userId, idempotencyKey: params.idempotencyKey } });
-    if (prior) return { message: prior, repeated: true };
-    const charged = await changeBalance(tx, params.userId, -CREDIT_COSTS.DISCUSSION, { transactionType: params.parentMessageId ? 'DISCUSSION_REPLY' : 'DISCUSSION_MESSAGE', description: params.parentMessageId ? '发布交流回复消耗 0.5 点' : '发布交流留言消耗 0.5 点', auditId: params.reportId, relatedReportVersion: params.reportVersion, idempotencyKey: `discussion-charge:${params.idempotencyKey}` });
-    const message = await tx.reportDiscussionMessage.create({ data: { reportId: params.reportId, reportVersionAtPost: params.reportVersion, userId: params.userId, parentMessageId: params.parentMessageId || null, content: params.content, languageCode: params.languageCode, idempotencyKey: params.idempotencyKey, pointTransactionId: charged.transaction.id } });
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('guanyu-discussion'), hashtext(${params.userId}));`;
+    const prior = await tx.reportDiscussionMessage.findFirst({
+      where: { userId: params.userId, idempotencyKey: params.idempotencyKey },
+      include: { user: { select: discussionAuthorSelect } },
+    });
+    if (prior) {
+      if (prior.reportId !== params.reportId || (prior.replyToMessageId || prior.parentMessageId) !== params.replyToMessageId) {
+        throw new Error('请求标识已用于其他交流内容。');
+      }
+      return { message: prior, repeated: true };
+    }
+    let parentMessageId: string | null = null;
+    if (params.replyToMessageId) {
+      const target = await tx.reportDiscussionMessage.findFirst({
+        where: { id: params.replyToMessageId, reportId: params.reportId, status: 'VISIBLE', deletedAt: null,
+          OR: [{ parentMessageId: null }, { parent: { status: 'VISIBLE', deletedAt: null } }] },
+        select: { id: true, parentMessageId: true },
+      });
+      if (!target) throw new Error('这条交流内容已不可回复，请刷新后重试。');
+      parentMessageId = target.parentMessageId || target.id;
+    }
+    const recent = await tx.reportDiscussionMessage.count({ where: { userId: params.userId, createdAt: { gte: new Date(Date.now() - 60_000) } } });
+    if (recent >= Number(process.env.DISCUSSION_MAX_POSTS_PER_MINUTE || 3)) {
+      return { rateLimited: true as const };
+    }
+    const charged = await changeBalance(tx, params.userId, -CREDIT_COSTS.DISCUSSION, {
+      transactionType: parentMessageId ? 'DISCUSSION_REPLY' : 'DISCUSSION_MESSAGE',
+      description: parentMessageId ? '发布交流回复消耗 0.5 点' : '发布交流留言消耗 0.5 点',
+      auditId: params.reportId, relatedReportVersion: params.reportVersion, idempotencyKey: `discussion-charge:${params.idempotencyKey}`,
+    });
+    const message = await tx.reportDiscussionMessage.create({ data: {
+      reportId: params.reportId, reportVersionAtPost: params.reportVersion, userId: params.userId,
+      parentMessageId, replyToMessageId: params.replyToMessageId, content: params.content, languageCode: params.languageCode,
+      idempotencyKey: params.idempotencyKey, pointTransactionId: charged.transaction.id,
+    }, include: { user: { select: discussionAuthorSelect } } });
     await tx.pointTransaction.update({ where: { id: charged.transaction.id }, data: { relatedDiscussionMessageId: message.id } });
     return { message, repeated: false };
   });
