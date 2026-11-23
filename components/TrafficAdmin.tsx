@@ -1,7 +1,9 @@
 'use client';
-import { useEffect, useState } from 'react';
-import { BarChart3, RefreshCw } from 'lucide-react';
+
 import { useUiLanguage } from '@/components/LanguageProvider';
+import { Button, Panel } from '@/components/ui/controls';
+import { BarChart3, RefreshCw } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 type Counts = { pv: number; uv: number; guestPv: number; memberPv: number };
 type Traffic = { timezone: string; days: number; today: Counts; summary: Counts; trend: Array<Counts & { date: string }>; pages: Array<{ path: string; pv: number; uv: number }>; firstRecordedAt: string | null };
@@ -23,12 +25,12 @@ export default function TrafficAdmin() {
   }, [days, refresh]);
   const labels: Record<string, string> = { '/': text('首页', 'Home'), '/demo': text('示例报告', 'Sample report'), '/login': text('登录', 'Sign in'), '/register': text('注册入口', 'Registration'), '/audits': text('公开报告', 'Public reports'), '/audits/:id': text('报告详情', 'Report detail'), '/my-audits': text('我的审视', 'My reports'), '/saved-articles': text('收藏文章', 'Saved articles'), '/forgot-password': text('找回密码', 'Password recovery') };
   const max = Math.max(1, ...(data?.trend.map(item => item.pv) || []));
-  return <section className="col-span-full min-w-0 rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-5 shadow-[var(--shadow-card)]" aria-label={text('访问统计', 'Site traffic')} aria-busy={loading}>
+  return <Panel className="col-span-full min-w-0" aria-label={text('访问统计', 'Site traffic')} aria-busy={loading}>
     <div className="flex flex-wrap items-start justify-between gap-4">
-      <div><h3 className="flex items-center gap-2 text-base font-bold"><BarChart3 size={20} className="text-[var(--color-primary)]" aria-hidden="true" />{text('访问统计', 'Site traffic')}</h3><p className="mt-1 text-xs leading-relaxed text-[var(--color-text-muted)]">{text('了解有多少人来到观隅，以及他们查看了哪些页面。', 'See how many people visit Guanyu and which pages they view.')}</p></div>
+      <div><h3 className="ui-panel-title flex items-center gap-2"><BarChart3 size={20} className="text-[var(--color-primary)]" aria-hidden="true" />{text('访问统计', 'Site traffic')}</h3><p className="mt-1 text-xs leading-relaxed text-[var(--color-text-muted)]">{text('了解有多少人来到观隅，以及他们查看了哪些页面。', 'See how many people visit Guanyu and which pages they view.')}</p></div>
       <div className="flex flex-wrap items-center gap-2">
-        {[7, 30].map(value => <button key={value} type="button" aria-pressed={days === value} disabled={loading} className={`workspace-button ${days === value ? 'workspace-primary' : 'workspace-secondary'}`} onClick={() => { setLoading(true); setDays(value); }}>{text(`近 ${value} 天`, `Last ${value} days`)}</button>)}
-        <button type="button" disabled={loading} className="workspace-button workspace-secondary" aria-label={text('刷新访问统计', 'Refresh traffic')} onClick={() => { setLoading(true); setRefresh(refresh + 1); }}><RefreshCw size={16} aria-hidden="true" /></button>
+        {[7, 30].map(value => <Button variant="tab" key={value} type="button" aria-pressed={days === value} disabled={loading}  onClick={() => { setLoading(true); setDays(value); }}>{text(`近 ${value} 天`, `Last ${value} days`)}</Button>)}
+        <Button variant="secondary" size="icon" type="button" disabled={loading}  aria-label={text('刷新访问统计', 'Refresh traffic')} onClick={() => { setLoading(true); setRefresh(refresh + 1); }}><RefreshCw size={16} aria-hidden="true" /></Button>
       </div>
     </div>
     {error ? <p role="alert" className="mt-4 text-sm text-[var(--color-danger)]">{text('统计加载失败，请点击刷新重试。', 'Could not load traffic. Refresh to retry.')}</p> : loading ? <p role="status" className="py-8 text-sm text-[var(--color-text-muted)]">{text('正在加载访问统计…', 'Loading traffic…')}</p> : data && <>
@@ -49,5 +51,5 @@ export default function TrafficAdmin() {
       </div>
       <p className="mt-5 border-t border-[var(--color-border)] pt-4 text-xs leading-relaxed text-[var(--color-text-muted)]">{text('统计口径：北京时间；PV 为页面加载或站内页面切换次数，刷新会增加；UV 按浏览器匿名标识去重，不等于实际人数。过滤常见爬虫，排除管理页面；尊重“请勿追踪”与 GPC，使用拦截工具的访问可能不计入。保留最近 90 天，不记录原始 IP、完整网址或个人资料。', 'Timezone: Asia/Shanghai. PV counts page loads and route changes, including reloads. UV deduplicates an anonymous browser ID, not individual people. Common bots and account/admin pages are excluded. DNT and GPC are respected; blockers may prevent counting. Data is retained for 90 days, without raw IPs, full URLs or profile details.')}</p>
     </>}
-  </section>;
+  </Panel>;
 }

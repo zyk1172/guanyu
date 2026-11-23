@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseFreeSearchHtml, searchFreeWeb, FreeSearchError, resultUrl } from '../lib/free-web-search';
+import { parseFreeSearchHtml, parseBraveSearchHtml, searchFreeWeb, FreeSearchError, resultUrl } from '../lib/free-web-search';
 import { searchWeb } from '../lib/search';
 import { WebResearchSession } from '../lib/web-research';
 import { paidSearchAllowed, customWebResearchEnabled, effectiveSearchMode } from '../lib/web-search-policy';
@@ -66,8 +66,24 @@ test('site queries filter unrelated domains and paths before deciding whether to
 test('challenge pages fall back across engines without CAPTCHA solving; exhausted chains return diagnostic errors', async () => {
   const calls: string[] = [];
   const result = await searchFreeWeb('evidence', 5, { searxngUrl: '', request: async url => { calls.push(String(url)); return String(url).includes('bing.com') ? reply('<div id="b_captcha"></div>') : reply('<div class="result"><a class="result__a" href="https://example.com">Evidence</a></div>'); } });
-  assert.equal(result.sources[0].provider, 'duckduckgo'); assert.equal(calls.length, 2);
-  await assert.rejects(searchFreeWeb('evidence', 5, { searxngUrl: '', request: async () => reply('<form id="challenge-form"></form>', 202) }), error => error instanceof FreeSearchError && error.message === 'search_challenge' && error.attempts.length === 3);
+  assert.equal(result.sources[0].provider, 'duckduckgo'); assert.equal(calls.length, 3);
+  await assert.rejects(searchFreeWeb('evidence', 5, { searxngUrl: '', request: async () => reply('<form id="challenge-form"></form>', 202) }), error => error instanceof FreeSearchError && error.message === 'search_challenge' && error.attempts.length === 4);
+});
+
+const BRAVE_NEWS = '<div class="snippet"><img class="favicon news"/><div class="site-name-content"><span>Fixture News</span></div><a href="https://news.example/story"><div class="title">本地虚构报道</div></a><div class="description">虚构测试摘要</div><span class="age-snippet">2天前</span></div>';
+test('Brave news fallback extracts publisher articles when Bing returns an HTML stub', async () => {
+  const urls: string[] = [];
+  const result = await searchFreeWeb('事件 关键词', 5, { category: 'news', searxngUrl: '', request: async url => {
+    urls.push(String(url)); return reply(String(url).includes('search.brave.com/news') ? BRAVE_NEWS : '<html><title>Bing</title></html>');
+  } });
+  assert.equal(result.sources[0].provider, 'brave'); assert.equal(result.sources[0].sourceName, 'Fixture News');
+  assert.equal(result.sources[0].publishedAt, null); assert.equal(urls.length, 3);
+  assert.ok(urls.every(url => !url.includes('duckduckgo.com') && !url.includes('www.bing.com/search?')));
+});
+test('ordinary web results, CAPTCHA and unrecognised Brave markup are not reported as news', () => {
+  assert.deepEqual(parseBraveSearchHtml(BRAVE_NEWS.replace('favicon news', 'favicon'), true), []);
+  assert.throws(() => parseBraveSearchHtml('<html>Consent or error</html>', true), /search_unavailable/);
+  assert.throws(() => parseBraveSearchHtml('<form id="challenge-form"></form>', true), /search_challenge/);
 });
 
 test('fixed search ignores paid credentials by default and never invokes the paid fetch transport', async () => {

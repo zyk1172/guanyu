@@ -7,12 +7,17 @@ const allowedDevOrigins = process.env.NEXT_ALLOWED_DEV_ORIGINS
 
 const nextConfig: NextConfig = {
   output: process.env.VERCEL ? undefined : 'standalone',
+  // The TypeScript 6 compatibility package provides the API used by Next.js and ESLint.
+  // build:app also checks the generated route types with the TypeScript 7 CLI.
+  experimental: { useTypeScriptCli: false },
   ...(allowedDevOrigins?.length ? { allowedDevOrigins } : {}),
   outputFileTracingIncludes: {
     '/api/audits/[id]/export': [
-      // PDF export embeds this font from the server file system at export time.
+      // PDF export embeds regular and bold CJK faces from the server file system.
       './public/fonts/NotoSansSC-Regular.ttf',
-      './public/fonts/NotoSansKR-Variable.ttf',
+      './public/fonts/NotoSansSC-Bold.ttf',
+      './public/fonts/NotoSansKR-Regular.ttf',
+      './public/fonts/NotoSansKR-Bold.ttf',
     ],
   },
   turbopack: {

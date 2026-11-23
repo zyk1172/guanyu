@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
 import { useUiLanguage } from '@/components/LanguageProvider';
+import { Button, Select } from '@/components/ui/controls';
 import { effectivePlatformModelId } from '@/lib/platform-model-core.mjs';
+import { useEffect, useMemo, useState } from 'react';
 
 export type ModelOperation = 'analysis' | 'completion' | 'followup';
 export type ModelSourceSelection = 'platform' | 'custom';
@@ -90,46 +91,43 @@ export function PlatformModelSelector({
   return (
     <div className={`rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] ${compact ? 'p-2' : 'p-3'}`} data-model-selector={operation}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-xs font-black text-[var(--color-text)]">{t('modelSelector.activeTitle', '当前激活模型')}</span>
+        <span className="text-xs font-bold text-[var(--color-text)]">{t('modelSelector.activeTitle', '当前激活模型')}</span>
         <div className="inline-flex rounded-[var(--radius-button)] border border-[var(--color-border)] bg-[var(--color-input-bg)] p-0.5">
-          <button
+          <Button variant="tab" aria-pressed={source === 'platform'}
             type="button"
             onClick={() => onSourceChange('platform')}
-            className={`rounded-[calc(var(--radius-button)-2px)] px-2.5 py-1 text-xs font-bold transition ${source === 'platform' ? 'bg-[var(--color-primary)] text-white' : 'text-[var(--color-text-muted)] hover:text-[var(--color-text)]'}`}
-          >
+         >
             {t('modelSelector.platform', '平台模型')}
-          </button>
-          <button
+          </Button>
+          <Button variant="tab" aria-pressed={source === 'custom'}
             type="button"
             disabled={!customAllowed}
             onClick={() => customAllowed && onSourceChange('custom')}
-            className={`rounded-[calc(var(--radius-button)-2px)] px-2.5 py-1 text-xs font-bold transition ${source === 'custom' ? 'bg-[var(--color-primary)] text-white' : 'text-[var(--color-text-muted)] hover:text-[var(--color-text)]'} disabled:cursor-not-allowed disabled:opacity-45`}
-          >
+         >
             {t('modelSelector.custom', '自定义 API')}
-          </button>
+          </Button>
         </div>
       </div>
 
       {source === 'platform' ? (
         <div className="mt-2">
-          <select
+          <Select
             aria-label={t('modelSelector.activeTitle', '当前激活模型')}
             value={selected?.id || ''}
             disabled={loading || !models.length}
             onChange={(event) => onSelectedIdChange(event.target.value)}
-            className="settings-control"
-          >
+         >
             {models.map((model) => (
               <option key={model.id} value={model.id}>
                 {model.displayName}{model.recommended ? ` · ${t('modelSelector.recommended', '推荐')}` : ''} · {model.estimatedCost} {t('modelSelector.credits', '点')}
               </option>
             ))}
-          </select>
+          </Select>
           {selected && !compact && (
             <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
               {selected.description && <span className="mr-1">{selected.description}</span>}
-              <span className="rounded-full border border-[var(--color-border)] px-2 py-0.5">{selected.estimatedCost} {t('modelSelector.credits', '点')}</span>
-              <span className="rounded-full border border-[var(--color-border)] px-2 py-0.5">
+              <span className="ui-badge border border-[var(--color-border)]">{selected.estimatedCost} {t('modelSelector.credits', '点')}</span>
+              <span className="ui-badge border border-[var(--color-border)]">
                 {selected.searchMode === 'agent'
                   ? t('modelSelector.agentSearch', '模型自主查证')
                   : selected.searchMode === 'native'
@@ -139,7 +137,7 @@ export function PlatformModelSelector({
                     : t('modelSelector.noSearch', '不联网')}
               </span>
               {selected.contentOnlyAnalysis && (
-                <span className="rounded-full border border-[var(--color-warning)]/50 bg-[var(--color-warning)]/10 px-2 py-0.5 text-[var(--color-warning)]">
+                <span className="ui-badge border border-[var(--color-warning)]/50 bg-[var(--color-warning)]/10 text-[var(--color-warning)]">
                   {t('modelSelector.contentOnly', '仅基于已有内容分析')}
                 </span>
               )}
@@ -153,7 +151,7 @@ export function PlatformModelSelector({
       )}
 
       {!customAllowed && source !== 'custom' && !compact && (
-        <p className="mt-2 text-[11px] text-[var(--color-text-subtle)]">{t('modelSelector.customUnavailable', '有效 Pro 权益并完成自定义 API 配置后可选择自定义 API。')}</p>
+        <p className="mt-2 text-xs text-[var(--color-text-subtle)]">{t('modelSelector.customUnavailable', '有效 Pro 权益并完成自定义 API 配置后可选择自定义 API。')}</p>
       )}
       {error && <p className="mt-2 text-xs font-semibold text-[var(--color-danger)]">{error}</p>}
     </div>

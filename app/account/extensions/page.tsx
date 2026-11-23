@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import Link from 'next/link';
+import { useConfirmation } from '@/components/ui/ConfirmationProvider';
+
 import Header from '@/components/Header';
 import { useUiLanguage } from '@/components/LanguageProvider';
+import { ActionLink, Button, ButtonLink, Panel } from '@/components/ui/controls';
+import { useEffect, useState } from 'react';
 
 interface ExtensionSession {
   id: string;
@@ -16,6 +18,7 @@ interface ExtensionSession {
 }
 
 export default function ExtensionSettingsPage() {
+  const { confirm } = useConfirmation();
   const { language, t } = useUiLanguage();
   const [sessions, setSessions] = useState<ExtensionSession[]>([]);
   const [code, setCode] = useState('');
@@ -53,7 +56,7 @@ export default function ExtensionSettingsPage() {
   }
 
   async function revoke(id: string) {
-    if (!window.confirm('确定撤销这个插件授权吗？')) return;
+    if (!await confirm('确定撤销这个插件授权吗？')) return;
     const res = await fetch(`/api/extension/sessions/${id}/revoke`, { method: 'POST' });
     if (res.ok) {
       await loadSessions();
@@ -67,25 +70,25 @@ export default function ExtensionSettingsPage() {
   }, []);
 
   return (
-    <main className="workspace-page min-h-screen bg-gray-50 text-gray-950 dark:bg-gray-980 dark:text-white">
+    <main className="workspace-page pb-12">
       <Header />
-      <section className="workspace-container py-6">
+      <section id="main-content" tabIndex={-1} className="workspace-container workspace-content">
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-xl font-black sm:text-2xl">{t('extension.title')}</h1>
-            <p className="mt-1 text-xs font-semibold text-gray-500 dark:text-gray-400">
+            <h1 className="ui-page-title">{t('extension.title')}</h1>
+            <p className="mt-1 text-xs font-semibold text-[var(--color-text-muted)]">
               {t('extension.description')}
             </p>
           </div>
-          <Link href="/account" className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-bold text-gray-700 transition hover:bg-white dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-900">
+          <ButtonLink variant="secondary" href="/account">
             {t('extension.backAccount')}
-          </Link>
+          </ButtonLink>
         </div>
 
-        <div className="mb-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 shadow-[var(--shadow-card)]">
+        <Panel as="div" className="mb-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h2 className="text-sm font-black text-[var(--color-text)]">{t('extension.downloadTitle')}</h2>
+              <h2 className="text-sm font-bold text-[var(--color-text)]">{t('extension.downloadTitle')}</h2>
               <p className="mt-1 text-xs font-semibold text-[var(--color-text-muted)]">
                 {t('extension.downloadDescription')}
               </p>
@@ -93,70 +96,69 @@ export default function ExtensionSettingsPage() {
                 {extensionDownloadUrl}
               </code>
             </div>
-            <a
+            <ActionLink variant="primary"
               href={extensionDownloadPath}
               download
-              className="inline-flex shrink-0 items-center justify-center rounded-[var(--radius-button)] bg-[var(--color-primary)] px-4 py-2 text-xs font-black text-white transition hover:bg-[var(--color-primary-hover)] active:scale-[0.98]"
-            >
+              className="shrink-0"
+           >
               {t('extension.download')}
-            </a>
+            </ActionLink>
           </div>
-        </div>
+        </Panel>
 
-        <div className="rounded-xl border border-gray-150 bg-white p-4 shadow-sm dark:border-gray-850 dark:bg-gray-950">
+        <Panel as="div">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-sm font-black">{t('extension.codeTitle')}</h2>
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              <h2 className="text-sm font-bold">{t('extension.codeTitle')}</h2>
+              <p className="mt-1 text-xs text-[var(--color-text-muted)]">
                 {t('extension.codeDescription')}
               </p>
             </div>
-            <button
+            <Button variant="primary"
               onClick={createCode}
               disabled={loading}
-              className="rounded-lg bg-gray-950 px-4 py-2 text-xs font-bold text-white transition hover:bg-gray-800 disabled:opacity-50 dark:bg-white dark:text-gray-950"
-            >
+           >
               {loading ? t('extension.creatingCode') : t('extension.createCode')}
-            </button>
+            </Button>
           </div>
           {code && (
-            <div className="mt-4 rounded-xl border-2 border-[var(--color-primary)] bg-[var(--color-primary)] p-4 text-center shadow-[var(--shadow-card)]">
-              <div className="rounded-lg bg-white px-4 py-3 text-3xl font-black tracking-[0.32em] text-gray-950 shadow-inner">{code}</div>
-              <p className="mt-2 text-xs font-black text-white">只显示一次，请不要公开分享。</p>
-            </div>
+            <Panel as="div" className="mt-4 text-center">
+              <div className="rounded-lg bg-[var(--color-surface)] px-4 py-3 text-3xl font-bold tracking-[0.32em] text-[var(--color-text)] shadow-inner">{code}</div>
+              <p className="mt-2 text-xs font-bold text-[var(--color-on-primary)]">只显示一次，请不要公开分享。</p>
+            </Panel>
           )}
-          {message && <p className="mt-3 text-xs font-semibold text-indigo-600 dark:text-indigo-300">{message}</p>}
-        </div>
+          {message && <p className="mt-3 text-xs font-semibold text-[var(--color-link)]">{message}</p>}
+        </Panel>
 
-        <div className="mt-4 rounded-xl border border-gray-150 bg-white p-4 shadow-sm dark:border-gray-850 dark:bg-gray-950">
-          <h2 className="text-sm font-black">{t('extension.sessionsTitle')}</h2>
+        <Panel as="div" className="mt-4">
+          <h2 className="text-sm font-bold">{t('extension.sessionsTitle')}</h2>
           <div className="mt-3 space-y-2">
             {sessions.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-gray-200 p-6 text-center text-xs text-gray-400 dark:border-gray-800">
+              <div className="rounded-lg border border-dashed border-[var(--color-border)] p-6 text-center text-xs text-[var(--color-text-subtle)]">
                 {t('extension.noSessions')}
               </div>
             ) : (
               sessions.map((session) => (
-                <div key={session.id} className="flex flex-col gap-2 rounded-lg border border-gray-100 p-3 text-xs dark:border-gray-850 sm:flex-row sm:items-center sm:justify-between">
+                <div key={session.id} className="flex flex-col gap-2 rounded-lg border border-[var(--color-border)] p-3 text-xs sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <div className="font-black text-gray-950 dark:text-white">{session.name}</div>
-                    <div className="mt-1 text-xxs text-gray-500">
+                    <div className="font-bold text-[var(--color-text)]">{session.name}</div>
+                    <div className="mt-1 text-xxs text-[var(--color-text-muted)]">
                       {session.browser || t('common.unknown')} · {new Date(session.createdAt).toLocaleString(language)}
                       {session.lastUsedAt ? ` · ${new Date(session.lastUsedAt).toLocaleString(language)}` : ''}
                     </div>
                   </div>
                   {session.revokedAt ? (
-                    <span className="rounded bg-gray-100 px-2 py-1 text-xxs font-bold text-gray-500 dark:bg-gray-900">{t('extension.revoked')}</span>
+                    <span className="ui-badge bg-[var(--color-surface)] text-[var(--color-text-muted)]">{t('extension.revoked')}</span>
                   ) : (
-                    <button onClick={() => revoke(session.id)} className="rounded bg-red-50 px-3 py-1.5 text-xxs font-bold text-red-600 transition hover:bg-red-100">
+                    <Button variant="danger" onClick={() => revoke(session.id)}>
                       {t('extension.revoke')}
-                    </button>
+                    </Button>
                   )}
                 </div>
               ))
             )}
           </div>
-        </div>
+        </Panel>
       </section>
     </main>
   );

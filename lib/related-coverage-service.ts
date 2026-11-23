@@ -10,6 +10,7 @@ import { formatCredits } from './billing';
 import { normalizeReportLanguage } from './types';
 import { getReportLanguageRule } from './report-language-core.mjs';
 import { WebResearchSession } from './web-research';
+import { addResearchUsage, planEventSearch } from './event-search';
 import { collectRelatedCoverage, type CoverageResearch } from './related-coverage-research';
 import { coverageQuerySchema, coverageResultSchema, coveragePrompt, defaultCoverageQuery, validateCoverageSynthesis, type CoverageOriginal, type CoverageResult } from './related-coverage';
 
@@ -106,20 +107,22 @@ export async function runRelatedCoverage(operationId: string, expectedAttempt: n
     const audit = await ownedAudit(operation.userId, operation.resultId);
     if (coverageFingerprint(audit) !== pending.sourceFingerprint) throw new CoverageError('coverage_source_changed');
     const original = { ...audit, originalContent: audit.originalContent.slice(0, 6000) };
+    const plan = await planEventSearch({ ...original, question: `Find other reporting of this specific event. User search terms: ${pending.query}` }, model, { forceSearch: true });
+    usage = addResearchUsage(plan.usage);
     // This feature always uses the existing free engine chain. No paid search fallback.
     const research = dependencies.research || new WebResearchSession({ timeoutMs: 55000, searchOptions: { provider: 'free', locale: normalizeReportLanguage(audit.reportLanguage), onRequest: (provider) => { searchCounts[provider] = (searchCounts[provider] || 0) + 1; } } });
-    const collected = await collectRelatedCoverage(original, pending.query, research);
+    const collected = await collectRelatedCoverage(original, pending.query, research, plan.queries);
     if (!collected.articles.length) throw new CoverageError('coverage_no_sources');
     await prisma.serviceOperation.updateMany({ where: { id: operation.id, status: 'RUNNING', currentAttempt: expectedAttempt }, data: { resultJson: JSON.stringify({ ...pending, stage: 'compare' }) } });
     const prompt = coveragePrompt(original, collected.articles, pending.query, getReportLanguageRule(normalizeReportLanguage(audit.reportLanguage)).name);
     const response = await invokeModel({ provider: model.provider, baseUrl: model.baseUrl, apiKey: model.apiKey, modelId: model.modelId, reasoningDepth: model.reasoningDepth, allowPrivateAddress: model.allowPrivateAddress, timeoutMs: 100000, maxTokens: 4500, jsonMode: true, nativeSearch: false, ...prompt });
-    usage = response.usage;
+    usage = addResearchUsage(usage, response.usage);
     if (!response.ok) throw new CoverageError('coverage_model_failed');
     let synthesis;
     try { synthesis = validateCoverageSynthesis(JSON.parse(response.message.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')), original.originalContent, collected.articles); }
     catch { throw new CoverageError('coverage_invalid_citations'); }
     if (!synthesis.matches.length) throw new CoverageError('coverage_no_match');
-    const result: CoverageResult = { query: pending.query, sourceFingerprint: pending.sourceFingerprint, generatedAt: new Date().toISOString(), articles: collected.articles.filter(item => synthesis.matches.some(match => match.article === item.number)).map(({ number, title, url }) => ({ number, title, url })), synthesis, unreadableCount: collected.unreadableCount, excludedCount: collected.excludedCount,
+    const result: CoverageResult = { query: pending.query, searchQueries: collected.searchQueries, sourceFingerprint: pending.sourceFingerprint, generatedAt: new Date().toISOString(), articles: collected.articles.filter(item => synthesis.matches.some(match => match.article === item.number)).map(({ number, title, url }) => ({ number, title, url })), synthesis, unreadableCount: collected.unreadableCount, excludedCount: collected.excludedCount,
       usage: { model: model.snapshot?.displayName || model.modelId, source: model.source, cost: formatCredits(operation.reservedCredits) } };
     await completeServiceOperation(operation.id, expectedAttempt, { resultId: audit.id, resultJson: JSON.stringify(result) }, async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`guanyu-audit-verification:${audit.id}`}))`;

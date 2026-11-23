@@ -1,14 +1,15 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
-import Image from 'next/image';
-import { usePathname } from 'next/navigation';
-import { useSession, signOut } from 'next-auth/react';
-import { Menu, X } from 'lucide-react';
-import { useUiLanguage } from './LanguageProvider';
+import { Button, ButtonLink } from '@/components/ui/controls';
 import { getBrandIdentity } from '@/lib/brand-core.mjs';
 import { getWorkspaceCopy } from '@/lib/workspace-copy';
+import { Menu, X } from 'lucide-react';
+import { signOut, useSession } from 'next-auth/react';
+import Image from 'next/image';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
+import { useUiLanguage } from './LanguageProvider';
 
 export default function Header() {
   const { data: session } = useSession();
@@ -27,21 +28,22 @@ export default function Header() {
     document.addEventListener('pointerdown', outside);
     return () => { document.removeEventListener('keydown', close); document.removeEventListener('pointerdown', outside); };
   }, [open]);
-  const link = (href: string, label: string) => <Link href={href} aria-current={pathname === href ? 'page' : undefined} onClick={() => setOpen(false)}>{label}</Link>;
+  const link = (href: string, label: string) => <ButtonLink variant="ghost" href={href} aria-current={pathname === href ? 'page' : undefined} onClick={() => setOpen(false)}>{label}</ButtonLink>;
   return <header ref={root} className="workspace-header">
+    <a href="#main-content" className="skip-link">{language.startsWith('zh') ? '跳到主要内容' : 'Skip to main content'}</a>
     <div className="workspace-container workspace-header-inner">
       <Link href="/" className="workspace-brand" onClick={() => setOpen(false)}>
         <Image src="/guanyu-icon.png" alt="" width={36} height={36} className="h-9 w-9 rounded-lg" priority />
         <span>{brand.name}</span>
       </Link>
-      <button ref={toggle} type="button" className="workspace-button workspace-secondary workspace-menu-toggle" aria-expanded={open} aria-controls="primary-navigation" onClick={() => setOpen(!open)}>
+      <Button variant="secondary" ref={toggle} type="button" className="workspace-menu-toggle" aria-expanded={open} aria-controls="primary-navigation" onClick={() => setOpen(!open)}>
         {open ? <X size={18} aria-hidden="true" /> : <Menu size={18} aria-hidden="true" />}{open ? c.closeMenu : c.menu}
-      </button>
+      </Button>
       <nav id="primary-navigation" className="workspace-nav" data-open={open} aria-label={c.menu}>
         {link('/', t('nav.home'))}
-        {session ? <>{link('/my-audits', t('nav.myAudits'))}{link('/account', t('nav.account'))}<button type="button" onClick={() => signOut({ callbackUrl: '/' })} className="text-[var(--color-text-muted)]">{t('nav.signOut')}</button></> : <>
+        {session ? <>{link('/my-audits', t('nav.myAudits'))}{link('/account', t('nav.account'))}<Button variant="ghost" type="button" onClick={() => signOut({ callbackUrl: '/' })}>{t('nav.signOut')}</Button></> : <>
           {link('/demo', c.demoNav)}
-          <Link href="/login" className="workspace-secondary">{t('nav.signIn')}</Link><Link href="/register" className="workspace-primary">{t('nav.signUp')}</Link>
+          <ButtonLink variant="secondary" href="/login">{t('nav.signIn')}</ButtonLink><ButtonLink variant="primary" href="/register">{t('nav.signUp')}</ButtonLink>
         </>}
       </nav>
     </div>

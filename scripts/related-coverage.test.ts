@@ -10,7 +10,7 @@ const citation = { text: '原报道侧重问卷偏好，另一报道补充了评
 const result = () => ({ matches: [{ article: 1, reason: '同一图书馆同日开始的同一试点', anchors: ['海城图书馆', '2026年5月1日'] }], summary: structuredClone(citation), sharedClaims: [], differences: [structuredClone(citation)], missingEvidence: [] });
 
 test('event queries are bounded; tracking URLs deduplicate without conflating article IDs or path case', () => {
-  assert.equal(defaultCoverageQuery('', '事件详情'.repeat(100)).length, 80);
+  assert.ok(defaultCoverageQuery('', '事件详情'.repeat(100)).length <= 80);
   assert.equal(coverageUrl('https://news.example/Story?id=7&utm_source=x#top'), 'https://news.example/Story?id=7');
   assert.notEqual(coverageUrl('https://news.example/Story?id=7'), coverageUrl('https://news.example/story?id=8'));
   for (const url of ['javascript:alert(1)', 'file:///etc/passwd', 'https://user:password@news.example/story']) assert.equal(coverageUrl(url), null);

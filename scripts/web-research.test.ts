@@ -47,6 +47,12 @@ test('webpage decoding respects the page charset and rejects challenge pages', (
   assert.throws(() => extractWebpage('<html><head><title>Just a moment...</title></head><body>Verify you are human</body></html>', 'https://evidence.example'), /page_challenge/);
 });
 
+test('UTF-8 Chinese pages without charset metadata remain readable', () => {
+  const page = extractWebpage(Buffer.from('<html><head><title>本地虚构报道</title></head><body><article>这是用于测试中文正文和人名完整性的虚构材料。</article></body></html>'), 'https://evidence.example/news');
+  assert.equal(page.title, '本地虚构报道');
+  assert.match(page.content, /测试中文正文和人名完整性/);
+});
+
 test('search then read updates source evidence, caches successful requests and caps calls', async () => {
   const { session, requested } = fixtureSession();
   assert.equal((await session.execute('web_search', { query: 'official report' })).ok, true);

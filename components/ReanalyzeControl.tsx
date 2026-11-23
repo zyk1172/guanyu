@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
 import { useUiLanguage } from '@/components/LanguageProvider';
+import { Button } from '@/components/ui/controls';
 import { useActiveModel } from '@/components/useActiveModel';
 import { ACTIVE_ANALYSIS_JOB_STORAGE_KEY } from '@/lib/analysis-job-client-core.mjs';
+import { useState } from 'react';
 
 export default function ReanalyzeControl({ auditId }: { auditId: string }) {
   const { t } = useUiLanguage();
@@ -35,21 +36,20 @@ export default function ReanalyzeControl({ auditId }: { auditId: string }) {
     <section className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="text-sm font-black text-[var(--color-text)]">{t('reanalyze.title', '重新分析')}</h3>
+          <h3 className="text-sm font-bold text-[var(--color-text)]">{t('reanalyze.title', '重新分析')}</h3>
           <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">{t('reanalyze.description', '保留当前报告，使用所选模型生成一份新的独立报告。')}</p>
         </div>
-        <button
+        <Button variant="primary"
           type="button"
           disabled={submitting}
           onClick={() => open ? void submit() : setOpen(true)}
-          className="rounded-[var(--radius-button)] bg-[var(--color-primary)] px-3 py-2 text-xs font-black text-white transition hover:bg-[var(--color-primary-hover)] active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
-        >
+       >
           {submitting
             ? t('reanalyze.submitting', '正在创建任务…')
             : open
               ? `${t('reanalyze.confirm', '确认重新分析')} · ${activeModel.source === 'custom' ? '0' : activeModel.estimatedCost} ${t('modelSelector.credits', '点')}`
               : t('reanalyze.title', '重新分析')}
-        </button>
+        </Button>
       </div>
       {open && (
         <div className="mt-3">

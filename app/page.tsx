@@ -1,40 +1,23 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import SiteFooter from '@/components/SiteFooter';
+import { ArrowRight } from 'lucide-react';
 import Link from 'next/link';
-import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import AnalysisForm from '../components/AnalysisForm';
-import LoadingState from '../components/LoadingState';
 import ErrorMessage from '../components/ErrorMessage';
 import Header from '../components/Header';
-import { GsapReveal } from '../components/GsapMotion';
 import { useUiLanguage } from '../components/LanguageProvider';
-import { AnalysisMode, ReportLanguage } from '../lib/types';
-import { getWorkspaceCopy } from '@/lib/workspace-copy';
-import SiteFooter from '@/components/SiteFooter';
-import { ArrowUpRight } from 'lucide-react';
+import LoadingState from '../components/LoadingState';
 import {
   ACTIVE_ANALYSIS_JOB_STORAGE_KEY,
   ANALYSIS_JOB_POLLING_ATTEMPTS,
-  getAnalysisJobResolution,
   getAnalysisJobPollingDelay,
+  getAnalysisJobResolution,
   normalizeActiveAnalysisJobId,
 } from '../lib/analysis-job-client-core.mjs';
-
-interface HotAudit {
-  id: string;
-  title: string;
-  source: string;
-  newsSummary: string;
-  modelName: string;
-  reasoningDepth: string;
-  reportLanguage: string;
-  credibilityScore: number;
-  speculationRiskScore: number;
-  viewCount: number;
-  createdAt: string;
-}
+import { AnalysisMode, ReportLanguage } from '../lib/types';
 
 interface AuditSubmitData {
   title: string;
@@ -48,18 +31,22 @@ interface AuditSubmitData {
 
 export default function Home() {
   const router = useRouter();
-  const { status: sessionStatus } = useSession();
-  const { language, t } = useUiLanguage();
-  const c = getWorkspaceCopy(language);
+  const { language,t } = useUiLanguage();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastSubmittedData, setLastSubmittedData] = useState<AuditSubmitData | null>(null);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
-  const [hotAudits, setHotAudits] = useState<HotAudit[]>([]);
-  const [isLoadingHotAudits, setIsLoadingHotAudits] = useState(true);
   const submitting = useRef(false);
   const activePollingJobRef = useRef<string | null>(null);
   const pageIsMountedRef = useRef(true);
+  const errorPanel = useRef<HTMLDivElement>(null);
+  const progressPanel=useRef<HTMLDivElement>(null);
+  useEffect(()=>{if(isLoading)progressPanel.current?.scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'})},[isLoading]);
+  useEffect(() => {
+    if (!error) return;
+    errorPanel.current?.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+    errorPanel.current?.focus({ preventScroll: true });
+  }, [error]);
 
   const storeActiveJob = useCallback((jobId: string) => {
     if (typeof window !== 'undefined') window.sessionStorage.setItem(ACTIVE_ANALYSIS_JOB_STORAGE_KEY, jobId);
@@ -140,26 +127,6 @@ export default function Home() {
     return () => document.removeEventListener('visibilitychange', resumeWhenVisible);
   }, [pollAnalysisJob, storeActiveJob]);
 
-  useEffect(() => {
-    let isMounted = true;
-
-    async function fetchHotAudits() {
-      try {
-        const response = await fetch('/api/audits/hot?limit=6');
-        if (!response.ok) return;
-        const data = await response.json();
-        if (isMounted) setHotAudits(data);
-      } finally {
-        if (isMounted) setIsLoadingHotAudits(false);
-      }
-    }
-
-    fetchHotAudits();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
   const handleAnalyze = async (data: AuditSubmitData) => {
     if (submitting.current) return;
     submitting.current = true;
@@ -207,32 +174,15 @@ export default function Home() {
   return (
     <main className="workspace-page">
       <Header />
-      <GsapReveal className="workspace-container">
-        <section data-gsap-reveal className="workspace-hero">
-          <h1>{language.startsWith('zh-') ? <><span className="inline-block">{c.headline.split('，')[0]}，</span><wbr /><span className="inline-block">{c.headline.split('，')[1]}</span></> : c.headline}</h1>
-          <p>{c.subtitle}</p>
-        </section>
-        <div data-gsap-reveal className="space-y-5">
+      <div id="main-content" tabIndex={-1} className="workspace-container">
+        <div className="space-y-5">
             <AnalysisForm onSubmit={handleAnalyze} isLoading={isLoading} />
-            {isLoading && <LoadingState />}
+            {isLoading && <div ref={progressPanel} className="scroll-mt-24">{lastSubmittedData?.title&&<p className="mb-3 text-base font-semibold">{lastSubmittedData.title}</p>}<LoadingState /></div>}
             {activeJobId && !isLoading && <p role="status" className="text-sm text-[var(--color-text-muted)]">{t('home.backgroundJob')}</p>}
-            {error && <ErrorMessage message={error} onRetry={handleRetry} />}
+            {error && <div ref={errorPanel} tabIndex={-1} className="scroll-mt-24"><ErrorMessage message={error} onRetry={handleRetry} /></div>}
         </div>
-        <section className="workspace-panel mt-7">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <h2>{c.public}</h2>
-            <Link href={sessionStatus === 'authenticated' ? '/audits' : '/login'} className="workspace-link">{sessionStatus === 'authenticated' ? t('home.more') : c.continue}<ArrowUpRight size={16} aria-hidden="true" /></Link>
-          </div>
-          {isLoadingHotAudits ? <p role="status" className="py-6 text-sm text-[var(--color-text-muted)]">{t('home.loadingHot')}</p> : hotAudits.length === 0 ? <p className="py-6 text-sm text-[var(--color-text-muted)]">{t('home.noHot')} <Link href="/demo" className="underline">{c.demoLink}</Link></p> : hotAudits.map((audit) => <article key={audit.id} className="public-review-row">
-            <div>
-              <h3><Link href={`/audits/${audit.id}`}>{audit.title}</Link></h3>
-              <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-[var(--color-text-muted)]">{audit.newsSummary}</p>
-              <p className="mt-2 text-xs text-[var(--color-text-muted)]">{audit.source || t('home.unknownSource')} · {t('home.views', undefined, { count: audit.viewCount })}</p>
-            </div>
-            <time dateTime={audit.createdAt} className="text-xs text-[var(--color-text-muted)]">{new Date(audit.createdAt).toLocaleDateString(language)}</time>
-          </article>)}
-        </section>
-      </GsapReveal>
+        <p className="news-public-link"><Link href="/audits">{language.startsWith('zh')?'公开审读 · 浏览报告':'Public reviews · Browse reports'}<ArrowRight size={18} strokeWidth={1.75} aria-hidden="true"/></Link></p>
+      </div>
       <SiteFooter />
     </main>
   );

@@ -1,8 +1,9 @@
 'use client';
 
-import type { DeepAnalysisResult } from '@/lib/types';
-import { normalizeEvidenceReferences } from '@/lib/report-evidence';
 import { formatVerificationStatus, getReportText } from '@/lib/report-display-core.mjs';
+import { normalizeEvidenceReferences } from '@/lib/report-evidence';
+import type { DeepAnalysisResult } from '@/lib/types';
+import ReportText from './ReportText';
 
 const COPY = {
   'zh-CN': ['研究简报', '关键结论', '尚缺哪些信息', '下一步核实', '查看关键判断的证据', '模型判断', '原文摘录', '来源链接', '尚无可定位的原文摘录或来源链接', '人工核验记录', '找到可核验材料', '暂未找到可核验材料', '来源链接可供核对，不代表结论已证实。'],
@@ -24,31 +25,31 @@ export default function ReportBrief({ report, originalContent = '' }: { report: 
   const tasks = [...(report.verificationRoadmap || [])].sort((a, b) => Number(b.priority === '高') - Number(a.priority === '高')).slice(0, 2);
   return (
     <section id="report-brief" data-reading-section={c[0]} aria-label={c[0]} className="report-brief">
-      <h2 className="text-lg font-black text-[var(--color-text)]">{c[0]}</h2>
-      <p className="mt-2 text-sm leading-relaxed text-[var(--color-text-muted)]">{report.newsSummary}</p>
-      <div className="report-conclusion"><h3>{c[1]}</h3><p>{report.oneSentenceConclusion}</p></div>
+      <h2 data-reading-title="" className="text-lg font-bold text-[var(--color-text)]">{c[0]}</h2>
+      <p className="mt-2 text-sm leading-relaxed text-[var(--color-text-muted)]"><ReportText>{report.newsSummary}</ReportText></p>
+      <div className="report-conclusion"><h3>{c[1]}</h3><p><ReportText>{report.oneSentenceConclusion}</ReportText></p></div>
       <div className="mt-6 grid gap-6 text-sm sm:grid-cols-2">
-        <div><h3 className="font-bold">{c[2]}</h3><ul className="mt-2 list-disc space-y-1 pl-5 text-[var(--color-text-muted)]">{gaps.length ? gaps.map((gap, i) => <li key={i}>{gap.title}: {gap.description}</li>) : <li>{getReportText('insufficientMaterial', language)}</li>}</ul></div>
-        <div><h3 className="font-bold">{c[3]}</h3><ul className="mt-2 list-disc space-y-1 pl-5 text-[var(--color-text-muted)]">{tasks.length ? tasks.map((task, i) => <li key={i}>{task.question}</li>) : <li>{getReportText('insufficientMaterial', language)}</li>}</ul></div>
+        <div><h3 className="font-bold">{c[2]}</h3><ul className="mt-2 list-disc space-y-1 pl-5 text-[var(--color-text-muted)]">{gaps.length ? gaps.map((gap, i) => <li key={i}><ReportText>{gap.title}</ReportText>: <ReportText>{gap.description}</ReportText></li>) : <li><ReportText>{getReportText('insufficientMaterial', language)}</ReportText></li>}</ul></div>
+        <div><h3 className="font-bold">{c[3]}</h3><ul className="mt-2 list-disc space-y-1 pl-5 text-[var(--color-text-muted)]">{tasks.length ? tasks.map((task, i) => <li key={i}><ReportText>{task.question}</ReportText></li>) : <li><ReportText>{getReportText('insufficientMaterial', language)}</ReportText></li>}</ul></div>
       </div>
       <details className="workspace-disclosure mt-6">
         <summary className="cursor-pointer text-sm font-bold focus-visible:outline-2 focus-visible:outline-offset-4">{c[4]}</summary>
-        <p className="mt-2 text-xs text-[var(--color-text-muted)]">{c[12]}</p>
+        <p className="mt-2 text-xs text-[var(--color-text-muted)]"><ReportText>{c[12]}</ReportText></p>
         <div className="mt-3 grid gap-3 lg:grid-cols-3">
           {findings.map((finding, i) => {
             const references = normalizeEvidenceReferences(finding, originalContent, sources);
             return <article key={i} className="min-w-0 rounded-lg bg-[var(--color-surface-muted)] p-3 text-sm">
               <h3 className="font-bold">{finding.title}</h3>
-              <p className="mt-2 text-xs text-[var(--color-text-muted)]">{c[5]} · {formatVerificationStatus(finding.verificationStatus, language)}</p>
-              <p className="mt-2 leading-relaxed">{finding.content}</p>
+              <p className="mt-2 text-xs text-[var(--color-text-muted)]"><ReportText>{c[5]}</ReportText> · <ReportText>{formatVerificationStatus(finding.verificationStatus, language)}</ReportText></p>
+              <p className="mt-2 leading-relaxed"><ReportText>{finding.content}</ReportText></p>
               {references.originalQuote && <div className="mt-3"><h4 className="text-xs font-bold">{c[6]}</h4><blockquote className="mt-1 border-l-2 border-[var(--color-border-strong)] pl-2 leading-relaxed">{references.originalQuote}</blockquote></div>}
               {!!references.sourceUrls.length && <div className="mt-3"><h4 className="text-xs font-bold">{c[7]}</h4><ul className="mt-1 space-y-1">{references.sourceUrls.map((url) => <li key={url}><a href={url} target="_blank" rel="noopener noreferrer" className="break-all text-[var(--color-primary)] underline">{sources.find((source) => source.url === url)?.title || new URL(url).hostname}</a></li>)}</ul></div>}
-              {!references.originalQuote && !references.sourceUrls.length && <p className="mt-3 text-xs text-[var(--color-text-muted)]">{c[8]}</p>}
-              {finding.nextVerification && <p className="mt-3 text-xs"><strong>{c[3]}: </strong>{finding.nextVerification}</p>}
+              {!references.originalQuote && !references.sourceUrls.length && <p className="mt-3 text-xs text-[var(--color-text-muted)]"><ReportText>{c[8]}</ReportText></p>}
+              {finding.nextVerification && <p className="mt-3 text-xs"><strong>{c[3]}: </strong><ReportText>{finding.nextVerification}</ReportText></p>}
             </article>;
           })}
         </div>
-        {!!report.manualVerifications?.length && <div className="mt-4 border-t border-[var(--color-border)] pt-3"><h3 className="text-sm font-bold">{c[9]}</h3><ul className="mt-2 space-y-2 text-xs">{report.manualVerifications.map((record) => <li key={record.index}>{record.question} · {record.outcome === 'verified' ? c[10] : c[11]} · {record.updatedAt}</li>)}</ul></div>}
+        {!!report.manualVerifications?.length && <div className="mt-4 border-t border-[var(--color-border)] pt-3"><h3 className="text-sm font-bold">{c[9]}</h3><ul className="mt-2 space-y-2 text-xs">{report.manualVerifications.map((record) => <li key={record.index}><ReportText>{record.question}</ReportText> · <ReportText>{record.outcome === 'verified' ? c[10] : c[11]}</ReportText> · <ReportText>{record.updatedAt}</ReportText></li>)}</ul></div>}
       </details>
     </section>
   );
