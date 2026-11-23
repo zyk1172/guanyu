@@ -777,7 +777,7 @@ test('RSS catalog provides five international and three Chinese official headlin
   assert.deepEqual(china.map((source) => source.id), ['china-news-service', 'people-daily', 'rthk-news']);
 });
 
-test('RSS parser normalizes RSS, RDF and Atom headlines without article body', () => {
+test('RSS parser normalizes RSS, RDF and Atom headlines with bounded excerpts, without an analysis body', () => {
   const rss = parseRssXml(`<?xml version="1.0"?><rss><channel><item><title>First headline</title><link>https://example.com/one</link><pubDate>Sun, 13 Jul 2026 08:00:00 GMT</pubDate><description>Do not expose full content.</description></item></channel></rss>`, {
     id: 'example',
     name: 'Example',
@@ -794,9 +794,9 @@ test('RSS parser normalizes RSS, RDF and Atom headlines without article body', (
     feedUrl: 'https://example.com/feed.xml',
   });
 
-  assert.deepEqual(rss, [{ id: 'example:https://example.com/one', sourceId: 'example', sourceName: 'Example', title: 'First headline', url: 'https://example.com/one', publishedAt: '2026-07-13T08:00:00.000Z' }]);
+  assert.deepEqual(rss, [{ id: 'example:https://example.com/one', sourceId: 'example', sourceName: 'Example', title: 'First headline', url: 'https://example.com/one', publishedAt: '2026-07-13T08:00:00.000Z', summary: 'Do not expose full content.' }]);
   assert.deepEqual(rdf, [{ id: 'example:https://example.com/two', sourceId: 'example', sourceName: 'Example', title: 'Second headline', url: 'https://example.com/two', publishedAt: '2026-07-13T09:00:00.000Z' }]);
-  assert.deepEqual(atom, [{ id: 'example:https://example.com/three', sourceId: 'example', sourceName: 'Example', title: 'Third headline', url: 'https://example.com/three', publishedAt: '2026-07-13T10:00:00.000Z' }]);
+  assert.deepEqual(atom, [{ id: 'example:https://example.com/three', sourceId: 'example', sourceName: 'Example', title: 'Third headline', url: 'https://example.com/three', publishedAt: '2026-07-13T10:00:00.000Z', summary: 'Not returned' }]);
 });
 
 test('RSS parser disables entity expansion and tolerates malformed XML', () => {

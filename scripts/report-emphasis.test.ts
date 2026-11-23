@@ -27,6 +27,14 @@ test('long English prose retains words, negation and most normal-weight text', (
   assert.doesNotMatch(marked, /\uFFFD/u);
 });
 
+test('model phrases take priority and old reports do not clip long clauses at word boundaries', () => {
+  const text = '美国国会多个委员会要求黄仁勋作证或接受闭门会谈，涉及中国、芯片出口和国家安全。';
+  assert.ok(getReportEmphasisRuns(text, ['接受闭门会谈']).some(run => run.bold && run.text === '接受闭门会谈'));
+  assert.equal(getReportEmphasisRuns('公报尚未披露' + '完整材料'.repeat(40) + '。').some(run => run.bold), false);
+  assert.equal(getReportEmphasisRuns('The municipal office issued a statement.', ['municip']).some(run => run.bold), false);
+  assert.equal(getReportEmphasisRuns(text, ['造出的新短语']).map(run => run.text).join(''), text);
+});
+
 test('Unicode and every enabled report language keep their original text', () => {
   for (const text of ['樣本代表性未知，仍需查核成本。', '調査結果は参考になるが、代表性は未確認です。', '자료는 참고할 수 있지만 독립적인 근거가 부족합니다.', 'Die Daten beschreiben den Versuch, die Wirkung ist nicht bestätigt.', 'Il documento presenta dei dati, ma non dimostra gli effetti.', '📚 报道说明试点计划，证据仍然不足。']) {
     const runs = getReportEmphasisRuns(text);
