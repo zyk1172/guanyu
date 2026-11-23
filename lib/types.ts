@@ -460,6 +460,7 @@ export interface DeepAnalysisResult {
   };
   newsSummary: string;
   oneSentenceConclusion: string;
+  emphasisPhrases?: string[];
   readingValue: ReadWorthLabel;
   readingValueReason: string;
   readingUtility: ReadingUtilityFactors;

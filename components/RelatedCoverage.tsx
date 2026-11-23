@@ -84,7 +84,7 @@ export default function RelatedCoverage({ auditId }: { auditId: string }) {
     </details>
   </div>;
   return <Panel id="report-related" data-reading-section={c.title}  aria-labelledby="related-coverage-title">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 id="related-coverage-title">{c.title}</h2><p className="mt-2 text-sm leading-relaxed text-[var(--color-text-muted)]">{c.intro}</p></div>
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 id="related-coverage-title" data-reading-title="">{c.title}</h2><p className="mt-2 text-sm leading-relaxed text-[var(--color-text-muted)]">{c.intro}</p></div>
       {!expanded && !busy && <Button variant="secondary" type="button"  onClick={() => setExpanded(true)}><Search size={16} aria-hidden="true" />{result ? c.adjust : c.open}</Button>}
     </div>
     {job.status === 'loading' && <p role="status" className="mt-3 text-sm text-[var(--color-text-muted)]">{c.loading}</p>}

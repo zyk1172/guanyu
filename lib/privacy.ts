@@ -11,6 +11,7 @@ export async function exportUserData(userId: string) {
     discussionMessages,
     emailDeliveries,
     exportArtifacts,
+    reportFollowups,
     rssFeeds,
     extensionSessions,
     savedArticles,
@@ -29,6 +30,7 @@ export async function exportUserData(userId: string) {
     prisma.reportDiscussionMessage.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
     prisma.emailDelivery.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
     prisma.exportArtifact.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
+    prisma.reportFollowup.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
     prisma.rssFeed.findMany({ where: { ownerUserId: userId }, orderBy: { createdAt: 'desc' } }),
     prisma.extensionSession.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
     prisma.savedArticle.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
@@ -81,6 +83,7 @@ export async function exportUserData(userId: string) {
     discussionMessages,
     emailDeliveries,
     exportArtifacts,
+    reportFollowups,
     rssFeeds,
     extensionSessions: extensionSessions.map((session) => ({
       id: session.id,

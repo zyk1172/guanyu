@@ -1,17 +1,14 @@
 'use client';
 
-import { Button, Panel } from '@/components/ui/controls';
+import { Button, Input, Panel } from '@/components/ui/controls';
 import { emphasizeReportMarkdown, reportEmphasisHtml } from '@/lib/report-emphasis';
+import { buildReportExport, renderMarkdownExport } from '@/lib/report-export-content';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { computeReadWorth } from '../lib/readWorth';
 import {
   formatAnalysisMode,
-  formatConfidence,
   formatEvidenceGrade,
   formatJudgmentType,
-  formatMaterialType,
-  formatPriority,
-  formatPublishedAtSource,
   formatReasonableness,
   formatSpeculationRisk,
   formatThinkingDepth,
@@ -25,7 +22,6 @@ import {
   EvidenceGrade,
   getReadWorthDisplayLabel,
   getReadWorthEvidenceGuidance,
-  getReportLanguageLabel,
   ManualVerificationOutcome,
   ManualVerificationRecord,
   normalizeReportLanguage,
@@ -39,12 +35,13 @@ import {
 import AuditCharts from './AuditCharts';
 import DiscussionBoard from './DiscussionBoard';
 import GuanyuCardButton from './GuanyuCardButton';
-import InteractiveQA, { ChatMessage } from './InteractiveQA';
+import InteractiveQA, { ChatMessage, type InteractiveQAHandle } from './InteractiveQA';
+import SuggestedQuestions, { type QuestionAction } from './SuggestedQuestions';
 import { useUiLanguage } from './LanguageProvider';
 import ReadingNavigation from './ReadingNavigation';
 import ReadWorthVerdict from './ReadWorthVerdict';
 import ReportBrief from './ReportBrief';
-import ReportText from './ReportText';
+import ReportText, { ReportEmphasisContext } from './ReportText';
 import { useActiveModel } from './useActiveModel';
 import VerificationRoadmap from './VerificationRoadmap';
 
@@ -76,26 +73,6 @@ const STATUS_LABELS: Record<VerificationStatusCode, string> = {
   partially_supported: '部分支持',
   pending_verification: '待核验',
   unable_to_verify: '暂无法确认',
-};
-
-const SOURCE_LABELS: Record<string, string> = {
-  ai_assessed: '模型判断',
-  user_input: '用户填写',
-  json_ld: 'JSON-LD',
-  meta_article: 'article meta',
-  meta_og: 'OG meta',
-  meta_pubdate: 'pubdate meta',
-  time_tag: 'time 标签',
-  body_people_daily_format: '正文人民日报版面日期',
-  body_regex: '正文日期匹配',
-  unknown: '未知',
-};
-
-const CONFIDENCE_LABELS: Record<string, string> = {
-  high: '高',
-  medium: '中',
-  low: '低',
-  unknown: '未知',
 };
 
 const EVIDENCE_DEFINITIONS: Record<EvidenceGrade, string> = {
@@ -167,10 +144,11 @@ function Badge({ children, className, title }: { children: React.ReactNode; clas
 }
 
 function Section({ title, children, aside, id }: { title: string; children: React.ReactNode; aside?: React.ReactNode; id?: string }) {
+  const label = id ? title.replace(/^\d+[.．、]\s*/u, '') : title;
   return (
-    <Panel id={id} data-reading-section={id ? title : undefined} className="result-card">
+    <Panel id={id} data-reading-section={id ? label : undefined} className="result-card">
       <div className="mb-3 flex flex-col gap-2 border-b border-[var(--color-border)] pb-2 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-sm font-bold text-[var(--color-text)]">{title}</h2>
+        <h2 data-reading-title={id ? '' : undefined} className="text-sm font-bold text-[var(--color-text)]">{label}</h2>
         {aside}
       </div>
       {children}
@@ -181,11 +159,6 @@ function Section({ title, children, aside, id }: { title: string; children: Reac
 function line(value: unknown, fallback = '当前材料不足，无法形成可靠判断') {
   const text = value === undefined || value === null ? '' : String(value).trim();
   return text && text !== '未提供' && text !== '暂无' ? text : fallback;
-}
-
-function manualVerificationLabel(outcome: ManualVerificationOutcome, reportLanguage = 'zh-CN') {
-  if (reportLanguage.startsWith('zh')) return outcome === 'verified' ? '已标记：找到可核验材料' : '已标记：暂未找到可核验材料';
-  return outcome === 'verified' ? 'Marked: checkable material found' : 'Marked: no checkable material found';
 }
 
 function isUsefulOnlineSource(source: any) {
@@ -616,331 +589,6 @@ function WebVerificationView({ report }: { report: DeepAnalysisResult }) {
   );
 }
 
-function bullets(items: unknown[], reportLanguage = 'zh-CN') {
-  const normalized = items.map((item) => formatUnconfirmedItem(item)).filter(Boolean);
-  return normalized.length > 0 ? normalized.map((item) => `- ${item}`) : [`- ${getReportText('insufficientMaterial', reportLanguage)}`];
-}
-
-function mdCell(value: unknown) {
-  return String(value ?? '').replace(/\|/g, '\\|').replace(/\n+/g, '<br>').trim() || '—';
-}
-
-function markdownTable(headers: string[], rows: unknown[][]) {
-  return [
-    `| ${headers.map(mdCell).join(' | ')} |`,
-    `| ${headers.map(() => '---').join(' | ')} |`,
-    ...rows.map((row) => `| ${row.map(mdCell).join(' | ')} |`),
-  ];
-}
-
-function webVerificationMarkdown(report: DeepAnalysisResult) {
-  const online = report.onlineVerification;
-  const language = normalizeReportLanguage(report.meta.reportLanguage);
-  const text = (key: string) => getReportText(key, language);
-  if (!online?.enabled) {
-    return [`## 13. ${text('webVerification')}`, '', !language.startsWith('zh-') ? 'Web verification was not enabled for this report.' : '本次未启用联网核验。', ''];
-  }
-
-  const rows = [
-    ...online.verifiedSources.filter(isUsefulOnlineSource).map((item) => [text('verifiedSources'), item.title, item.url, statusLabel(item.verificationStatus, language), formatEvidenceGrade(item.evidenceGrade, language), item.relevance || item.note]),
-    ...online.backgroundSources.filter(isUsefulOnlineSource).map((item) => [text('backgroundSources'), item.title, item.url, statusLabel(item.verificationStatus, language), formatEvidenceGrade(item.evidenceGrade, language), item.relevance || item.note]),
-    ...online.pendingLeads.filter(isUsefulOnlineSource).map((item) => [text('pendingLeads'), item.title, item.url, statusLabel(item.verificationStatus, language), formatEvidenceGrade(item.evidenceGrade, language), item.relevance || item.note]),
-  ];
-
-  return [
-    `## 13. ${text('webVerification')}`,
-    '',
-    `${!language.startsWith('zh-') ? 'Status' : '联网状态'}: ${online.status === 'has_results' ? (!language.startsWith('zh-') ? 'Usable sources found' : '已找到可用来源') : online.status === 'no_reliable_sources' ? text('noReliableSources') : (!language.startsWith('zh-') ? 'Not enabled' : '未启用')}`,
-    '',
-    ...(rows.length
-      ? markdownTable(!language.startsWith('zh-') ? ['Category', 'Source title', 'Link', 'Verification status', 'Evidence grade', 'Supported or limited judgment'] : ['分类', '来源标题', '链接', '核验状态', '证据等级', '可支持或限制的判断'], rows)
-      : [text('noReliableSources')]),
-    '',
-    `### ${!language.startsWith('zh-') ? 'Information that cannot yet be verified' : '暂无法核验的信息'}`,
-    '',
-    ...bullets(online.unableToConfirm || [], language),
-    '',
-  ];
-}
-
-function markdownForEnglish(report: QuickAnalysisResult | DeepAnalysisResult, originalContent?: string, qaMessages: ChatMessage[] = []) {
-  if (isQuick(report)) {
-    return [
-      '# Guanyu · Quick analysis',
-      '',
-      '## 1. Article at a glance', '', report.originalReading || report.newsSummary,
-      '', '## 2. Core claim', '', report.coreClaim,
-      '', '## 3. Reading value', '', `${getReadWorthDisplayLabel(report.readingValue, 'en-US')}. ${report.readingValueReason}`,
-      '', '## 4. One-sentence Guanyu view', '', report.oneSentenceJudgment,
-      '', '## 5. Three key signals', '',
-      `- Most credible information: ${report.quickSignals?.mostCredibleInfo || '—'}`,
-      `- Largest information gap: ${report.quickSignals?.biggestGap || '—'}`,
-      `- Narrative to watch: ${report.quickSignals?.narrativeToWatch || '—'}`,
-      '', '## 6. Core indicators', '',
-      ...markdownTable(['Indicator', 'Score', 'What it measures'], [
-        ['Information completeness', report.scores.informationCompleteness, 'Whether essential information is present'],
-        ['Evidence strength', report.scores.evidenceStrength, 'How strong the article’s evidence is'],
-        ['Narrative steering', report.scores.narrativeBias, 'Whether the article guides readers in one direction'],
-      ]),
-      '', '## 7. Three questions worth asking next', '', ...bullets(report.questionsToAsk, 'en-US'),
-      '', '## 8. Quick conclusion', '', report.quickConclusion,
-      '', '## Appendix A. Follow-up questions', '',
-      ...(qaMessages.length ? qaMessages.map((message, index) => `### ${index + 1}. ${message.role === 'user' ? 'My question' : 'Guanyu answer'}\n\n${message.content}`) : ['No follow-up questions yet.']),
-      '', '## Appendix B. Original article', '', originalContent?.trim() || 'The original article was not saved.',
-    ].join('\n');
-  }
-
-  const meta = report.meta;
-  return [
-    '# Guanyu · News narrative analysis report',
-    '',
-    '> This report does not declare what is true. It helps distinguish article statements, evidence gaps, narrative structure, and questions that need verification.',
-    '', '## 1. Reading the article', '',
-    `- What the article says: ${report.sourceInterpretation.whatItSays}`,
-    `- Core claims: ${report.sourceInterpretation.coreClaims.join('; ') || '—'}`,
-    `- Main actors: ${report.sourceInterpretation.mainActors.join('; ') || '—'}`,
-    `- Key evidence in the article: ${report.sourceInterpretation.keyEvidence.join('; ') || '—'}`,
-    `- Narrative style: ${report.sourceInterpretation.narrativeStyle}`,
-    `- Likely reader takeaway: ${report.sourceInterpretation.likelyReaderImpression}`,
-    '', '## 2. Reading value', '', `${getReadWorthDisplayLabel(report.readingValue, 'en-US')}. ${report.readingValueReason}`,
-    '', '## 3. How a general reader can approach it', '', report.normalReaderGuide,
-    '', '## 4. One-sentence Guanyu view', '', report.oneSentenceConclusion,
-    '', '## 5. Core indicators', '',
-    ...markdownTable(['Indicator', 'Score', 'Direction', 'Reason'], [
-      ['Credibility', report.scores.credibility, 'Higher means more credible', report.scoreReasons.credibility],
-      ['Information completeness', report.scores.informationCompleteness, 'Higher means more complete information', report.scoreReasons.informationCompleteness],
-      ['Narrative steering', report.scores.narrativeBias, 'Higher means stronger framing', report.scoreReasons.narrativeBias],
-      ['Evidence strength', report.scores.evidenceStrength, 'Higher means stronger evidence', report.scoreReasons.evidenceStrength],
-      ['Speculation uncertainty', report.scores.speculationRisk, 'Higher means more verification is needed', report.scoreReasons.speculationRisk],
-    ]),
-    '', 'Scores describe reporting structure and evidence state. They do not determine whether a news report is true or false.',
-    '', '## 6. Layers of conclusion', '',
-    '### Can be confirmed', ...bullets(report.conclusionLayers.confirmed, 'en-US'),
-    '', '### Reasonable doubts', ...bullets(report.conclusionLayers.reasonableDoubts, 'en-US'),
-    '', '### Cannot yet be determined', ...bullets(report.conclusionLayers.cannotJudgeYet, 'en-US'),
-    '', '## 7. Three key findings',
-    ...report.keyFindings.map((item) => `- **${item.title}**: ${item.content} (${formatJudgmentType(item.judgmentType, 'en-US')}; ${formatEvidenceGrade(item.evidenceGrade, 'en-US')}; ${statusLabel(item.verificationStatus, 'en-US')}; ${formatSpeculationRisk(item.speculationRisk, 'en-US')}; verification: ${item.nextVerification})`),
-    '', '## 8. Evidence supporting the article narrative',
-    ...report.supportingEvidence.map((item) => `- ${item.content}; supports: ${item.supportsNarrative}; ${formatEvidenceGrade(item.evidenceGrade, 'en-US')}; ${statusLabel(item.verificationStatus, 'en-US')}; limitation: ${item.limitation}`),
-    '', '## 9. Major information gaps',
-    ...report.informationGaps.map((item) => `- **${item.title}**: ${item.description}; why it matters: ${item.whyItMatters}; ${formatEvidenceGrade(item.currentEvidenceGrade, 'en-US')}; ${statusLabel(item.verificationStatus, 'en-US')}; verification: ${item.nextVerification}`),
-    '', '## 10. Key interest relationships',
-    ...report.stakeholderRelations.map((item) => `- **${item.role}**: possible benefit: ${item.possibleBenefit || 'Not disclosed in the article; needs verification.'}; possible cost: ${item.possibleCost || 'Not disclosed in the article; needs verification.'}; ${formatJudgmentType(item.judgmentType, 'en-US')}; ${formatSpeculationRisk(item.speculationRisk, 'en-US')}; pending check: ${item.pendingVerification}`),
-    '', '## 11. Alternative explanations',
-    ...report.alternativeExplanations.map((item) => `- **${item.explanation}**: ${formatReasonableness(item.reasonableness, 'en-US')}; current evidence: ${item.currentEvidenceStatus}; ${formatSpeculationRisk(item.speculationRisk, 'en-US')}; needed verification: ${item.neededVerification}`),
-    '', '## 12. Evidence and verification state',
-    `- Strongest evidence: ${report.evidenceVerificationSummary.strongestEvidence}`,
-    `- Weakest evidence: ${report.evidenceVerificationSummary.weakestEvidence}`,
-    ...bullets(report.evidenceVerificationSummary.sourceSupportedClaims.map((item) => `Supported by the article only: ${item}`), 'en-US'),
-    ...bullets(report.evidenceVerificationSummary.externallyVerifiedClaims.map((item) => `Externally verified: ${item}`), 'en-US'),
-    ...bullets(report.evidenceVerificationSummary.pendingVerificationClaims.map((item) => `Needs external verification: ${item}`), 'en-US'),
-    ...bullets(report.evidenceVerificationSummary.unableToVerifyClaims.map((item) => `Unable to verify: ${formatUnconfirmedItem(item)}`), 'en-US'),
-    '', '## 13. Verification roadmap',
-    ...report.verificationRoadmap.map((item, index) => {
-      const record = report.manualVerifications?.find((entry) => entry.index === index);
-      return `- **${item.question}**: ${formatMaterialType(item.materialType, 'en-US')}; ${formatPriority(item.priority, 'en-US')}; why it matters: ${item.whyItMatters}${record ? `; user verification: ${manualVerificationLabel(record.outcome, 'en-US')}` : ''}`;
-    }),
-    '', ...webVerificationMarkdown(report).slice(2),
-    '## 14. Questions to ask next', '', ...bullets(report.questionsToAsk, 'en-US'),
-    '', '## 15. Conclusions not yet supported', '', ...bullets(report.cannotConclude, 'en-US'),
-    '', '## 16. Interpretation boundary', '', report.riskNotice,
-    '', '## 17. Report metadata', '',
-    ...markdownTable(['Item', 'Value'], [
-      ['Article title', line(meta.title, 'Not supplied')],
-      ['Article source', line(meta.source, 'Not supplied')],
-      ['Published at', meta.publishedAt || 'Publication date could not be identified reliably'],
-      ['Publication-date source', formatPublishedAtSource(meta.publishedAtSource, 'en-US') || meta.publishedAtSource],
-      ['Publication-date confidence', formatConfidence(meta.publishedAtConfidence, 'en-US') || meta.publishedAtConfidence],
-      ['Model', line(meta.modelName, 'Not supplied')],
-      ['Reasoning depth', formatThinkingDepth(meta.reasoningDepth, 'en-US')],
-      ['Report language', 'English'],
-      ['Analysis mode', formatAnalysisMode(meta.analysisMode, 'en-US')],
-      ['Generated at', line(meta.createdAt, 'Not supplied')],
-      ['Methodology', 'Guanyu Nine-Lens Reading Method'],
-    ]),
-    '', '## 18. Appendix: Original article', '', originalContent?.trim() || 'The original article was not saved.',
-    '', '## Appendix: Follow-up questions', '',
-    ...(qaMessages.length ? qaMessages.map((message, index) => `### ${index + 1}. ${message.role === 'user' ? 'My question' : 'Guanyu answer'}\n\n${message.content}`) : ['No follow-up questions yet.']),
-  ].join('\n');
-}
-
-function markdownFor(report: QuickAnalysisResult | DeepAnalysisResult, originalContent?: string, qaMessages: ChatMessage[] = []) {
-  const meta = report.meta;
-  const reportLanguage = normalizeReportLanguage(meta.reportLanguage);
-  // Legacy quick reports and the Markdown template have full English copy. For
-  // every non-Chinese target language this prevents a Chinese export from being
-  // mixed into an otherwise localized report until its dedicated legacy format
-  // is regenerated by the current deep-report pipeline.
-  if (!reportLanguage.startsWith('zh-')) {
-    return markdownForEnglish(report, originalContent, qaMessages);
-  }
-  if (isQuick(report)) {
-    return [
-      '# 观隅 · 快速分析',
-      '',
-      '## 1. 原文速读',
-      '',
-      report.originalReading || report.newsSummary,
-      '',
-      '## 2. 核心主张',
-      '',
-      report.coreClaim,
-      '',
-      '## 3. 阅读价值判断',
-      '',
-      `${report.readingValue}。${report.readingValueReason}`,
-      '',
-      '## 4. 一句话观隅审视',
-      '',
-      report.oneSentenceJudgment,
-      '',
-      '## 5. 三个关键信号',
-      '',
-      `- 最可信信息：${report.quickSignals?.mostCredibleInfo || '暂无'}`,
-      `- 最大信息缺口：${report.quickSignals?.biggestGap || '暂无'}`,
-      `- 最需警惕叙事：${report.quickSignals?.narrativeToWatch || '暂无'}`,
-      '',
-      '## 6. 核心指数',
-      '',
-      ...markdownTable(['指标', '分数', '作用'], [
-        ['信息完整度', report.scores.informationCompleteness, '原文关键信息够不够'],
-        ['证据强度', report.scores.evidenceStrength, '原文证据硬不硬'],
-        ['叙事倾向性', report.scores.narrativeBias, '原文是否明显单向引导'],
-      ]),
-      '',
-      '## 7. 最值得追问的 3 个问题',
-      '',
-      ...bullets(report.questionsToAsk),
-      '',
-      '## 8. 快速结论',
-      '',
-      report.quickConclusion,
-      '',
-      '## 附录 A. 交互式追问记录',
-      '',
-      ...(qaMessages.length ? qaMessages.map((message, index) => `### ${index + 1}. ${message.role === 'user' ? '我的问题' : '审视助手回答'}\n\n${message.content}`) : ['暂无交互式追问记录。']),
-      '',
-      '## 附录 B. 新闻原文',
-      '',
-      originalContent?.trim() || '未保存原文。',
-    ].join('\n');
-  }
-
-  return [
-    '# 观隅 · 新闻叙事审视报告',
-    '',
-    '> 本报告不替用户断言真相，只帮助看清新闻叙事结构、证据缺口、缺席视角和待验证问题。',
-    '',
-    '## 1. 原文解读',
-    '',
-    `- 原文在讲什么：${report.sourceInterpretation.whatItSays}`,
-    `- 核心主张：${report.sourceInterpretation.coreClaims.join('；') || '暂无'}`,
-    `- 主要主体：${report.sourceInterpretation.mainActors.join('；') || '暂无'}`,
-    `- 原文关键证据：${report.sourceInterpretation.keyEvidence.join('；') || '暂无'}`,
-    `- 叙事方式：${report.sourceInterpretation.narrativeStyle}`,
-    `- 读者最可能带走的印象：${report.sourceInterpretation.likelyReaderImpression}`,
-    '',
-    '## 2. 阅读价值判断',
-    '',
-    `${report.readingValue}。${report.readingValueReason}`,
-    '',
-    '## 3. 给普通读者的读法',
-    '',
-    report.normalReaderGuide,
-    '',
-    '## 4. 一句话观隅审视',
-    '',
-    report.oneSentenceConclusion,
-    '',
-    '## 5. 核心指数',
-    '',
-    ...markdownTable(['指数', '分数', '方向说明', '评分理由'], [
-      ['可信度', report.scores.credibility, '越高表示越可信', report.scoreReasons.credibility],
-      ['信息完整度', report.scores.informationCompleteness, '越高表示信息越完整', report.scoreReasons.informationCompleteness],
-      ['叙事倾向性', report.scores.narrativeBias, '越高表示引导性越强', report.scoreReasons.narrativeBias],
-      ['证据强度', report.scores.evidenceStrength, '越高表示证据越充分', report.scoreReasons.evidenceStrength],
-      ['推测不确定性', report.scores.speculationRisk, '越高表示越需要谨慎核验', report.scoreReasons.speculationRisk],
-    ]),
-    '',
-    '评分用于衡量报道结构与证据状态，不等同于判断新闻真假。',
-    '',
-    '## 6. 结论分层',
-    '',
-    '### 可以确认',
-    ...bullets(report.conclusionLayers.confirmed),
-    '',
-    '### 可以合理怀疑',
-    ...bullets(report.conclusionLayers.reasonableDoubts),
-    '',
-    '### 暂不能判断',
-    ...bullets(report.conclusionLayers.cannotJudgeYet),
-    '',
-    '## 7. 最关键的 3 个发现',
-    ...report.keyFindings.map((item) => `- **${item.title}**：${item.content}（${item.judgmentType}，证据 ${item.evidenceGrade}，${statusLabel(item.verificationStatus)}，推测不确定性 ${item.speculationRisk}；验证：${item.nextVerification}）`),
-    '',
-    '## 8. 支持原文叙事的证据',
-    ...report.supportingEvidence.map((item) => `- ${item.content}；支撑：${item.supportsNarrative}；证据 ${item.evidenceGrade}；${statusLabel(item.verificationStatus)}；局限：${item.limitation}`),
-    '',
-    '## 9. 主要信息缺口',
-    ...report.informationGaps.map((item) => `- **${item.title}**：${item.description}；重要性：${item.whyItMatters}；证据 ${item.currentEvidenceGrade}；${statusLabel(item.verificationStatus)}；验证：${item.nextVerification}`),
-    '',
-    '## 10. 关键利益关系',
-    ...report.stakeholderRelations.map((item) => `- **${item.role}**：可能利益：${item.possibleBenefit || '原文未披露，需核验'}；可能代价：${item.possibleCost || '原文未披露，需核验'}；${item.judgmentType}；推测不确定性 ${item.speculationRisk}；待验证：${item.pendingVerification}`),
-    '',
-    '## 11. 替代解释对照',
-    ...report.alternativeExplanations.map((item) => `- **${item.explanation}**：合理性 ${item.reasonableness}；当前证据：${item.currentEvidenceStatus}；推测不确定性 ${item.speculationRisk}；需验证：${item.neededVerification}`),
-    '',
-    '## 12. 证据与核验状态',
-    `- 最强证据：${report.evidenceVerificationSummary.strongestEvidence}`,
-    `- 最弱证据：${report.evidenceVerificationSummary.weakestEvidence}`,
-    ...bullets(report.evidenceVerificationSummary.sourceSupportedClaims.map((item) => `仅由原文支持：${item}`)),
-    ...bullets(report.evidenceVerificationSummary.externallyVerifiedClaims.map((item) => `外部已核验：${item}`)),
-    ...bullets(report.evidenceVerificationSummary.pendingVerificationClaims.map((item) => `待外部核验：${item}`)),
-    ...bullets(report.evidenceVerificationSummary.unableToVerifyClaims.map((item) => `暂无法确认：${item}`)),
-    '',
-    '## 13. 验证路线图',
-    ...report.verificationRoadmap.map((item, index) => {
-      const record = report.manualVerifications?.find((entry) => entry.index === index);
-      return `- **${item.question}**：材料类型 ${item.materialType}；优先级 ${item.priority}；重要性：${item.whyItMatters}${record ? `；用户核验：${manualVerificationLabel(record.outcome, 'zh-CN')}` : ''}`;
-    }),
-    '',
-    '### 联网核验结果',
-    ...(webVerificationMarkdown(report).slice(2)),
-    '## 14. 继续追问清单',
-    ...bullets(report.questionsToAsk),
-    '',
-    '## 15. 目前不能直接得出的结论',
-    ...bullets(report.cannotConclude),
-    '',
-    '## 16. 风险提示',
-    report.riskNotice,
-    '',
-    '## 17. 报告元信息',
-    '',
-    ...markdownTable(['项目', '内容'], [
-      ['新闻标题', line(meta.title, '未填写')],
-      ['新闻来源', line(meta.source, '未填写')],
-      ['新闻发布时间', meta.publishedAt || '未能可靠识别发布时间'],
-      ['发布时间来源', SOURCE_LABELS[meta.publishedAtSource] || meta.publishedAtSource],
-      ['发布时间可信度', CONFIDENCE_LABELS[meta.publishedAtConfidence] || meta.publishedAtConfidence],
-      ['使用模型', line(meta.modelName, '未填写')],
-      ['思考强度', line(meta.reasoningDepth, '未填写')],
-      ['报告语言', getReportLanguageLabel(meta.reportLanguage, meta.reportLanguage)],
-      ['分析模式', line(meta.analysisMode, '未填写')],
-      ['报告生成时间', line(meta.createdAt, '未填写')],
-      ['方法论', report.methodology],
-    ]),
-    '',
-    '## 18. 附录：新闻原文',
-    '',
-    originalContent?.trim() || '未保存原文。',
-    '',
-    '## 附录：交互式追问记录',
-    '',
-    ...(qaMessages.length ? qaMessages.map((message, index) => `### ${index + 1}. ${message.role === 'user' ? '我的问题' : '审视助手回答'}\n\n${message.content}`) : ['暂无交互式追问记录。']),
-  ].join('\n');
-}
-
 function completionPreviewHtml(value: string) {
   const escaped = reportEmphasisHtml(value);
   return escaped
@@ -1022,85 +670,88 @@ function AiCompletionButton({ auditId, reportLanguage }: { auditId: string; repo
 function DownloadButton({ report, originalContent, qaMessages, auditId, canGenerateCard = false }: { report: QuickAnalysisResult | DeepAnalysisResult; originalContent?: string; qaMessages: ChatMessage[]; auditId?: string; canGenerateCard?: boolean }) {
   const { t } = useUiLanguage();
   const reportLanguage = normalizeReportLanguage(report.meta.reportLanguage);
-  const downloadLocal = () => {
-    const blob = new Blob([emphasizeReportMarkdown(markdownFor(report, originalContent, qaMessages))], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
+  const [includeOriginal, setIncludeOriginal] = useState(false);
+  const [exporting, setExporting] = useState<'MARKDOWN' | 'PDF' | 'WORD' | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const canIncludeOriginal = Boolean(originalContent?.trim());
+  const withOriginal = includeOriginal && canIncludeOriginal;
+
+  function saveFile(href: string, filename: string) {
     const link = document.createElement('a');
-    link.href = url;
-    link.download = 'guanyu-review.md';
+    link.href = href;
+    link.download = filename;
     document.body.appendChild(link);
     link.click();
     link.remove();
-    URL.revokeObjectURL(url);
-  };
-  const [exporting, setExporting] = useState(false);
-  const [exportError, setExportError] = useState<string | null>(null);
-  const download = async () => {
-    if (!auditId) return downloadLocal();
-    setExporting(true); setExportError(null);
+  }
+
+  function saveMarkdown(content: string, filename: string) {
+    const url = URL.createObjectURL(new Blob([content], { type: 'text/markdown;charset=utf-8' }));
+    saveFile(url, filename);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async function download(format: 'MARKDOWN' | 'PDF' | 'WORD') {
+    if (exporting) return;
+    const failure = format === 'PDF' ? t('export.pdfFailed') : format === 'WORD' ? t('export.wordFailed') : t('export.markdownFailed');
+    setExporting(format);
+    setExportError(null);
     try {
-      const response = await fetch(`/api/audits/${encodeURIComponent(auditId)}/export`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ format: 'MARKDOWN' }) });
-      const data = await response.json(); if (!response.ok) throw new Error(data.error || '导出失败');
-      const blob = new Blob([data.content || ''], { type: 'text/markdown;charset=utf-8' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = data.filename || 'guanyu-report.md'; link.click(); URL.revokeObjectURL(url);
-    } catch (error: any) { setExportError(error?.message || '导出失败'); } finally { setExporting(false); }
-  };
-  const downloadPdf = async () => {
-    if (!auditId) return;
-    setExporting(true); setExportError(null);
-    try {
-      const response = await fetch(`/api/audits/${encodeURIComponent(auditId)}/export`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ format: 'PDF' }) });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || t('export.pdfFailed'));
+      if (!auditId) {
+        const meta = report.meta;
+        const createdAt = new Date(meta.createdAt);
+        const snapshot = buildReportExport({
+          ...meta, id: '', originalContent: originalContent || '', newsSummary: report.newsSummary,
+          createdAt: Number.isNaN(createdAt.getTime()) ? new Date() : createdAt,
+          reportVersion: 1, auditResultJson: JSON.stringify(report),
+        }, {
+          includeOriginal: withOriginal,
+          followups: qaMessages.flatMap((item, index) => {
+            const previous = qaMessages[index - 1];
+            return item.role === 'assistant' && previous?.role === 'user'
+              ? [{ question: previous.content, answer: item.content, sources: item.research?.sources }]
+              : [];
+          }),
+        });
+        saveMarkdown(renderMarkdownExport(snapshot), 'guanyu-report.md');
+        return;
       }
+      const response = await fetch(`/api/audits/${encodeURIComponent(auditId)}/export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ format, includeOriginal: withOriginal }),
+      });
       const data = await response.json();
-      if (!data.downloadUrl) throw new Error(t('export.pdfFailed'));
-      const link = document.createElement('a');
-      // Use the authenticated GET download endpoint after generation. This is
-      // more reliable than a Blob URL for real browser downloads and avoids
-      // retaining a second full PDF in client memory.
-      link.href = data.downloadUrl;
-      link.download = data.filename || 'guanyu-report.pdf';
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch (error: any) { setExportError(error?.message || t('export.pdfFailed')); } finally { setExporting(false); }
-  };
-  const downloadWord = async () => {
-    if (!auditId) return;
-    setExporting(true); setExportError(null);
-    try {
-      const response = await fetch(`/api/audits/${encodeURIComponent(auditId)}/export`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ format: 'WORD' }) });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || t('export.wordFailed'));
-      }
-      const data = await response.json();
-      if (!data.downloadUrl) throw new Error(t('export.wordFailed'));
-      const link = document.createElement('a');
-      link.href = data.downloadUrl;
-      link.download = data.filename || 'guanyu-report.docx';
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch (error: any) { setExportError(error?.message || t('export.wordFailed')); } finally { setExporting(false); }
-  };
+      if (!response.ok) throw new Error(data.error || failure);
+      if (format === 'MARKDOWN' && typeof data.content === 'string') saveMarkdown(data.content, data.filename);
+      else if (format !== 'MARKDOWN' && data.downloadUrl) saveFile(data.downloadUrl, data.filename);
+      else throw new Error(failure);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : failure);
+    } finally {
+      setExporting(null);
+    }
+  }
 
   return (
-    <div className="flex flex-wrap justify-end gap-2">
-      {auditId && <Button variant="secondary" onClick={downloadWord} disabled={exporting}>{exporting ? t('export.generating') : `${t('export.word')} · 1 ${t('billing.creditUnit')}`}</Button>}
-      {auditId && <Button variant="secondary" onClick={downloadPdf} disabled={exporting}>{exporting ? t('export.generating') : `${t('export.pdf')} · 1 ${t('billing.creditUnit')}`}</Button>}
-      <Button variant="primary" onClick={download} disabled={exporting}>
-        {exporting ? t('export.generating') : `${t('export.markdown', getReportText('exportMarkdown', reportLanguage))}${auditId ? ` · 1 ${t('billing.creditUnit')}` : ''}`}
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      {canIncludeOriginal && <label className="mr-2">
+        <Input type="checkbox" checked={withOriginal} onChange={event => setIncludeOriginal(event.target.checked)} disabled={!!exporting} />
+        {t('export.includeOriginal')}
+      </label>}
+      {auditId && <Button variant="secondary" onClick={() => void download('WORD')} disabled={!!exporting} busy={exporting === 'WORD'}>{exporting === 'WORD' ? t('export.generating') : `${t('export.word')} · 1 ${t('billing.creditUnit')}`}</Button>}
+      {auditId && <Button variant="secondary" onClick={() => void download('PDF')} disabled={!!exporting} busy={exporting === 'PDF'}>{exporting === 'PDF' ? t('export.generating') : `${t('export.pdf')} · 1 ${t('billing.creditUnit')}`}</Button>}
+      <Button variant="primary" onClick={() => void download('MARKDOWN')} disabled={!!exporting} busy={exporting === 'MARKDOWN'}>
+        {exporting === 'MARKDOWN' ? t('export.generating') : `${t('export.markdown', getReportText('exportMarkdown', reportLanguage))}${auditId ? ` · 1 ${t('billing.creditUnit')}` : ''}`}
       </Button>
       {auditId && <AiCompletionButton auditId={auditId} reportLanguage={reportLanguage} />}
       {auditId && canGenerateCard && <GuanyuCardButton auditId={auditId} title={report.meta.title} reportLanguage={reportLanguage} />}
-      {exportError && <span className="w-full text-right text-xxs font-semibold text-[var(--color-danger)]">{exportError}</span>}
+      {exportError && <span role="alert" className="w-full text-right text-xxs font-semibold text-[var(--color-danger)]">{exportError}</span>}
     </div>
   );
 }
 
-function QuickReportView({ report, originalContent, qaMessages }: { report: QuickAnalysisResult; originalContent?: string; qaMessages: ChatMessage[] }) {
+function QuickReportView({ report, originalContent, qaMessages, questionAction }: { report: QuickAnalysisResult; originalContent?: string; qaMessages: ChatMessage[]; questionAction?: QuestionAction }) {
   const reportLanguage = normalizeReportLanguage(report.meta.reportLanguage);
   const questions = limitedItems(report.questionsToAsk, 3);
   return (
@@ -1125,7 +776,7 @@ function QuickReportView({ report, originalContent, qaMessages }: { report: Quic
       </Section>
       <ScoresSection report={report} />
       <Section title={reportLanguage === 'en-US' ? '7. Three questions worth asking next' : '7. 最值得追问的 3 个问题'}>
-        <ul className="grid grid-cols-1 gap-2 md:grid-cols-3">{questions.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-xs font-semibold leading-relaxed text-[var(--color-text)]"><ReportText>{item}</ReportText></li>)}</ul>
+        <SuggestedQuestions questions={questions} action={questionAction} columns={3} />
       </Section>
       <Section title={reportLanguage === 'en-US' ? '8. Quick conclusion' : '8. 快速结论'}><p className="text-sm leading-relaxed text-[var(--color-text)]"><ReportText>{report.quickConclusion}</ReportText></p></Section>
       <DownloadButton report={report} originalContent={originalContent} qaMessages={qaMessages} />
@@ -1133,7 +784,7 @@ function QuickReportView({ report, originalContent, qaMessages }: { report: Quic
   );
 }
 
-function DeepReportView({ relatedCoverage, report, originalContent, qaMessages, displayLimit, auditId, canUpdateVerification, onVerificationUpdated }: { report: DeepAnalysisResult; originalContent?: string; qaMessages: ChatMessage[]; displayLimit: number; auditId?: string; canUpdateVerification?: boolean; onVerificationUpdated?: (result: unknown, outcome: ManualVerificationOutcome) => void; relatedCoverage?: React.ReactNode }) {
+function DeepReportView({ relatedCoverage, report, originalContent, qaMessages, displayLimit, auditId, canUpdateVerification, onVerificationUpdated, questionAction }: { report: DeepAnalysisResult; originalContent?: string; qaMessages: ChatMessage[]; displayLimit: number; auditId?: string; canUpdateVerification?: boolean; onVerificationUpdated?: (result: unknown, outcome: ManualVerificationOutcome) => void; relatedCoverage?: React.ReactNode; questionAction?: QuestionAction }) {
   const reportLanguage = normalizeReportLanguage(report.meta.reportLanguage);
   const text = (key: string) => getReportText(key, reportLanguage);
   const keyFindings = limitedItems(report.keyFindings, displayLimit);
@@ -1222,7 +873,7 @@ function DeepReportView({ relatedCoverage, report, originalContent, qaMessages, 
        />
       </Section>
       <Section id="report-web-verification" title={text('webVerification')}><WebVerificationView report={report} /></Section>
-      <Section id="report-questions" title={text('questions')} aside={compactAside(report.questionsToAsk.length, displayLimit, reportLanguage)}><ul className="grid grid-cols-1 gap-2 md:grid-cols-2">{questions.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-xs font-semibold leading-relaxed text-[var(--color-text)]"><ReportText>{item}</ReportText></li>)}</ul></Section>
+      <Section id="report-questions" title={text('questions')} aside={compactAside(report.questionsToAsk.length, displayLimit, reportLanguage)}><SuggestedQuestions questions={questions} action={questionAction} /></Section>
       <Section id="report-limits" title={text('notConcluded')}><ul className="space-y-2 text-xs leading-relaxed text-[var(--color-text)]">{report.cannotConclude.map((item, index) => <li key={`${item}-${index}`} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">- <ReportText>{item}</ReportText></li>)}</ul></Section>
       <Section id="report-risk" title={text('riskNotice')}><p className="text-xs leading-relaxed text-[var(--color-text-muted)]"><ReportText>{report.riskNotice}</ReportText></p></Section>
       <Section id="report-metadata" title={text('meta')}>
@@ -1252,6 +903,14 @@ export default function AnalysisResultView({ result: rawResult, relatedCoverage,
   const [verificationNotice, setVerificationNotice] = useState<string | null>(null);
   const result = useNormalizedResult(workingResult, auditMeta);
   const [qaMessages, setQaMessages] = useState<ChatMessage[]>([]);
+  const qa = useRef<InteractiveQAHandle>(null);
+  const [isAsking, setIsAsking] = useState(false);
+  const followupModel = useActiveModel('followup', Boolean(auditId));
+  const questionAction: QuestionAction | undefined = auditId ? {
+    ask: question => qa.current?.askQuestion(question),
+    disabled: isAsking || followupModel.loading || !!followupModel.error,
+    loading: followupModel.loading, cost: followupModel.estimatedCost, error: followupModel.error,
+  } : undefined;
   const readWorth = result.read_worth || computeReadWorth(result);
   const readingLimit = 12;
 
@@ -1271,16 +930,18 @@ export default function AnalysisResultView({ result: rawResult, relatedCoverage,
       {verificationNotice && <div data-verification-toast role="status" className="rounded-lg border border-[var(--color-success)]/35 bg-[color-mix(in_srgb,var(--color-success)_10%,var(--color-surface))] px-3 py-2 text-xs font-bold text-[var(--color-success)]">{verificationNotice}</div>}
       <div className={isQuick(result) ? undefined : 'report-layout'}>
         <div ref={contentRef} className="report-content min-w-0">
+          <ReportEmphasisContext.Provider value={isDeep(result) ? result.emphasisPhrases || [] : []}>
           <div className="space-y-4 sm:space-y-5">
             {isQuick(result)
-              ? <QuickReportView report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} />
-              : <DeepReportView relatedCoverage={relatedCoverage} report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} displayLimit={readingLimit} auditId={auditId} canUpdateVerification={canUpdateVerification} onVerificationUpdated={handleVerificationUpdated} />}
+              ? <QuickReportView report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} questionAction={questionAction} />
+              : <DeepReportView relatedCoverage={relatedCoverage} report={{ ...result, readingValue: readWorth.label, read_worth: readWorth }} originalContent={originalContent} qaMessages={qaMessages} displayLimit={readingLimit} auditId={auditId} canUpdateVerification={canUpdateVerification} onVerificationUpdated={handleVerificationUpdated} questionAction={questionAction} />}
             {isQuick(result) && relatedCoverage}
           </div>
+          </ReportEmphasisContext.Provider>
         </div>
         {!isQuick(result) && <ReadingNavigation language={result.meta.reportLanguage} contentRef={contentRef} />}
       </div>
-      {auditId && <InteractiveQA auditId={auditId} messages={qaMessages} onMessagesChange={setQaMessages} />}
+      {auditId && <InteractiveQA ref={qa} auditId={auditId} activeModel={followupModel} onBusyChange={setIsAsking} messages={qaMessages} onMessagesChange={setQaMessages} />}
       {auditId && <DiscussionBoard auditId={auditId} />}
     </div>
   );

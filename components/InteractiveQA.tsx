@@ -1,9 +1,9 @@
 'use client';
 
 import { Button, Input, Panel } from '@/components/ui/controls';
-import React, { useLayoutEffect, useRef, useState } from 'react';
+import React, { useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from 'react';
 import { useUiLanguage } from './LanguageProvider';
-import { useActiveModel } from './useActiveModel';
+import type { ActiveModelState } from './useActiveModel';
 import type { FollowupResearch } from '@/lib/followup-types';
 
 function safeMarkdownHref(value: string) {
@@ -163,11 +163,16 @@ export interface ChatMessage {
 
 interface InteractiveQAProps {
   auditId: string;
+  activeModel: ActiveModelState;
+  ref?: Ref<InteractiveQAHandle>;
+  onBusyChange?: (busy: boolean) => void;
   messages?: ChatMessage[];
   onMessagesChange?: (messages: ChatMessage[]) => void;
 }
 
-export default function InteractiveQA({ auditId, messages: controlledMessages, onMessagesChange }: InteractiveQAProps) {
+export type InteractiveQAHandle = { askQuestion: (question: string) => void };
+
+export default function InteractiveQA({ auditId, activeModel, ref, onBusyChange, messages: controlledMessages, onMessagesChange }: InteractiveQAProps) {
   const { language, t } = useUiLanguage();
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -178,7 +183,8 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
   const thread = useRef<HTMLDivElement>(null);
   const followLatest = useRef(true);
   const threadWidth = useRef(0);
-  const activeModel = useActiveModel('followup');
+  const sending = useRef(false);
+  const panel = useRef<HTMLDivElement>(null);
   const messages = controlledMessages ?? localMessages;
   useLayoutEffect(() => {
     if (followLatest.current && thread.current) thread.current.scrollTop = thread.current.scrollHeight;
@@ -201,22 +207,27 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
     else setLocalMessages(nextMessages);
   };
 
-  const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || isSending) return;
-
-    const userQuestion = input.trim();
+  const sendQuestion = async (question: string, fromSuggestion = false) => {
+    const userQuestion = question.trim();
+    if (!userQuestion || sending.current || activeModel.loading || activeModel.error) return;
+    if (userQuestion.length > 2000) { setError(t('qa.questionTooLong')); return; }
+    sending.current = true;
+    onBusyChange?.(true);
     const retry = pending.current?.question === userQuestion && pending.current.webSearch === webSearch && pending.current.language === language;
     const attempt = retry ? pending.current! : { question: userQuestion, requestId: crypto.randomUUID(), history: messages, webSearch, language };
     pending.current = attempt;
     followLatest.current = true;
-    setInput('');
+    if (!fromSuggestion) setInput('');
     setError(null);
 
     // 1. 本地立即追加用户消息
     const updatedMessages = [...attempt.history, { role: 'user' as const, content: userQuestion }];
     updateMessages(updatedMessages);
     setIsSaving(true);
+    if (fromSuggestion) requestAnimationFrame(() => {
+      panel.current?.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+      panel.current?.focus({ preventScroll: true });
+    });
 
     try {
       // 2. 调用交互式提问 API
@@ -246,12 +257,16 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
       setInput(current => current.trim() ? current : userQuestion);
       setError(err?.message || '提问交互失败，请重试。');
     } finally {
+      sending.current = false;
       setIsSaving(false);
+      onBusyChange?.(false);
     }
   };
+  useImperativeHandle(ref, () => ({ askQuestion: question => { void sendQuestion(question, true); } }));
+  const handleSend = (event: React.FormEvent) => { event.preventDefault(); void sendQuestion(input); };
 
   return (
-    <Panel as="div" className="space-y-4">
+    <Panel as="div" ref={panel} id="report-followup" role="region" aria-label={t('qa.title')} tabIndex={-1} className="space-y-4">
       <div className="border-b border-[var(--color-border)] pb-2.5 flex justify-between items-center">
         <h3 className="ui-panel-title">
           <span>{t('qa.title')}</span>
@@ -302,9 +317,9 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
           </div>
         )}
 
-        {error && (
+        {(error || activeModel.error) && (
           <div role="alert" className="p-2.5 rounded bg-[var(--color-danger-soft)] text-xxs font-bold text-[var(--color-danger)] border border-[var(--color-danger)]">
-            ⚠️ {error}
+            ⚠️ {error || activeModel.error}
           </div>
         )}
       </div>
@@ -326,7 +341,7 @@ export default function InteractiveQA({ auditId, messages: controlledMessages, o
        />
         <Button variant="primary"
           type="submit"
-          disabled={isSending || !input.trim() || activeModel.loading}
+          disabled={isSending || !input.trim() || activeModel.loading || !!activeModel.error}
           aria-busy={isSending}
           className="flex-shrink-0"
        >

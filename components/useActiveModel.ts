@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useUiLanguage } from '@/components/LanguageProvider';
 import type { ModelOperation, ModelSourceSelection } from '@/components/PlatformModelSelector';
 
-type ActiveModelState = {
+export type ActiveModelState = {
   source: ModelSourceSelection;
   displayName: string;
   estimatedCost: string;
@@ -15,7 +15,7 @@ type ActiveModelState = {
 
 const BASE_COST: Record<ModelOperation, string> = { analysis: '3', completion: '2', followup: '1' };
 
-export function useActiveModel(operation: ModelOperation): ActiveModelState {
+export function useActiveModel(operation: ModelOperation, enabled = true): ActiveModelState {
   const { language, t } = useUiLanguage();
   const [state, setState] = useState<ActiveModelState>({
     source: 'platform',
@@ -27,6 +27,7 @@ export function useActiveModel(operation: ModelOperation): ActiveModelState {
   });
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     setState((current) => ({ ...current, loading: true, error: '' }));
     fetch(`/api/platform-models?operation=${operation}&locale=${encodeURIComponent(language)}`, { cache: 'no-store' })
@@ -56,7 +57,7 @@ export function useActiveModel(operation: ModelOperation): ActiveModelState {
         if (!cancelled) setState((current) => ({ ...current, loading: false, error: error instanceof Error ? error.message : t('modelSelector.loadFailed', '无法加载当前模型。') }));
       });
     return () => { cancelled = true; };
-  }, [language, operation, t]);
+  }, [enabled, language, operation, t]);
 
   return state;
 }

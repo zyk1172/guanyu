@@ -49,6 +49,7 @@ model User {
   discussionMessages        ReportDiscussionMessage[]
   discussionReports         DiscussionReport[]        @relation("DiscussionReporter")
   exportArtifacts           ExportArtifact[]
+  reportFollowups           ReportFollowup[]
   modelUsageEvents          ModelUsageEvent[]
   serviceOperations         ServiceOperation[]
   savedArticles             SavedArticle[]
@@ -190,6 +191,7 @@ model Audit {
   emailDeliveries               EmailDelivery[]
   discussionMessages            ReportDiscussionMessage[]
   exportArtifacts               ExportArtifact[]
+  followups                     ReportFollowup[]
 
   @@index([userId])
   @@index([heatScore])
@@ -486,6 +488,7 @@ model ReportDiscussionMessage {
   userId              String
   user                User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
   parentMessageId     String?
+  replyToMessageId    String? // Specific reply target within the top-level thread.
   parent              ReportDiscussionMessage?  @relation("DiscussionReplies", fields: [parentMessageId], references: [id], onDelete: SetNull)
   replies             ReportDiscussionMessage[] @relation("DiscussionReplies")
   content             String
@@ -523,6 +526,22 @@ model DiscussionReport {
   @@index([status, createdAt])
 }
 
+model ReportFollowup {
+  id            String   @id // Successful service operation ID
+  reportId      String
+  report        Audit    @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  reportVersion Int
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  question      String
+  answer        String
+  sources       Json?
+  createdAt     DateTime @default(now())
+
+  @@index([reportId, reportVersion, userId, createdAt])
+  @@index([userId])
+}
+
 model ExportArtifact {
   id                    String   @id @default(cuid())
   userId                String
@@ -530,7 +549,9 @@ model ExportArtifact {
   reportId              String
   report                Audit    @relation(fields: [reportId], references: [id], onDelete: Cascade)
   reportVersion         Int
-  exportFormat          String // PDF, MARKDOWN
+  exportFormat          String // PDF, WORD, MARKDOWN
+  includeOriginal       Boolean  @default(false)
+  snapshotHash          String?
   templateVersion       String   @default("1")
   contentHash           String
   storagePath           String?
@@ -547,7 +568,7 @@ model ExportArtifact {
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
-  @@unique([userId, reportId, reportVersion, exportFormat])
+  @@unique([userId, reportId, reportVersion, exportFormat, includeOriginal], map: "ExportArtifact_variant_key")
   @@index([reportId, reportVersion])
 }
 
