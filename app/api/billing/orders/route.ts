@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
         select: { id: true },
       });
     });
-    if (!result.id) return NextResponse.json({ error: result.error }, { status: result.status, headers: CHECKOUT_HEADERS });
+    if ('error' in result) return NextResponse.json({ error: result.error }, { status: result.status, headers: CHECKOUT_HEADERS });
     return NextResponse.json({ id: result.id }, { headers: CHECKOUT_HEADERS });
   } catch {
     return NextResponse.json({ error: '创建订单失败，请稍后重试。' }, { status: 503, headers: CHECKOUT_HEADERS });
