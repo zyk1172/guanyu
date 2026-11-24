@@ -8,7 +8,7 @@ export async function recordModelUsage(params: {
   userId?: string | null;
   auditId?: string | null;
   jobId?: string | null;
-  operation: PlatformModelOperation | 'comparison' | 'news_search';
+  operation: PlatformModelOperation | 'comparison' | 'news_search' | 'news_search_ai';
   status: 'success' | 'failed';
   source: 'platform' | 'custom';
   snapshot?: PlatformModelSnapshot | null;

@@ -420,7 +420,7 @@ model PurchaseOrder {
   currency              String    @default("CNY")
   points                Int       @default(30)
   proAccessDays         Int       @default(0)
-  status                String    @default("PENDING") // PENDING, PAYMENT_SUBMITTED, PAID, FULFILLED, REJECTED, REFUNDED, CANCELLED
+  status                String    @default("PENDING") // CHECKOUT_PENDING, PENDING (legacy), PAYMENT_SUBMITTED, PAID, FULFILLED, REJECTED, REFUNDED, CANCELLED
   paymentMethod         String    @default("alipay_qr")
   paymentNote           String?
   adminNote             String?

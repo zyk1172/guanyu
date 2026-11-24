@@ -1,6 +1,7 @@
 // Display labels only: persisted billing values and API contracts stay unchanged.
 type Label = readonly [string, string];
 const ORDER_STATUS: Record<string, Label> = {
+  CHECKOUT_PENDING: ['等待付款', 'Awaiting payment'],
   PENDING: ['待人工确认', 'Awaiting confirmation'],
   PAYMENT_SUBMITTED: ['付款待核对', 'Payment under review'],
   PAID: ['已确认付款，待到账', 'Payment confirmed, awaiting fulfillment'],

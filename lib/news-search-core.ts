@@ -28,7 +28,7 @@ export function newsDate(value: unknown, now = Date.now()) {
   return Number.isFinite(date.getTime()) && date.getTime() <= now + 3600_000 ? date.toISOString() : null;
 }
 
-export function normalizeNewsArticles(sources: WebSearchSource[]): NewsArticle[] {
+export function normalizeNewsArticles(sources: WebSearchSource[], limit = 10): NewsArticle[] {
   const seen = new Set<string>();
   return sources.flatMap(source => {
     const url = newsUrl(source.url);
@@ -39,7 +39,7 @@ export function normalizeNewsArticles(sources: WebSearchSource[]): NewsArticle[]
     if (seen.has(key)) return [];
     seen.add(key);
     return [{ url, title, snippet: (source.snippet || '').replace(/\s+/g, ' ').trim().slice(0, 800), source: source.sourceName?.trim().slice(0, 120) || new URL(url).hostname.replace(/^www\./, ''), publishedAt: newsDate(source.publishedAt), provider: source.provider || 'web' }];
-  }).slice(0, 10);
+  }).slice(0, limit);
 }
 
 export const NEWS_SEARCH_DRAFT_KEY = 'guanyu-news-search-v2';
@@ -53,6 +53,9 @@ export function decodeNewsSearchDraft(raw: string | null, now = Date.now()): New
     const data = JSON.parse(raw);
     if (!Number.isFinite(data.savedAt) || data.savedAt > now + 60_000 || now - data.savedAt >= 30 * 60_000 || !normalizeNewsQuery(data.query) || !['free', 'deepseek'].includes(data.provider) || !['any', 'day', 'week', 'month'].includes(data.period)) return null;
     if (data.result !== null && (!Array.isArray(data.result?.articles) || data.result.articles.length > 10 || !Array.isArray(data.result.providers) || data.result.providers.length > 5 || !data.result.providers.every((provider: unknown) => typeof provider === 'string' && provider.length <= 32) || !['free', 'deepseek'].includes(data.result.requestedProvider) || typeof data.result.searchedAt !== 'string' || !Number.isFinite(Date.parse(data.result.searchedAt)) || typeof data.result.cached !== 'boolean' || typeof data.result.webFallback !== 'boolean' || typeof data.result.timeFilterApplied !== 'boolean')) return null;
+    const terms = data.result?.searchTerms;
+    if (terms !== undefined && (!Array.isArray(terms) || terms.length > 2 || terms.some(term => !normalizeNewsQuery(term)))) return null;
+    if (data.result?.aiRanked !== undefined && typeof data.result.aiRanked !== 'boolean') return null;
     const valid = (a: NewsArticle) => a && typeof a.title === 'string' && a.title.length <= 300 && typeof a.snippet === 'string' && a.snippet.length <= 800 && typeof a.source === 'string' && a.source.length <= 120 && newsUrl(a.url) && typeof a.provider === 'string' && (a.publishedAt === null || newsDate(a.publishedAt));
     if (data.result?.articles.some((a: NewsArticle) => !valid(a)) || (data.pending !== null && !valid(data.pending))) return null;
     // Discard results from the old general-web fallback after the news-only upgrade.

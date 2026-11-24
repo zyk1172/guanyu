@@ -36,8 +36,8 @@ import type {
   ReadingUtilityFactors,
 } from '@/lib/types';
 import { toClientError } from '@/lib/app-error';
-import { ReportSchema, reportSchemaErrorPaths } from '@/lib/report-schema';
-import { assertArticleText, assertModelArticleAssessment, ArticleInputError } from '@/lib/article-input';
+import { checkAnalysisOutput } from '@/lib/analysis-output';
+import { assertArticleText } from '@/lib/article-input';
 
 const MAX_NEWS_CONTENT_LENGTH = 30000;
 const EMPTY_ONLINE_TITLES = new Set(['相关背景来源', '待核验线索', '来源标题', '未提供', '暂无']);
@@ -131,25 +131,30 @@ function getReadingUtility(parsed: any): ReadingUtilityFactors {
   };
 }
 
+function normalizeClaimStatus(value: unknown, hasVerifiedReference: boolean): VerificationStatusCode {
+  const status = normalizeVerificationStatus(value, true);
+  return status === 'externally_verified' && !hasVerifiedReference ? 'pending_verification' : status;
+}
+
 function normalizeJudgment(item: any, fallbackTitle: string, hasExternalResults: boolean) {
   return {
     title: cleanTitle(item?.title || item?.claim || item?.expression, fallbackTitle),
     content: String(item?.content || item?.detail || item?.reason || item?.why_it_matters || '当前材料不足，无法形成可靠判断。'),
     judgmentType: normalizeJudgmentType(item?.judgmentType || item?.judgment_type),
     evidenceGrade: normalizeEvidenceGrade(item?.evidenceGrade || item?.evidence_grade || item?.evidence_strength || item?.grade),
-    verificationStatus: normalizeVerificationStatus(item?.verificationStatus || item?.verification_status, hasExternalResults),
+    verificationStatus: normalizeClaimStatus(item?.verificationStatus || item?.verification_status, hasExternalResults),
     speculationRisk: normalizeRisk(item?.speculationRisk || item?.speculation_risk),
     nextVerification: String(item?.nextVerification || item?.verification_method || '寻找原始材料、公开数据、多方报道或当事方回应进行核验。'),
   };
 }
 
-function normalizeGap(item: any, fallbackTitle: string, hasExternalResults: boolean) {
+function normalizeGap(item: any, fallbackTitle: string) {
   return {
     title: cleanTitle(item?.title || item?.missing_information, fallbackTitle),
     description: String(item?.description || item?.detail || item?.missing_information || '原文未披露但影响判断的关键信息。'),
     whyItMatters: String(item?.whyItMatters || item?.why_it_matters || '该信息会影响对报道完整性和因果链条的判断。'),
     currentEvidenceGrade: normalizeEvidenceGrade(item?.currentEvidenceGrade || item?.evidence_grade || item?.evidence_strength),
-    verificationStatus: normalizeVerificationStatus(item?.verificationStatus || item?.verification_status, hasExternalResults),
+    verificationStatus: normalizeClaimStatus(item?.verificationStatus || item?.verification_status, false),
     nextVerification: String(item?.nextVerification || item?.verification_method || '寻找原始材料、公开数据、多方报道或当事方回应进行核验。'),
   };
 }
@@ -159,7 +164,7 @@ export function normalizeSourceUrl(value: unknown) {
   if (!raw) return '';
   try {
     const url = new URL(raw);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return '';
     url.hash = '';
     return url.toString().replace(/\/$/, '');
   } catch {
@@ -169,16 +174,19 @@ export function normalizeSourceUrl(value: unknown) {
 
 export function normalizeOnlineVerification(parsed: any, factCheckSources: Awaited<ReturnType<typeof searchWeb>>, reportLanguage: ReportLanguage) {
   const existing = parsed?.onlineVerification || parsed?.web_verification || {};
-  const observedSourceUrls = new Set(
-    factCheckSources.map((source) => normalizeSourceUrl(source?.url)).filter(Boolean),
-  );
+  const observedSources = new Map(factCheckSources.flatMap(source => {
+    const url = normalizeSourceUrl(source?.url);
+    return url ? [[url, source] as const] : [];
+  }));
+  const observedSourceUrls = new Set(observedSources.keys());
   const hasExternalResults = observedSourceUrls.size > 0;
   const noReliableSourcesMessage = !reportLanguage.startsWith('zh-')
     ? 'No reliable source was found for external verification.'
     : '未找到可用于外部核验的可靠来源。';
   const sourceFromSearch = (source: any, allowExternalVerification = false) => {
     const title = String(source?.title || '').trim();
-    const url = normalizeSourceUrl(source?.url);
+    const candidateUrl = normalizeSourceUrl(source?.url);
+    const url = observedSourceUrls.has(candidateUrl) ? candidateUrl : '';
     const relevance = String(source?.relevance || source?.snippet || source?.note || '').trim();
     const note = String(source?.note || source?.snippet || '').trim();
     const sourceType = String(source?.sourceType || source?.source_type || source?.provider || '相关来源').trim();
@@ -215,9 +223,14 @@ export function normalizeOnlineVerification(parsed: any, factCheckSources: Await
 
   const verifiedSources = hasExternalResults
     ? asArray(existing.verifiedSources || existing.verified_sources)
-      .filter((source) => observedSourceUrls.has(normalizeSourceUrl(source?.url)))
-      .map((source) => sourceFromSearch(source, true))
-      .filter(Boolean)
+      .flatMap((source) => {
+        const observed = observedSources.get(normalizeSourceUrl(source?.url));
+        if (!observed || normalizeVerificationStatus(source.verificationStatus || source.verification_status, true) !== 'externally_verified') return [];
+        const { originalQuote } = normalizeEvidenceReferences({ originalQuote: source.evidenceQuote }, observed.snippet || '', []);
+        if (!originalQuote) return [];
+        const reference = sourceFromSearch({ ...source, title: observed.title, note: originalQuote }, true);
+        return reference ? [reference] : [];
+      })
     : [];
   const modelBackgroundSources = asArray(existing.backgroundSources || existing.background_sources)
     .filter((source) => observedSourceUrls.has(normalizeSourceUrl(source?.url)));
@@ -255,8 +268,10 @@ function normalizeReport(params: {
 }): AnalysisResult {
   const { parsed, mode, meta, factCheckSources } = params;
   const reportLanguage = normalizeReportLanguage(meta.reportLanguage);
-  const onlineVerification = normalizeOnlineVerification(parsed, factCheckSources, reportLanguage);
-  const hasExternalResults = onlineVerification.verifiedSources.length > 0;
+  const articleUrl = normalizeSourceUrl(meta.sourceUrl);
+  const externalSources = factCheckSources.filter(source => normalizeSourceUrl(source.url) !== articleUrl);
+  const onlineVerification = normalizeOnlineVerification(parsed, externalSources, reportLanguage);
+  const verifiedUrls = new Set(onlineVerification.verifiedSources.map(source => normalizeSourceUrl(source.url)));
   const scores = getScores(parsed);
   const readingUtility = getReadingUtility(parsed);
   const timeAssessment = {
@@ -302,10 +317,10 @@ function normalizeReport(params: {
         narrativeToWatch: String(parsed.quickSignals?.narrativeToWatch || parsed.quick_signals?.narrative_to_watch || '需要警惕把表态、愿景或单方说法包装成已验证成效。'),
       },
       mainNarrativeIssues: asArray(parsed.mainNarrativeIssues || parsed.key_findings).slice(0, 3).map((item, index) =>
-        normalizeJudgment(item, `主要叙事问题 ${index + 1}`, hasExternalResults)
+        normalizeJudgment(item, `主要叙事问题 ${index + 1}`, false)
       ),
       mainInformationGaps: asArray(parsed.mainInformationGaps || parsed.major_information_gaps).slice(0, 3).map((item, index) =>
-        normalizeGap(item, `主要信息缺口 ${index + 1}`, hasExternalResults)
+        normalizeGap(item, `主要信息缺口 ${index + 1}`)
       ),
       questionsToAsk: asArray<string>(parsed.questionsToAsk || parsed.questions_to_ask_next).slice(0, 3),
       quickConclusion: String(parsed.quickConclusion || parsed.quick_conclusion || '可以先略读原文，重点核对核心数据、原始材料和当事方回应，不宜直接把报道中的成效判断视为已验证事实。'),
@@ -352,18 +367,20 @@ function normalizeReport(params: {
       reasonableDoubts: stringArray(parsed.conclusionLayers?.reasonableDoubts || parsed.conclusion_layers?.reasonable_doubts, ['对原文未披露的关键数据、因果链条和利益关系可以保持合理怀疑。']),
       cannotJudgeYet: stringArray(parsed.conclusionLayers?.cannotJudgeYet || parsed.conclusion_layers?.cannot_judge_yet, ['缺少原始材料、多方来源或当事方回应前，不宜形成确定结论。']),
     },
-    keyFindings: asArray(parsed.keyFindings || parsed.key_findings).slice(0, 3).map((item, index) =>
-      ({ ...normalizeJudgment(item, `关键发现 ${index + 1}`, hasExternalResults), ...normalizeEvidenceReferences(item, params.originalContent, factCheckSources) })
-    ),
+    keyFindings: asArray(parsed.keyFindings || parsed.key_findings).slice(0, 3).map((item, index) => {
+      const references = normalizeEvidenceReferences(item, params.originalContent, externalSources);
+      const hasVerifiedReference = references.sourceUrls.some(url => verifiedUrls.has(normalizeSourceUrl(url)));
+      return { ...normalizeJudgment(item, `关键发现 ${index + 1}`, hasVerifiedReference), ...references };
+    }),
     supportingEvidence: asArray(parsed.supportingEvidence || parsed.narrative_supporting_evidence).map((item: any) => ({
       content: String(item?.content || item?.detail || '当前材料不足，无法形成可靠判断。'),
       supportsNarrative: String(item?.supportsNarrative || item?.original_basis || '支撑原文主要叙事。'),
       evidenceGrade: normalizeEvidenceGrade(item?.evidenceGrade || item?.evidence_grade),
-      verificationStatus: normalizeVerificationStatus(item?.verificationStatus || item?.verification_status || 'source_supported', hasExternalResults),
+      verificationStatus: normalizeClaimStatus(item?.verificationStatus || item?.verification_status || 'source_supported', false),
       limitation: String(item?.limitation || item?.verification_method || '仍需核验原始材料或多方来源。'),
     })),
     informationGaps: asArray(parsed.informationGaps || parsed.major_information_gaps).map((item, index) =>
-      normalizeGap(item, `主要信息缺口 ${index + 1}`, hasExternalResults)
+      normalizeGap(item, `主要信息缺口 ${index + 1}`)
     ),
     stakeholderRelations: asArray(parsed.stakeholderRelations).map((item: any) => ({
       role: String(item?.role || item?.actor || '相关主体'),
@@ -503,19 +520,6 @@ function modelErrorMessage(status: number, usageSource: UsageSource) {
   return `模型审视调用失败 (状态码 ${status})。`;
 }
 
-function parseAssistantJSON(assistantMessage: string) {
-  let cleanText = assistantMessage.trim();
-  if (cleanText.startsWith('```json')) {
-    cleanText = cleanText.substring(7, cleanText.length - 3).trim();
-  } else if (cleanText.startsWith('```')) {
-    cleanText = cleanText.substring(3, cleanText.length - 3).trim();
-  }
-  const start = cleanText.indexOf('{');
-  const end = cleanText.lastIndexOf('}');
-  if (start >= 0 && end > start) cleanText = cleanText.slice(start, end + 1);
-  return JSON.parse(cleanText);
-}
-
 type AnalyzeExecutionContext = {
   jobId?: string;
   platformModelSnapshotJson?: string | null;
@@ -524,6 +528,9 @@ type AnalyzeExecutionContext = {
 };
 
 export async function handleAnalyze(userId: string, body: any, executionContext: AnalyzeExecutionContext = {}) {
+  const startedAt = Date.now();
+  // Analyze entry points have a 300-second execution limit. Leave room to settle usage and save.
+  const modelDeadline = startedAt + 285_000;
   let usageReservation: UsagePlan | null = null;
   let failureRecorder: ((code: string) => Promise<void>) | null = null;
   const releaseReservation = async () => {
@@ -661,7 +668,6 @@ export async function handleAnalyze(userId: string, body: any, executionContext:
 
     let usedFallbackPrompt = false;
     const outputTokenBudget = getModelOutputTokenBudget(actualReasoningDepth);
-    const startedAt = Date.now();
     let totalRuntimeUsage: RuntimeUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, nativeSearchRequests: 0 };
     const addRuntimeUsage = (usage: RuntimeUsage) => {
       totalRuntimeUsage = {
@@ -689,20 +695,20 @@ export async function handleAnalyze(userId: string, body: any, executionContext:
       }).catch((error) => console.error('Record failed model usage failed:', error));
     };
     failureRecorder = recordFailedUsage;
-    const invoke = async (invocationSystem: string, invocationPrompt: string, timeoutMs?: number, nativeSearch = false) => {
+    const invoke = async (invocationSystem: string, invocationPrompt: string, options: { timeoutMs: number; nativeSearch?: boolean; compact?: boolean; allowResearch?: boolean }) => {
       const result = await invokeModel({
         provider: selectedPlatformSnapshot?.provider || 'openai_compatible',
         baseUrl: modelConfig.baseURL,
         apiKey: modelConfig.apiKey,
         modelId: modelConfig.modelName,
-        reasoningDepth: actualReasoningDepth,
+        reasoningDepth: options.compact ? 'none' : actualReasoningDepth,
         system: invocationSystem,
         userPrompt: invocationPrompt,
-        timeoutMs: timeoutMs ?? getAnalysisTimeoutMs(process.env.GUANYU_LLM_TIMEOUT_MS),
-        maxTokens: outputTokenBudget,
+        timeoutMs: Math.max(1, Math.min(options.timeoutMs, modelDeadline - Date.now())),
+        maxTokens: options.compact ? Math.min(8_000, outputTokenBudget) : outputTokenBudget,
         jsonMode: true,
-        nativeSearch,
-        webResearch,
+        nativeSearch: options.nativeSearch || false,
+        webResearch: options.allowResearch === false ? undefined : webResearch,
         allowPrivateAddress: allowPrivateAdminEndpoint,
       });
       addRuntimeUsage(result.usage);
@@ -727,115 +733,56 @@ export async function handleAnalyze(userId: string, body: any, executionContext:
       return result;
     };
     const nativeSearchEnabled = usagePlan.source === 'platform' && configuredSearchMode === 'native';
-    let llmResult = await invoke(
-      system,
-      userPrompt,
-      undefined,
-      nativeSearchEnabled,
-    );
-
-    if (!llmResult.ok && llmResult.status >= 500) {
-      const fallbackPrompt = buildCompactFallbackPrompt(promptInput);
+    const primaryTimeout = Math.min(getAnalysisTimeoutMs(process.env.GUANYU_LLM_TIMEOUT_MS), modelDeadline - Date.now() - 35_000);
+    let llmResult = await invoke(system, userPrompt, { timeoutMs: primaryTimeout, nativeSearch: nativeSearchEnabled });
+    let validation = checkAnalysisOutput(llmResult, truncatedContent);
+    if (!validation.ok && validation.retry && modelDeadline - Date.now() > 2_000) {
+      console.info('[analysis] Retrying model output', { code: validation.code });
       usedFallbackPrompt = true;
-      llmResult = await invoke(fallbackPrompt.system, fallbackPrompt.user, 75_000, nativeSearchEnabled);
-    }
-
-    if (!llmResult.ok) {
-      console.error('LLM API error:', llmResult.errorCode || llmResult.status);
-      await recordFailedUsage(llmResult.errorCode || `upstream_${llmResult.status}`);
-      await releaseReservation();
-      return NextResponse.json({ error: modelErrorMessage(llmResult.status, usagePlan.source) }, { status: 500 });
-    }
-
-    if (!llmResult.message) {
-      await recordFailedUsage('empty_response');
-      await releaseReservation();
-      return NextResponse.json({ error: '模型审视返回内容为空，请重新尝试。' }, { status: 500 });
-    }
-
-    let parsedJSON: any;
-    try {
-      parsedJSON = parseAssistantJSON(llmResult.message);
-    } catch {
-      console.error('Model JSON parse failed', {
-        errorCode: 'invalid_json',
-        responseLength: llmResult.message?.length || 0,
+      const fallback = buildCompactFallbackPrompt(promptInput);
+      llmResult = await invoke(fallback.system, fallback.user, {
+        timeoutMs: 75_000, compact: true,
+        nativeSearch: nativeSearchEnabled && allSearchSources.length === 0,
+        allowResearch: allSearchSources.length === 0,
       });
-      if (!usedFallbackPrompt) {
-        const fallbackPrompt = buildCompactFallbackPrompt(promptInput);
-        const fallbackResult = await invoke(fallbackPrompt.system, fallbackPrompt.user, 75_000, false);
-        if (fallbackResult.ok && fallbackResult.message) {
-          try {
-            parsedJSON = parseAssistantJSON(fallbackResult.message);
-            usedFallbackPrompt = true;
-          } catch {
-            console.error('Compact fallback JSON parse failed', {
-              errorCode: 'fallback_invalid_json',
-              responseLength: fallbackResult.message?.length || 0,
-            });
-          }
-        }
-      }
-      if (!parsedJSON) {
-        await recordFailedUsage('invalid_json');
-        await releaseReservation();
-        return NextResponse.json({ error: '大模型返回格式异常，无法转换为结构化 JSON，请重试。' }, { status: 500 });
-      }
+      validation = checkAnalysisOutput(llmResult, truncatedContent);
     }
 
-    try {
-      assertModelArticleAssessment(parsedJSON?.inputAssessment, truncatedContent);
-    } catch (error) {
-      if (!(error instanceof ArticleInputError)) throw error;
-      await recordFailedUsage(error.code);
+    if (!validation.ok) {
+      await recordFailedUsage(validation.code);
       await releaseReservation();
-      return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+      if ('articleError' in validation && validation.articleError) {
+        const { code, status, message } = validation.articleError;
+        return NextResponse.json({ error: message, code }, { status });
+      }
+      const error = !llmResult.ok
+        ? modelErrorMessage(llmResult.status, usagePlan.source)
+        : '模型返回的报告不完整或格式无效，未生成报告、未扣分析点数。请重试。';
+      return NextResponse.json({ error, code: validation.code }, { status: 502 });
     }
 
-    const sourceCleanup = applyModelSourceCleanup(
-      truncatedContent,
-      parsedJSON?.sourceCleanup,
-      sourceContentIsWeb,
-    );
-
+    let parsedJSON = validation.report;
+    const sourceCleanup = applyModelSourceCleanup(truncatedContent, parsedJSON.sourceCleanup, sourceContentIsWeb);
     if (actualReportLanguage !== 'zh-CN' && hasUnexpectedReportProse(parsedJSON, actualReportLanguage)) {
-      const localizedResult = await invoke(
+      const localizedResult = modelDeadline - Date.now() > 2_000 ? await invoke(
         buildReportLanguageSystemGuard(actualReportLanguage),
         buildReportLanguageJsonRepairPrompt(parsedJSON, actualReportLanguage),
-        90_000,
-        false,
-      );
-      if (!localizedResult.ok || !localizedResult.message) {
-        await recordFailedUsage(localizedResult.errorCode || 'language_repair_failed');
+        { timeoutMs: 90_000, compact: true, allowResearch: false },
+      ) : null;
+      const localized = localizedResult && checkAnalysisOutput(localizedResult, truncatedContent);
+      if (!localized?.ok || hasUnexpectedReportProse(localized.report, actualReportLanguage)) {
+        await recordFailedUsage('language_repair_failed');
         await releaseReservation();
         return NextResponse.json({ error: getLanguageRepairErrorMessage(actualReportLanguage) }, { status: 502 });
       }
-      try {
-        parsedJSON = parseAssistantJSON(localizedResult.message);
-      } catch {
-        await recordFailedUsage('language_repair_invalid_json');
-        await releaseReservation();
-        return NextResponse.json({ error: getLanguageRepairErrorMessage(actualReportLanguage) }, { status: 502 });
-      }
-      if (hasUnexpectedReportProse(parsedJSON, actualReportLanguage)) {
-        await recordFailedUsage('language_repair_mismatch');
-        await releaseReservation();
-        return NextResponse.json({ error: getLanguageRepairErrorMessage(actualReportLanguage) }, { status: 502 });
-      }
-      assertModelArticleAssessment(parsedJSON?.inputAssessment, truncatedContent);
+      // The localization pass can translate prose, but it must not alter validated scores or the input check.
+      parsedJSON = {
+        ...localized.report,
+        scores: parsedJSON.scores,
+        readingUtility: parsedJSON.readingUtility,
+        inputAssessment: parsedJSON.inputAssessment,
+      };
     }
-
-    const validatedReport = ReportSchema.safeParse(parsedJSON);
-    if (!validatedReport.success) {
-      console.error('Model report schema validation failed', {
-        errorCode: 'model_output_schema_invalid',
-        paths: reportSchemaErrorPaths(validatedReport.error),
-      });
-      await recordFailedUsage('model_output_schema_invalid');
-      await releaseReservation();
-      return NextResponse.json({ error: '模型返回的数据结构不完整或无效，未生成报告，请重试。' }, { status: 502 });
-    }
-    parsedJSON = validatedReport.data;
 
     const createdAt = new Date().toISOString();
     const normalizedResult = normalizeReport({

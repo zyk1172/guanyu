@@ -12,6 +12,7 @@ const nextConfig: NextConfig = {
   experimental: { useTypeScriptCli: false },
   ...(allowedDevOrigins?.length ? { allowedDevOrigins } : {}),
   outputFileTracingIncludes: {
+    '/api/billing/orders/\[id\]/qr': ['./lib/payment-assets/*.jpg'],
     '/api/audits/[id]/export': [
       // PDF export embeds regular and bold CJK faces from the server file system.
       './public/fonts/NotoSansSC-Regular.ttf',

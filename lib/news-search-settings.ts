@@ -19,5 +19,5 @@ export async function resolveNewsSearchAccess(user: CurrentUser | null) {
     paidAllowed: allowed, deepseekAvailable: Boolean(encryptedKey), deepseekSource: source,
     defaultProvider: app.newsSearchProvider === 'deepseek' && encryptedKey ? 'deepseek' : 'free',
   };
-  return { capabilities, encryptedKey, scope: source === 'personal' ? `personal:${user!.id}` : `platform:${model?.id || ''}`, dailyLimit: app.newsSearchDailyLimit ?? 200 };
+  return { capabilities, encryptedKey, aiModelConfigId: app.newsSearchModelConfigId, scope: source === 'personal' ? `personal:${user!.id}` : `platform:${model?.id || ''}`, dailyLimit: app.newsSearchDailyLimit ?? 200 };
 }

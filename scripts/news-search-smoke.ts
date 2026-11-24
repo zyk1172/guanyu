@@ -22,7 +22,7 @@ const transport = async (url: string | URL) => String(url).includes('fixture.exa
 const options = { freeOptions: { searxngUrl: 'https://fixture.example', request: transport } };
 function track(i: NewsSearchInput, a: Awaited<ReturnType<typeof resolveNewsSearchAccess>>) {
   const scope = i.provider === 'deepseek' ? `${a.scope}:${privacyHmacHash(a.encryptedKey!)}` : 'public';
-  keys.add(privacyHmacHash(JSON.stringify(['news-v2', scope, i.provider, i.period, i.language, i.query])));
+  keys.add(privacyHmacHash(JSON.stringify(['news-v3', scope, i.provider, i.period, i.language, i.query])));
 }
 async function request(path: string, userId?: string, method = 'GET', body?: unknown, origin = new URL(base).origin) {
   const token = userId ? await encode({ secret: process.env.NEXTAUTH_SECRET!, token: { id: userId, sessionVersion: 1 } }) : '';
@@ -62,6 +62,32 @@ try {
   const second = await runNewsSearch(input, ordinary, users[0], { freeOptions: { ...options.freeOptions, request: async () => { throw new Error('cache must avoid outbound work'); } } });
   assert.equal(first.articles.length, 1); assert.equal(second.cached, true); assert.equal(calls, 2);
   assert.equal(await prisma.pointTransaction.count({ where: { userId: { in: users } } }), 0);
+
+  const expanded = { ...input, query: `请查找台风最新动态 ${suffix.slice(0, 8)}` };
+  track(expanded, ordinary);
+  const queries = new Set<string>();
+  const ai = await runNewsSearch(expanded, ordinary, users[0], {
+    freeOptions: { ...options.freeOptions, request: async url => {
+      const target = new URL(url);
+      if (target.hostname !== 'fixture.example') return transport(url);
+      const query = target.searchParams.get('q')!;
+      queries.add(query);
+      const slug = query === expanded.query ? 'original' : 'expanded';
+      return { status: 200, headers: new Headers(), body: Buffer.from(JSON.stringify({ results: [
+        { title: slug, url: `https://news.example/${slug}`, publishedDate: '2026-01-01' },
+      ] })) };
+    } },
+    modelInvoke: async ({ system }) => ({
+      ok: true, status: 200, usedTokenBudget: false, sources: [],
+      usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, nativeSearchRequests: 0 },
+      message: system.startsWith('Extract') ? JSON.stringify({ queries: ['台风 路径 最新通报', 'https://not-a-query.example'] }) : JSON.stringify({ ids: [2] }),
+    }),
+  });
+  assert.deepEqual([...queries].sort(), [expanded.query, '台风 路径 最新通报'].sort());
+  assert.deepEqual(ai.searchTerms, ['台风 路径 最新通报']);
+  assert.equal(ai.aiRanked, true);
+  assert.deepEqual(ai.articles.map(article => article.title), ['expanded', 'original']);
+  assert.equal(await prisma.modelUsageEvent.count({ where: { userId: users[0], operation: 'news_search_ai', inputTokens: 20, creditCostCents: 0 } }), 1);
 
   const paid: NewsSearchInput = { ...input, provider: 'deepseek' }; track(paid, ordinary);
   let upstream = 0;

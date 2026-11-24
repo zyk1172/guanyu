@@ -8,6 +8,7 @@ export type NewsSearchResult = {
   articles: NewsArticle[]; requestedProvider: NewsProvider;
   providers: string[]; searchedAt: string; cached: boolean;
   timeFilterApplied: boolean; webFallback: boolean;
+  searchTerms?: string[]; aiRanked?: boolean;
 };
 export type NewsCapabilities = {
   defaultProvider: NewsProvider; deepseekAvailable: boolean;
