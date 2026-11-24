@@ -1,14 +1,15 @@
+import { personalModelFingerprint } from '@/lib/model-config';
 import { randomUUID } from 'crypto';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { prisma } from '@/lib/prisma';
 import { releaseAnalyzeJobAdmission, reserveAnalyzeJobAdmission } from '@/lib/rate-limit';
 import { analyzeForUser } from '@/lib/analyze-service';
-import { notifyReportCompleted } from '@/lib/email';
+import { dispatchQueuedEmails, queueReportCompleted } from '@/lib/email';
+import { Prisma } from '@/lib/generated/prisma/client';
 import { normalizeReportLanguage, type ReportLanguage } from '@/lib/types';
 import { buildUsagePlan, getUsageSource } from '@/lib/billing';
 import { operationCostCents } from '@/lib/platform-model-core.mjs';
 import { encodePlatformModelSnapshot, platformModelSnapshot, resolvePlatformModel } from '@/lib/platform-models';
-import { withHistoricalAuditModelName } from '@/lib/audit-model-display';
 import { assertArticleText } from '@/lib/article-input';
 
 const MAX_NEWS_CONTENT_LENGTH = 30_000;
@@ -49,16 +50,22 @@ export function normalizeAnalyzeJobInput(input: Partial<AnalyzeJobInput>) {
   };
 }
 
-export async function createAnalyzeJob(userId: string, input: Partial<AnalyzeJobInput>) {
+export async function createAnalyzeJob(userId: string, input: Partial<AnalyzeJobInput>, requestId?: unknown) {
   await ensureRuntimeSchema();
   const normalizedInput = normalizeAnalyzeJobInput(input);
   assertArticleText(normalizedInput.content, normalizedInput.title);
 
+  const clientRequestId = typeof requestId === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(requestId) ? requestId : null;
+  const requestKey = clientRequestId ? { userId_clientRequestId: { userId, clientRequestId } } : null;
+  if (requestKey) {
+    const existing = await prisma.auditJob.findUnique({ where: requestKey });
+    if (existing) return existing;
+  }
   const admission = await reserveAnalyzeJobAdmission(userId);
   try {
     const settings = await prisma.userSettings.findUnique({
       where: { userId },
-      select: { modelSource: true, defaultPlatformModelConfigId: true },
+      select: { modelSource: true, defaultPlatformModelConfigId: true, llmProvider: true, llmBaseUrl: true, llmApiKeyEncrypted: true, defaultModelName: true, defaultReasoningDepth: true },
     });
     const usageSource = await getUsageSource(userId, settings?.modelSource || 'platform');
     let snapshotJson: string | null = null;
@@ -83,11 +90,13 @@ export async function createAnalyzeJob(userId: string, input: Partial<AnalyzeJob
       });
     } else {
       await buildUsagePlan(userId, 'deep', 'custom');
+      if (settings) snapshotJson = JSON.stringify({ personalFingerprint: personalModelFingerprint(settings) });
     }
     return await prisma.auditJob.create({
       data: {
         userId,
         status: 'pending',
+        clientRequestId,
         attemptCount: 0,
         nextAttemptAt: new Date(),
         inputJson: JSON.stringify({ ...normalizedInput, modelSource: usageSource, admissionEventId: admission.id }),
@@ -97,13 +106,17 @@ export async function createAnalyzeJob(userId: string, input: Partial<AnalyzeJob
     });
   } catch (error) {
     await releaseAnalyzeJobAdmission(userId, admission.id);
+    if (requestKey && error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      const existing = await prisma.auditJob.findUnique({ where: requestKey });
+      if (existing) return existing;
+    }
     throw error;
   }
 }
 
-async function completeJobWithAudit(jobId: string, auditId: string) {
-  await prisma.auditJob.update({
-    where: { id: jobId },
+async function completeJobWithAudit(tx: Prisma.TransactionClient, jobId: string, workerId: string, auditId: string) {
+  const completed = await tx.auditJob.updateMany({
+    where: { id: jobId, workerId, status: 'running', leaseExpiresAt: { gt: new Date() } },
     data: {
       status: 'completed',
       auditId,
@@ -112,45 +125,16 @@ async function completeJobWithAudit(jobId: string, auditId: string) {
       lastHeartbeatAt: null,
       nextAttemptAt: null,
       workerId: null,
-      inputJson: JSON.stringify({
-        auditId,
-        completedAt: new Date().toISOString(),
-      }),
+      inputJson: JSON.stringify({ auditId, completedAt: new Date().toISOString() }),
     },
   });
-
-  const audit = await prisma.audit.findUnique({
-    where: { id: auditId },
-    select: {
-      id: true,
-      userId: true,
-      title: true,
-      source: true,
-      reportLanguage: true,
-      modelName: true,
-      modelDisplayNameSnapshot: true,
-      reasoningDepth: true,
-      createdAt: true,
-      auditResultJson: true,
-      user: { select: { id: true, email: true } },
-    },
-  });
-  if (!audit) return;
-  let report: unknown = {};
-  try {
-    report = JSON.parse(audit.auditResultJson);
-  } catch {
-    report = {};
-  }
-  await notifyReportCompleted({
-    userEmail: audit.user.email,
-    audit: withHistoricalAuditModelName(audit),
-    report,
-  });
+  if (!completed.count) throw new Error('审视任务领取状态已变更。');
+  await queueReportCompleted(tx, auditId);
 }
 
 export async function runAnalyzeJob(jobId: string) {
   const now = new Date();
+  const workerId = `run-${randomUUID()}`;
   const claim = await prisma.auditJob.updateMany({
     where: {
       id: jobId,
@@ -171,63 +155,50 @@ export async function runAnalyzeJob(jobId: string) {
       attemptCount: { increment: 1 },
       leaseExpiresAt: new Date(now.getTime() + JOB_LEASE_MS),
       lastHeartbeatAt: now,
-      workerId: `run-${randomUUID()}`,
+      workerId,
     },
   });
   if (claim.count !== 1) return;
 
-  const job = await prisma.auditJob.findUnique({ where: { id: jobId } });
+  const ownership = { id: jobId, workerId, status: 'running' } as const;
+  const job = await prisma.auditJob.findFirst({ where: ownership });
   if (!job) return;
-
-  const existingAudit = await prisma.audit.findUnique({
-    where: { sourceJobId: job.id },
-    select: { id: true },
-  });
-  if (existingAudit) {
-    await completeJobWithAudit(jobId, existingAudit.id);
-    return;
-  }
-
-  if (job.attemptCount > JOB_MAX_ATTEMPTS) {
-    await prisma.auditJob.update({
-      where: { id: jobId },
-      data: {
-        status: 'failed',
-        error: '审视任务重试次数已用完。',
-        leaseExpiresAt: null,
-        lastHeartbeatAt: null,
-        workerId: null,
-        inputRetentionExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-      },
-    });
-    return;
-  }
+  const heartbeat = setInterval(() => {
+    const currentTime = new Date();
+    void prisma.auditJob.updateMany({
+      where: { ...ownership, leaseExpiresAt: { gt: currentTime } },
+      data: { leaseExpiresAt: new Date(currentTime.getTime() + JOB_LEASE_MS), lastHeartbeatAt: currentTime },
+    }).catch(() => console.error('[analyze-job] heartbeat failed', jobId));
+  }, 30_000);
+  heartbeat.unref();
 
   try {
-    const storedInput = JSON.parse(job.inputJson);
-    const { modelSource, ...input } = storedInput;
-    const data = await analyzeForUser({
-      userId: job.userId,
-      input,
-      executionContext: {
-        jobId: job.id,
-        platformModelSnapshotJson: job.modelSnapshotJson,
-        creditCostCents: job.creditCostCents || undefined,
-        requestedSource: modelSource === 'custom' ? 'custom' : 'platform',
-      },
-    });
-
-    if (data.auditId) await completeJobWithAudit(jobId, data.auditId);
+    const existingAudit = await prisma.audit.findUnique({ where: { sourceJobId: job.id }, select: { id: true } });
+    if (existingAudit) {
+      await prisma.$transaction(tx => completeJobWithAudit(tx, jobId, workerId, existingAudit.id));
+    } else {
+      if (job.attemptCount > JOB_MAX_ATTEMPTS) throw new Error('审视任务重试次数已用完。');
+      const { modelSource, ...input } = JSON.parse(job.inputJson);
+      const data = await analyzeForUser({
+        userId: job.userId,
+        input,
+        executionContext: {
+          jobId: job.id,
+          platformModelSnapshotJson: job.modelSnapshotJson,
+          creditCostCents: job.creditCostCents ?? undefined,
+          requestedSource: modelSource === 'custom' ? 'custom' : 'platform',
+          personalFingerprint: modelSource === 'custom' && job.modelSnapshotJson
+            ? JSON.parse(job.modelSnapshotJson).personalFingerprint : undefined,
+          completeAudit: (tx, auditId) => completeJobWithAudit(tx, jobId, workerId, auditId),
+        },
+      });
+      if (!data.auditId) throw new Error('审视任务没有生成报告。');
+    }
+    await dispatchQueuedEmails().catch(() => console.error('[analyze-job] mail dispatch failed', jobId));
   } catch (error: any) {
     const retryable = error?.status !== 422 && job.attemptCount < JOB_MAX_ATTEMPTS;
-    if (!retryable) {
-      try {
-        const storedInput = JSON.parse(job.inputJson);
-        await releaseAnalyzeJobAdmission(job.userId, storedInput.admissionEventId);
-      } catch {}
-    }
-    await prisma.auditJob.update({
-      where: { id: jobId },
+    const failed = await prisma.auditJob.updateMany({
+      where: { ...ownership, leaseExpiresAt: { gt: new Date() } },
       data: {
         status: retryable ? 'pending' : 'failed',
         error: error?.message || '审视任务执行失败。',
@@ -238,6 +209,14 @@ export async function runAnalyzeJob(jobId: string) {
         inputRetentionExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       },
     });
+    if (failed.count && !retryable) {
+      try {
+        const { admissionEventId } = JSON.parse(job.inputJson);
+        await releaseAnalyzeJobAdmission(job.userId, admissionEventId);
+      } catch {}
+    }
+  } finally {
+    clearInterval(heartbeat);
   }
 }
 
@@ -245,10 +224,9 @@ export async function dispatchAnalyzeJobs(limit = 5) {
   const now = new Date();
   const jobs = await prisma.auditJob.findMany({
     where: {
-      status: 'pending',
       OR: [
-        { nextAttemptAt: { lte: now } },
-        { nextAttemptAt: null },
+        { status: 'pending', OR: [{ nextAttemptAt: { lte: now } }, { nextAttemptAt: null }] },
+        { status: 'running', leaseExpiresAt: { lte: now } },
       ],
     },
     orderBy: { nextAttemptAt: 'asc' },

@@ -69,7 +69,7 @@ export async function PATCH(request: NextRequest, { params }: Context) {
           notifyAdminsPendingOrder({ ...data, userId: user.id, orderCreatedAt: order.createdAt }),
           notifyUserPendingOrder(data),
         ]);
-        if (deliveries.some(delivery => delivery.status === 'rejected' || !delivery.value.delivered)) {
+        if (deliveries.some(delivery => delivery.status === 'rejected' || !delivery.value.accepted)) {
           console.error('[checkout] Payment submission notification was unavailable.');
         }
       });

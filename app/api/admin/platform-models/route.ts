@@ -3,7 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { getSuperAdminStatus } from '@/lib/admin';
 import { prisma } from '@/lib/prisma';
 import { decryptSecret, encryptSecret } from '@/lib/secret';
-import { bootstrapPlatformModelSchema } from '@/lib/platform-model-schema';
+import { normalizeModelBaseUrl, sameModelBaseUrl } from '@/lib/model-endpoint';
 import { ensurePlatformModelBaseline, safeAdminPlatformModel } from '@/lib/platform-models';
 import {
   PLATFORM_MODEL_PROVIDERS,
@@ -59,11 +59,9 @@ function reasoningDepth(value: unknown) {
 }
 
 function modelBaseUrl(value: unknown, provider: PlatformModelProvider) {
-  const raw = string(value, 1000).replace(/\/$/, '');
+  const raw = normalizeModelBaseUrl(string(value, 1000));
   const parsed = new URL(raw);
-  if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('模型接口只允许 HTTP 或 HTTPS。');
   if (process.env.NODE_ENV === 'production' && parsed.protocol !== 'https:') throw new Error('生产环境模型接口必须使用 HTTPS。');
-  if (parsed.username || parsed.password) throw new Error('模型接口地址不能包含用户名或密码。');
 
   if (provider === 'openai' && !isOfficialOpenAiApiBaseUrl(raw)) {
     throw new Error('OpenAI 原生模式仅允许官方 *.api.openai.com/v1 端点；代理或中转请使用 OpenAI-compatible。');
@@ -86,7 +84,7 @@ function validateSearchMode(value: unknown, provider: PlatformModelProvider): Pl
   return selected as PlatformModelSearchMode;
 }
 
-function configData(body: any, existing?: { apiKeyEncrypted: string | null; searchProvider?: string; deepseekApiKeyEncrypted?: string | null }) {
+function configData(body: any, existing?: { baseUrl: string; provider: string; apiKeyEncrypted: string | null; searchProvider?: string; deepseekApiKeyEncrypted?: string | null }) {
   const provider = validateProvider(body.provider);
   const searchMode = validateSearchMode(body.searchMode, provider);
   const apiKey = string(body.apiKey, 5000);
@@ -100,6 +98,10 @@ function configData(body: any, existing?: { apiKeyEncrypted: string | null; sear
   const modelId = string(body.modelId, 240);
   if (!displayName) throw new Error('请填写用户可见的模型名称。');
   if (!modelId) throw new Error('请填写实际模型 ID。');
+  const baseUrl = modelBaseUrl(body.baseUrl, provider);
+  if (existing?.apiKeyEncrypted && !apiKey && (existing.provider !== provider || !sameModelBaseUrl(existing.baseUrl, baseUrl))) {
+    throw new Error('更换模型服务商或接口地址时，请重新填写该接口的 API Key。');
+  }
   if (!apiKey && !existing?.apiKeyEncrypted) throw new Error('请填写模型 API Key。');
   return {
     ...deepseekSettingsUpdate(body, existing),
@@ -108,7 +110,7 @@ function configData(body: any, existing?: { apiKeyEncrypted: string | null; sear
     description: string(body.description, 1000),
     displayNameI18nJson: jsonMap(body.displayNameI18nJson || body.displayNameI18n || {}),
     descriptionI18nJson: jsonMap(body.descriptionI18nJson || body.descriptionI18n || {}),
-    baseUrl: modelBaseUrl(body.baseUrl, provider),
+    baseUrl,
     apiKeyEncrypted: apiKey ? encryptSecret(apiKey) : existing?.apiKeyEncrypted,
     modelId,
     reasoningDepth: reasoningDepth(body.reasoningDepth),
@@ -133,7 +135,6 @@ function generatedKey(displayName: string) {
 }
 
 async function initialize() {
-  await bootstrapPlatformModelSchema();
   await ensurePlatformModelBaseline();
 }
 
@@ -257,7 +258,7 @@ export async function PATCH(request: Request) {
     const model = await prisma.$transaction(async (tx) => {
       if (requestedDefault) await tx.platformModelConfig.updateMany({ where: { archivedAt: null, isDefault: true, id: { not: id } }, data: { isDefault: false } });
       return tx.platformModelConfig.update({
-        where: { id },
+        where: { id, configVersion: existing.configVersion, archivedAt: null },
         data: { ...data, isDefault: requestedDefault || existing.isDefault, configVersion: { increment: 1 } },
       });
     });

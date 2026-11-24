@@ -3,9 +3,11 @@ import { gzipSync, gunzipSync } from 'zlib';
 import { Prisma } from '@/lib/generated/prisma/client';
 import { prisma } from '@/lib/prisma';
 import { decryptSecret, encryptSecret } from '@/lib/secret';
+import { passkeyRelyingParty } from '@/lib/passkeys';
 
 const FORMAT = 'GUANYU_OPERATIONS_BACKUP';
-const VERSION = 1;
+const VERSION = 2;
+type BackupVersion = 1 | typeof VERSION;
 const MAX_ARCHIVE_BYTES = 4 * 1024 * 1024;
 const MAX_UNPACKED_BYTES = 24 * 1024 * 1024;
 const KDF = { name: 'scrypt', N: 16_384, r: 8, p: 1 } as const;
@@ -15,13 +17,14 @@ type BackupTables = Record<string, BackupRecord[]>;
 
 export type OperationsBackupSnapshot = {
   format: typeof FORMAT;
-  version: typeof VERSION;
+  version: BackupVersion;
   createdAt: string;
   notes: string[];
   counts: Record<string, number>;
   tables: BackupTables;
+  passkeyRelyingParty?: { origin: string; rpID: string };
   portableSecrets: {
-    appSettings: Array<{ id: string; adminLlmApiKey?: string; adminTavilyApiKey?: string; adminSerperApiKey?: string }>;
+    appSettings: Array<{ id: string; adminLlmApiKey?: string; adminTavilyApiKey?: string; adminSerperApiKey?: string; newsSearchDeepseekKey?: string }>;
     userSettings: Array<{ id: string; llmApiKey?: string; tavilyApiKey?: string; serperApiKey?: string; deepseekApiKey?: string }>;
     platformModels?: Array<{ id: string; apiKey?: string; deepseekApiKey?: string }>;
   };
@@ -29,7 +32,7 @@ export type OperationsBackupSnapshot = {
 
 type BackupEnvelope = {
   format: typeof FORMAT;
-  version: typeof VERSION;
+  version: BackupVersion;
   encryption: 'AES-256-GCM';
   compression: 'gzip';
   kdf: { name: 'scrypt'; N: number; r: number; p: number; salt: string };
@@ -79,7 +82,7 @@ function buildEnvelope(snapshot: OperationsBackupSnapshot, passphrase: string) {
   const authTag = cipher.getAuthTag();
   const envelope: BackupEnvelope = {
     format: FORMAT,
-    version: VERSION,
+    version: snapshot.version,
     encryption: 'AES-256-GCM',
     compression: 'gzip',
     kdf: { ...KDF, salt: salt.toString('base64') },
@@ -101,7 +104,7 @@ function readEnvelope(archive: Buffer, passphrase: string): OperationsBackupSnap
   } catch {
     throw new Error('备份文件格式无效。');
   }
-  if (envelope.format !== FORMAT || envelope.version !== VERSION || envelope.encryption !== 'AES-256-GCM' || envelope.compression !== 'gzip' || envelope.kdf?.name !== 'scrypt') {
+  if (envelope.format !== FORMAT || ![1, VERSION].includes(envelope.version) || envelope.encryption !== 'AES-256-GCM' || envelope.compression !== 'gzip' || envelope.kdf?.name !== 'scrypt') {
     throw new Error('该文件不是受支持的观隅运营备份。');
   }
   try {
@@ -112,7 +115,7 @@ function readEnvelope(archive: Buffer, passphrase: string): OperationsBackupSnap
     const raw = gunzipSync(packed, { maxOutputLength: MAX_UNPACKED_BYTES });
     if (crypto.createHash('sha256').update(raw).digest('hex') !== envelope.checksum) throw new Error('CHECKSUM');
     const snapshot = JSON.parse(raw.toString('utf8')) as OperationsBackupSnapshot;
-    if (snapshot.format !== FORMAT || snapshot.version !== VERSION || !snapshot.tables || !snapshot.portableSecrets) throw new Error('SNAPSHOT');
+    if (snapshot.format !== FORMAT || snapshot.version !== envelope.version || !snapshot.tables || !snapshot.portableSecrets) throw new Error('SNAPSHOT');
     return snapshot;
   } catch (error) {
     if (error instanceof Error && ['CHECKSUM', 'SNAPSHOT'].includes(error.message)) throw new Error('备份文件校验失败，无法恢复。');
@@ -121,13 +124,24 @@ function readEnvelope(archive: Buffer, passphrase: string): OperationsBackupSnap
 }
 
 export async function createOperationsBackup() {
-  const [appSettings, users, userSettings, audits, pointTransactions, purchaseOrders, rssFeeds, rssItems, discussionMessages, discussionReports, exportArtifacts, emailDeliveries, platformModelConfigs, modelUsageEvents, savedArticles, reportFollowups] = await Promise.all([
-    prisma.appSetting.findMany(), prisma.user.findMany(), prisma.userSettings.findMany(), prisma.audit.findMany(), prisma.pointTransaction.findMany(), prisma.purchaseOrder.findMany(), prisma.rssFeed.findMany(), prisma.rssItem.findMany(), prisma.reportDiscussionMessage.findMany(), prisma.discussionReport.findMany(), prisma.exportArtifact.findMany(), prisma.emailDelivery.findMany(), prisma.platformModelConfig.findMany(), prisma.modelUsageEvent.findMany(), prisma.savedArticle.findMany(), prisma.reportFollowup.findMany(),
-  ]);
-  const appSettingsRows = appSettings.map((row) => removeSecretFields(row as unknown as BackupRecord, ['adminLlmApiKeyEncrypted', 'adminTavilyApiKeyEncrypted', 'adminSerperApiKeyEncrypted']));
+  const [appSettings, users, userSettings, audits, pointTransactions, purchaseOrders, rssFeeds, rssItems,
+    discussionMessages, discussionReports, exportArtifacts, emailDeliveries, platformModelConfigs,
+    modelUsageEvents, savedArticles, reportFollowups, passkeys, serviceOperations] = await prisma.$transaction([
+    prisma.appSetting.findMany(), prisma.user.findMany(), prisma.userSettings.findMany(), prisma.audit.findMany(),
+    prisma.pointTransaction.findMany(), prisma.purchaseOrder.findMany(), prisma.rssFeed.findMany(), prisma.rssItem.findMany(),
+    prisma.reportDiscussionMessage.findMany(), prisma.discussionReport.findMany(), prisma.exportArtifact.findMany(),
+    prisma.emailDelivery.findMany({ omit: { payloadEncrypted: true } }), prisma.platformModelConfig.findMany(),
+    prisma.modelUsageEvent.findMany(), prisma.savedArticle.findMany(), prisma.reportFollowup.findMany(),
+    prisma.passkey.findMany(), prisma.serviceOperation.findMany(),
+  ], { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  const appSettingsRows = appSettings.map((row) => removeSecretFields(row as unknown as BackupRecord, ['adminLlmApiKeyEncrypted', 'adminTavilyApiKeyEncrypted', 'adminSerperApiKeyEncrypted', 'newsSearchDeepseekKeyEncrypted']));
   const userSettingsRows = userSettings.map((row) => removeSecretFields(row as unknown as BackupRecord, ['llmApiKeyEncrypted', 'tavilyApiKeyEncrypted', 'serperApiKeyEncrypted', 'deepseekApiKeyEncrypted']));
   const platformModelRows = platformModelConfigs.map((row) => removeSecretFields(row as unknown as BackupRecord, ['apiKeyEncrypted', 'deepseekApiKeyEncrypted']));
   const tables: BackupTables = {
+    passkeys: passkeys.map(row => ({
+      ...row, publicKey: Buffer.from(row.publicKey).toString('base64'), counter: row.counter.toString(),
+    })),
+    serviceOperations: serviceOperations as unknown as BackupRecord[],
     appSettings: appSettingsRows,
     users: users as unknown as BackupRecord[],
     userSettings: userSettingsRows,
@@ -149,15 +163,16 @@ export async function createOperationsBackup() {
     format: FORMAT,
     version: VERSION,
     createdAt: new Date().toISOString(),
+    ...(passkeys.length ? { passkeyRelyingParty: passkeyRelyingParty() } : {}),
     notes: [
       '包含运营数据、密码哈希、点数流水、订单、报告、RSS、交流、导出存档和邮件投递记录。',
-      '不包含登录会话、一次性验证码、浏览器插件令牌和正在执行的后台任务；恢复后需要重新登录和重新授权。',
+      '恢复会使旧会话失效，同一网站配置下保留通行密钥。未完成的预扣在恢复后按流水结算，已排队的通知不会重发。',
       '密码仅以不可逆哈希保存。模型与搜索 API 密钥仅在本备份包的口令加密层内可恢复。',
     ],
     counts: Object.fromEntries(Object.entries(tables).map(([name, rows]) => [name, rows.length])),
     tables,
     portableSecrets: {
-      appSettings: appSettings.map((row) => ({ id: row.id, adminLlmApiKey: secretValue(row.adminLlmApiKeyEncrypted), adminTavilyApiKey: secretValue(row.adminTavilyApiKeyEncrypted), adminSerperApiKey: secretValue(row.adminSerperApiKeyEncrypted) })),
+      appSettings: appSettings.map((row) => ({ id: row.id, adminLlmApiKey: secretValue(row.adminLlmApiKeyEncrypted), adminTavilyApiKey: secretValue(row.adminTavilyApiKeyEncrypted), adminSerperApiKey: secretValue(row.adminSerperApiKeyEncrypted), newsSearchDeepseekKey: secretValue(row.newsSearchDeepseekKeyEncrypted) })),
       userSettings: userSettings.map((row) => ({ id: row.id, llmApiKey: secretValue(row.llmApiKeyEncrypted), tavilyApiKey: secretValue(row.tavilyApiKeyEncrypted), serperApiKey: secretValue(row.serperApiKeyEncrypted), deepseekApiKey: secretValue(row.deepseekApiKeyEncrypted) })),
       platformModels: platformModelConfigs.map((row) => ({ id: row.id, apiKey: secretValue(row.apiKeyEncrypted), deepseekApiKey: secretValue(row.deepseekApiKeyEncrypted) })),
     },
@@ -179,7 +194,10 @@ function hydrateSecretFields(snapshot: OperationsBackupSnapshot) {
   const platformModelSecrets = new Map((snapshot.portableSecrets.platformModels || []).map((item) => [item.id, item]));
   const appSettings = safeRows(snapshot.tables.appSettings).map((row) => {
     const secret = appSecrets.get(String(row.id));
-    return { ...row, adminLlmApiKeyEncrypted: secret?.adminLlmApiKey ? encryptSecret(secret.adminLlmApiKey) : null, adminTavilyApiKeyEncrypted: secret?.adminTavilyApiKey ? encryptSecret(secret.adminTavilyApiKey) : null, adminSerperApiKeyEncrypted: secret?.adminSerperApiKey ? encryptSecret(secret.adminSerperApiKey) : null };
+    const homepageKey = secret?.newsSearchDeepseekKey
+      || (snapshot.version === 1 && row.newsSearchModelConfigId
+        ? platformModelSecrets.get(String(row.newsSearchModelConfigId))?.deepseekApiKey : undefined);
+    return { ...row, adminLlmApiKeyEncrypted: secret?.adminLlmApiKey ? encryptSecret(secret.adminLlmApiKey) : null, adminTavilyApiKeyEncrypted: secret?.adminTavilyApiKey ? encryptSecret(secret.adminTavilyApiKey) : null, adminSerperApiKeyEncrypted: secret?.adminSerperApiKey ? encryptSecret(secret.adminSerperApiKey) : null, newsSearchDeepseekKeyEncrypted: homepageKey ? encryptSecret(homepageKey) : null };
   });
   const userSettings = safeRows(snapshot.tables.userSettings).map((row) => {
     const secret = settingSecrets.get(String(row.id));
@@ -200,6 +218,7 @@ function requireRows(snapshot: OperationsBackupSnapshot, name: string) {
 
 export async function restoreOperationsBackup(snapshot: OperationsBackupSnapshot) {
   const required = ['appSettings', 'users', 'userSettings', 'audits', 'pointTransactions', 'purchaseOrders', 'rssFeeds', 'rssItems', 'discussionMessages', 'discussionReports', 'exportArtifacts', 'emailDeliveries'];
+  if (snapshot.version === VERSION) required.push('passkeys', 'serviceOperations');
   required.forEach((name) => requireRows(snapshot, name));
   const total = required.reduce((sum, name) => sum + requireRows(snapshot, name).length, 0);
   if (total > 100_000) throw new Error('备份数据量超过网站恢复上限。');
@@ -208,6 +227,20 @@ export async function restoreOperationsBackup(snapshot: OperationsBackupSnapshot
   const rootMessages = messages.filter((message) => !message.parentMessageId);
   const replyMessages = messages.filter((message) => message.parentMessageId);
   const savedArticleRows = safeRows(snapshot.tables.savedArticles);
+  const passkeyRows = safeRows(snapshot.tables.passkeys);
+  if (passkeyRows.length) {
+    const current = passkeyRelyingParty();
+    if (snapshot.passkeyRelyingParty?.origin !== current.origin || snapshot.passkeyRelyingParty.rpID !== current.rpID) {
+      throw new Error('备份内通行密钥绑定的网站地址与当前部署不一致。');
+    }
+  }
+  const serviceOperations = safeRows(snapshot.tables.serviceOperations).map(row => ({
+    ...row, ...(row.status === 'RUNNING' ? { expiresAt: new Date(0) } : {}),
+  }));
+  const emailRows = requireRows(snapshot, 'emailDeliveries').map(row => ({
+    ...row, payloadEncrypted: null,
+    ...(['pending', 'sending', 'temporary_failure', 'sent'].includes(String(row.status)) ? { status: 'unknown' } : {}),
+  }));
 
   await prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe('SELECT pg_advisory_xact_lock(83672704);');
@@ -245,6 +278,12 @@ export async function restoreOperationsBackup(snapshot: OperationsBackupSnapshot
       return { ...row, sessionVersion: Math.max(current, backup) + 1 };
     });
     if (restoredUsers.length) await tx.user.createMany({ data: restoredUsers as any });
+    if (passkeyRows.length) await tx.passkey.createMany({ data: passkeyRows.map(row => ({
+      id: String(row.id), userId: String(row.userId), credentialId: String(row.credentialId), name: String(row.name),
+      transports: Array.isArray(row.transports) ? row.transports.map(String) : [],
+      publicKey: Buffer.from(String(row.publicKey), 'base64'), counter: BigInt(String(row.counter)),
+      createdAt: String(row.createdAt), lastUsedAt: row.lastUsedAt ? String(row.lastUsedAt) : null,
+    })) });
     if (hydrated.userSettings.length) await tx.userSettings.createMany({ data: hydrated.userSettings as any });
     if (hydrated.platformModelConfigs.length) await tx.platformModelConfig.createMany({ data: hydrated.platformModelConfigs as any });
     if (requireRows(snapshot, 'audits').length) await tx.audit.createMany({ data: requireRows(snapshot, 'audits') as any });
@@ -252,7 +291,8 @@ export async function restoreOperationsBackup(snapshot: OperationsBackupSnapshot
     if (requireRows(snapshot, 'purchaseOrders').length) await tx.purchaseOrder.createMany({ data: requireRows(snapshot, 'purchaseOrders') as any });
     if (requireRows(snapshot, 'rssFeeds').length) await tx.rssFeed.createMany({ data: requireRows(snapshot, 'rssFeeds') as any });
     if (requireRows(snapshot, 'rssItems').length) await tx.rssItem.createMany({ data: requireRows(snapshot, 'rssItems') as any });
-    if (requireRows(snapshot, 'emailDeliveries').length) await tx.emailDelivery.createMany({ data: requireRows(snapshot, 'emailDeliveries') as any });
+    if (emailRows.length) await tx.emailDelivery.createMany({ data: emailRows as Prisma.EmailDeliveryCreateManyInput[] });
+    if (serviceOperations.length) await tx.serviceOperation.createMany({ data: serviceOperations as Prisma.ServiceOperationCreateManyInput[] });
     if (requireRows(snapshot, 'exportArtifacts').length) await tx.exportArtifact.createMany({ data: requireRows(snapshot, 'exportArtifacts') as any });
     if (rootMessages.length) await tx.reportDiscussionMessage.createMany({ data: rootMessages as any });
     if (replyMessages.length) await tx.reportDiscussionMessage.createMany({ data: replyMessages as any });

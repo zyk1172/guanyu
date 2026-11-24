@@ -1,5 +1,6 @@
+import { reserveAccessAttempt } from '@/lib/access';
 import { NextRequest, NextResponse } from 'next/server';
-import { createEmailVerificationCode, verifyCaptcha } from '@/lib/captcha';
+import { discardUnsentEmailCode, issueEmailVerificationCode, verifyCaptcha } from '@/lib/captcha';
 import { prisma } from '@/lib/prisma';
 import { getClientIp } from '@/lib/rate-limit';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
@@ -34,8 +35,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, message: '如果该邮箱可用于注册，验证码将在几分钟内发送。' });
     }
 
-    const code = await createEmailVerificationCode(email, ip);
-    await sendRegisterCodeEmail(email, code);
+    await reserveAccessAttempt('legacy-email-code', ip, 5);
+    const { id, code } = await issueEmailVerificationCode(email, ip);
+    await discardUnsentEmailCode(id, await sendRegisterCodeEmail(email, code));
 
     return NextResponse.json({ ok: true, message: '如果该邮箱可用于注册，验证码将在几分钟内发送。' });
   } catch (error: any) {

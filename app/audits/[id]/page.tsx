@@ -67,11 +67,12 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const { id } = await params;
   const audit = await prisma.audit.findFirst({
     where: { id, isPublic: true },
-    select: { title: true, newsSummary: true },
+    select: { title: true, newsSummary: true, indexable: true },
   });
-  if (!audit) return { title: '审视报告' };
+  if (!audit) return { title: '审视报告', robots: { index: false, follow: false } };
   return {
     title: audit.title,
+    robots: { index: audit.indexable, follow: audit.indexable },
     description: audit.newsSummary.slice(0, 160),
     alternates: { canonical: `/audits/${encodeURIComponent(id)}` },
   };

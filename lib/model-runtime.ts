@@ -1,3 +1,4 @@
+import { normalizeModelBaseUrl } from '@/lib/model-endpoint';
 import { safeOutboundRequest } from '@/lib/safe-outbound';
 import type { PlatformModelProvider } from '@/lib/platform-model-core.mjs';
 import type { WebResearchSession } from './web-research';
@@ -189,7 +190,7 @@ function chatUsage(payload: any, nativeSearchRequests = 0): RuntimeUsage {
 }
 
 async function postChatCompletion(params: InvokeModelParams, body: Record<string, unknown>, headers?: Record<string, string>) {
-  const response = await safeOutboundRequest(`${params.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+  const response = await safeOutboundRequest(`${normalizeModelBaseUrl(params.baseUrl)}/chat/completions`, {
     method: 'POST',
     headers: headers || { 'Content-Type': 'application/json', Authorization: `Bearer ${params.apiKey}` },
     body: JSON.stringify(body),
@@ -264,8 +265,14 @@ function anthropicThinking(modelId: string, reasoningDepth?: string) {
   return { type: 'enabled' as const, budget_tokens: budgetTokens };
 }
 
+function chatText(content: unknown): string {
+  if (typeof content === 'string') return content.trim();
+  if (!Array.isArray(content)) return '';
+  return content.flatMap((block) => block?.type === 'text' && typeof block.text === 'string' ? [block.text] : []).join('').trim();
+}
+
 async function invokeOpenAiCompatible(params: InvokeModelParams): Promise<ModelInvocationResult> {
-  const response = await safeOutboundRequest(`${params.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+  const response = await safeOutboundRequest(`${normalizeModelBaseUrl(params.baseUrl)}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${params.apiKey}` },
     body: JSON.stringify({
@@ -288,7 +295,7 @@ async function invokeOpenAiCompatible(params: InvokeModelParams): Promise<ModelI
   return {
     ok: response.status >= 200 && response.status < 300,
     status: response.status,
-    message: String(payload?.choices?.[0]?.message?.content || '').trim(),
+    message: chatText(payload?.choices?.[0]?.message?.content),
     errorCode: response.status >= 400 ? `upstream_${response.status}` : undefined,
     usedTokenBudget: Boolean(params.maxTokens),
     sources: [],
@@ -303,7 +310,7 @@ async function invokeOpenAiCompatible(params: InvokeModelParams): Promise<ModelI
 
 async function invokeOpenAiResponses(params: InvokeModelParams): Promise<ModelInvocationResult> {
   const reasoning = openAiReasoning(params.modelId, params.reasoningDepth);
-  const response = await safeOutboundRequest(`${params.baseUrl.replace(/\/$/, '')}/responses`, {
+  const response = await safeOutboundRequest(`${normalizeModelBaseUrl(params.baseUrl)}/responses`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${params.apiKey}` },
     body: JSON.stringify({
@@ -347,7 +354,7 @@ async function invokeOpenAiResponses(params: InvokeModelParams): Promise<ModelIn
 }
 
 async function invokeGemini(params: InvokeModelParams): Promise<ModelInvocationResult> {
-  const base = params.baseUrl.replace(/\/$/, '');
+  const base = normalizeModelBaseUrl(params.baseUrl);
   const endpoint = `${base}/models/${encodeURIComponent(params.modelId)}:generateContent`;
   const response = await safeOutboundRequest(endpoint, {
     method: 'POST',
@@ -403,8 +410,8 @@ async function invokeAnthropic(params: InvokeModelParams): Promise<ModelInvocati
   const thinkingBudget = thinking && 'budget_tokens' in thinking && typeof thinking.budget_tokens === 'number'
     ? thinking.budget_tokens
     : 0;
-  const maxTokens = Math.max(params.maxTokens || 12_000, thinkingBudget + 4096);
-  const response = await safeOutboundRequest(`${params.baseUrl.replace(/\/$/, '')}/messages`, {
+  const maxTokens = Math.max(params.maxTokens || 12_000, thinkingBudget + 1);
+  const response = await safeOutboundRequest(`${normalizeModelBaseUrl(params.baseUrl)}/messages`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -497,7 +504,7 @@ async function invokeQwen(params: InvokeModelParams): Promise<ModelInvocationRes
   return {
     ok: response.status >= 200 && response.status < 300,
     status: response.status,
-    message: String(payload?.choices?.[0]?.message?.content || '').trim(),
+    message: chatText(payload?.choices?.[0]?.message?.content),
     errorCode: response.status >= 400 ? `upstream_${response.status}` : undefined,
     usedTokenBudget: Boolean(params.maxTokens),
     sources,
@@ -520,7 +527,7 @@ async function invokeZhipu(params: InvokeModelParams): Promise<ModelInvocationRe
   return {
     ok: response.status >= 200 && response.status < 300,
     status: response.status,
-    message: String(payload?.choices?.[0]?.message?.content || '').trim(),
+    message: chatText(payload?.choices?.[0]?.message?.content),
     errorCode: response.status >= 400 ? `upstream_${response.status}` : undefined,
     usedTokenBudget: Boolean(params.maxTokens),
     sources,
@@ -627,7 +634,7 @@ async function invokeWithWebTools(params: InvokeModelParams): Promise<ModelInvoc
       let headers: Record<string, string> = { 'Content-Type': 'application/json', Authorization: `Bearer ${params.apiKey}` };
       let body: Record<string, unknown>;
       if (params.provider === 'openai') {
-        endpoint = `${params.baseUrl.replace(/\/$/, '')}/responses`;
+        endpoint = `${normalizeModelBaseUrl(params.baseUrl)}/responses`;
         body = {
           model: params.modelId, input: wire, store: false,
           ...(toolsEnabled ? { tools: WEB_RESEARCH_TOOLS.map((tool) => ({ type: 'function', ...tool })), tool_choice: 'auto' } : {}),
@@ -637,18 +644,18 @@ async function invokeWithWebTools(params: InvokeModelParams): Promise<ModelInvoc
           include: ['reasoning.encrypted_content'],
         };
       } else if (params.provider === 'anthropic') {
-        endpoint = `${params.baseUrl.replace(/\/$/, '')}/messages`;
+        endpoint = `${normalizeModelBaseUrl(params.baseUrl)}/messages`;
         headers = { 'Content-Type': 'application/json', 'x-api-key': params.apiKey, 'anthropic-version': '2023-06-01' };
         const thinking = anthropicThinking(params.modelId, params.reasoningDepth);
         const budget = thinking && 'budget_tokens' in thinking ? thinking.budget_tokens || 0 : 0;
         body = {
-          model: params.modelId, system, messages: wire, max_tokens: Math.max(params.maxTokens || 12_000, budget + 4096),
+          model: params.modelId, system, messages: wire, max_tokens: Math.max(params.maxTokens || 12_000, budget + 1),
           ...(thinking ? { thinking } : { temperature: 0.1 }),
           ...(thinking && anthropicUsesAdaptiveThinking(params.modelId) ? { output_config: { effort: anthropicEffort(params.reasoningDepth) } } : {}),
           ...(toolsEnabled ? { tools: WEB_RESEARCH_TOOLS.map((tool) => ({ name: tool.name, description: tool.description, input_schema: tool.parameters })) } : {}),
         };
       } else if (params.provider === 'gemini') {
-        endpoint = `${params.baseUrl.replace(/\/$/, '')}/models/${encodeURIComponent(params.modelId)}:generateContent`;
+        endpoint = `${normalizeModelBaseUrl(params.baseUrl)}/models/${encodeURIComponent(params.modelId)}:generateContent`;
         headers = { 'Content-Type': 'application/json', 'x-goog-api-key': params.apiKey };
         body = {
           systemInstruction: { parts: [{ text: system }] }, contents: wire,
@@ -660,7 +667,7 @@ async function invokeWithWebTools(params: InvokeModelParams): Promise<ModelInvoc
           },
         };
       } else {
-        endpoint = `${params.baseUrl.replace(/\/$/, '')}/chat/completions`;
+        endpoint = `${normalizeModelBaseUrl(params.baseUrl)}/chat/completions`;
         body = {
           model: params.modelId, messages: wire, temperature: 0.1, stream: false,
           ...(params.maxTokens ? { max_tokens: params.maxTokens } : {}),
@@ -713,7 +720,7 @@ async function invokeWithWebTools(params: InvokeModelParams): Promise<ModelInvoc
       } else {
         assistant = payload.choices?.[0]?.message || {};
         calls = (Array.isArray(assistant.tool_calls) ? assistant.tool_calls : []).map((item: any) => ({ id: item.id, name: item.function?.name, arguments: item.function?.arguments }));
-        message = typeof assistant.content === 'string' ? assistant.content : '';
+        message = chatText(assistant.content);
       }
       if (!calls.length) return result(true, response.status, message.trim());
       if (!toolsEnabled) return result(false, 502, '', 'web_research_loop_exceeded');

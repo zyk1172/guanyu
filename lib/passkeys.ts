@@ -35,7 +35,7 @@ export async function consumePasskeyChallenge(request: NextRequest, mode: 'regis
   // including concurrent verification requests and invalid assertions.
   const records = await prisma.$queryRaw<Array<{ challenge: string; userId: string | null; sessionVersion: number | null }>>`
     DELETE FROM "PasskeyChallenge" WHERE "tokenHash" = ${tokenHash} AND "purpose" = ${mode}
-    AND "expiresAt" > NOW() RETURNING "challenge", "userId", "sessionVersion"`;
+    AND "expiresAt" > (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') RETURNING "challenge", "userId", "sessionVersion"`;
   if (!records[0]) throw new AccessError('验证已过期，请重新操作。', 401);
   return records[0];
 }

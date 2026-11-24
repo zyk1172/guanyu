@@ -29,6 +29,18 @@ interface AuditSubmitData {
   sourceUrl?: string;
 }
 
+function waitForPoll(delay: number, signal: AbortSignal) {
+  return new Promise<void>(resolve => {
+    const finish = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, delay);
+    signal.addEventListener('abort', finish, { once: true });
+  });
+}
+
 export default function Home() {
   const router = useRouter();
   const { language,t } = useUiLanguage();
@@ -37,7 +49,8 @@ export default function Home() {
   const [lastSubmittedData, setLastSubmittedData] = useState<AuditSubmitData | null>(null);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const submitting = useRef(false);
-  const activePollingJobRef = useRef<string | null>(null);
+  const pendingSubmission = useRef<{ input: AuditSubmitData; requestId: string } | null>(null);
+  const activePollingJobRef = useRef<{ jobId: string; controller: AbortController } | null>(null);
   const pageIsMountedRef = useRef(true);
   const errorPanel = useRef<HTMLDivElement>(null);
   const progressPanel=useRef<HTMLDivElement>(null);
@@ -60,9 +73,10 @@ export default function Home() {
 
   const pollAnalysisJob = useCallback(async (jobId: string) => {
     const normalizedJobId = normalizeActiveAnalysisJobId(jobId);
-    if (!normalizedJobId || activePollingJobRef.current === normalizedJobId) return;
-
-    activePollingJobRef.current = normalizedJobId;
+    if (!normalizedJobId || activePollingJobRef.current?.jobId === normalizedJobId) return;
+    activePollingJobRef.current?.controller.abort();
+    const controller = new AbortController();
+    activePollingJobRef.current = { jobId: normalizedJobId, controller };
     let terminalFailure = false;
     if (pageIsMountedRef.current) {
       setIsLoading(true);
@@ -72,10 +86,18 @@ export default function Home() {
 
     try {
       for (let attempt = 0; attempt < ANALYSIS_JOB_POLLING_ATTEMPTS; attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, getAnalysisJobPollingDelay(attempt)));
-        const statusResponse = await fetch(`/api/analyze/jobs/${normalizedJobId}`, { cache: 'no-store' });
+        await waitForPoll(getAnalysisJobPollingDelay(attempt), controller.signal);
+        if (controller.signal.aborted) return;
+        const statusResponse = await fetch(`/api/analyze/jobs/${normalizedJobId}`, {
+          cache: 'no-store', signal: controller.signal,
+        }).catch(() => null);
+        if (controller.signal.aborted) return;
+        if (!statusResponse || statusResponse.status >= 500 || statusResponse.status === 429) continue;
         const statusData = await statusResponse.json().catch(() => ({}));
+        if (controller.signal.aborted) return;
         if (!statusResponse.ok) {
+          terminalFailure = true;
+          clearActiveJob();
           throw new Error(statusData.error || '读取审视任务状态失败。');
         }
 
@@ -91,14 +113,17 @@ export default function Home() {
           throw new Error(resolution.error);
         }
       }
+      throw new Error('等待审视任务超时。');
     } catch (pollError: any) {
-      if (!pageIsMountedRef.current) return;
+      if (!pageIsMountedRef.current || controller.signal.aborted) return;
       setError(terminalFailure
         ? (pollError?.message || '审视任务生成失败。')
         : '审视仍在后台生成，状态暂时无法读取。返回此页面后会继续恢复任务。');
     } finally {
-      if (activePollingJobRef.current === normalizedJobId) activePollingJobRef.current = null;
-      if (pageIsMountedRef.current) setIsLoading(false);
+      if (activePollingJobRef.current?.controller === controller) {
+        activePollingJobRef.current = null;
+        if (pageIsMountedRef.current) setIsLoading(false);
+      }
     }
   }, [clearActiveJob, router]);
 
@@ -106,6 +131,8 @@ export default function Home() {
     pageIsMountedRef.current = true;
     return () => {
       pageIsMountedRef.current = false;
+      activePollingJobRef.current?.controller.abort();
+      activePollingJobRef.current = null;
     };
   }, []);
 
@@ -134,22 +161,25 @@ export default function Home() {
     setError(null);
     setLastSubmittedData(data);
     clearActiveJob();
+    if (pendingSubmission.current?.input !== data) pendingSubmission.current = { input: data, requestId: crypto.randomUUID() };
 
     try {
       const response = await fetch('/api/analyze/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        body: JSON.stringify({ ...data, clientRequestId: pendingSubmission.current.requestId }),
       });
 
       const resData = await response.json();
 
       if (!response.ok) {
+        if (response.status < 500) pendingSubmission.current = null;
         throw new Error(resData.error || `请求失败 (${response.status})`);
       }
 
       const jobId = resData.jobId;
       if (!jobId) throw new Error('服务端未返回审视任务 ID。');
+      pendingSubmission.current = null;
       storeActiveJob(jobId);
       await pollAnalysisJob(jobId);
     } catch (err: any) {

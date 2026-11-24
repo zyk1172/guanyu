@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { personalModelProvider } from '@/lib/model-endpoint';
 import { decryptSecret } from '@/lib/secret';
 
 export function chooseModelConfig(params: {
@@ -7,6 +9,7 @@ export function chooseModelConfig(params: {
 }) {
   if (params.usageSource !== 'custom' && params.usageSource !== 'byok') {
     return {
+      provider: 'openai_compatible' as const,
       modelName: params.appSetting?.adminModelName || process.env.OPENAI_MODEL_DEFAULT || 'gpt-5.6-terra',
       baseURL: params.appSetting?.adminLlmBaseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
       apiKey: params.appSetting?.adminLlmApiKeyEncrypted
@@ -16,10 +19,24 @@ export function chooseModelConfig(params: {
   }
 
   return {
+    provider: personalModelProvider(params.userSettings?.llmProvider),
     modelName: params.userSettings?.defaultModelName || '',
     baseURL: params.userSettings?.llmBaseUrl || '',
     apiKey: params.userSettings?.llmApiKeyEncrypted
       ? decryptSecret(params.userSettings.llmApiKeyEncrypted)
       : '',
   };
+}
+
+export function personalModelFingerprint(settings: {
+  llmProvider: string;
+  llmBaseUrl: string;
+  llmApiKeyEncrypted: string | null;
+  defaultModelName: string;
+  defaultReasoningDepth: string;
+}) {
+  return createHash('sha256').update(JSON.stringify([
+    settings.llmProvider, settings.llmBaseUrl, settings.llmApiKeyEncrypted,
+    settings.defaultModelName, settings.defaultReasoningDepth,
+  ])).digest('hex');
 }

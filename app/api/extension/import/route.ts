@@ -96,13 +96,13 @@ export async function POST(request: Request) {
     content,
     focus: `来自浏览器插件。原始链接：${url}`,
     sourceUrl: url,
-  });
+  }, body.clientRequestId || body.requestId);
   after(() => runAnalyzeJob(job.id));
 
   return NextResponse.json({
     ok: true,
     jobId: job.id,
-    jobUrl: `/my-audits?jobId=${encodeURIComponent(job.id)}`,
+    jobUrl: `/account/audits?jobId=${encodeURIComponent(job.id)}`,
     message: '已开始生成观隅审视报告。',
   });
 }

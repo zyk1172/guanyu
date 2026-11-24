@@ -1,5 +1,6 @@
+import { reserveAccessAttempt } from '@/lib/access';
 import { NextRequest, NextResponse } from 'next/server';
-import { createEmailVerificationCode, verifyCaptcha } from '@/lib/captcha';
+import { discardUnsentEmailCode, issueEmailVerificationCode, verifyCaptcha } from '@/lib/captcha';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { sendLoginCodeEmail } from '@/lib/email';
 import { prisma } from '@/lib/prisma';
@@ -29,8 +30,9 @@ export async function POST(request: NextRequest) {
 
     const account = await prisma.user.findUnique({ where: { email }, select: { email: true, isBanned: true } });
     if (account && !account.isBanned) {
-      const code = await createEmailVerificationCode(email, ip, 'login_email');
-      await sendLoginCodeEmail(email, code);
+      await reserveAccessAttempt('legacy-email-code', ip, 5);
+      const { id, code } = await issueEmailVerificationCode(email, ip, 'login_email');
+      await discardUnsentEmailCode(id, await sendLoginCodeEmail(email, code));
     }
     return NextResponse.json({
       ok: true,

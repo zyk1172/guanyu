@@ -1,7 +1,9 @@
+import { dispatchAnalyzeJobs } from '@/lib/analyze-job';
+import { dispatchQueuedEmails } from '@/lib/email';
 import { NextRequest, NextResponse } from 'next/server';
 import { runPrivacyCleanup } from '@/lib/privacy';
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
   const expected = process.env.CRON_SECRET;
@@ -14,7 +16,9 @@ export async function GET(request: NextRequest) {
   }
   try {
     const result = await runPrivacyCleanup();
-    return NextResponse.json({ ok: true, result });
+    const mail = await dispatchQueuedEmails();
+    const jobs = await dispatchAnalyzeJobs(1);
+    return NextResponse.json({ ok: true, result, mail, jobs: jobs.dispatched });
   } catch {
     return NextResponse.json({ error: '隐私清理失败，请稍后重试。' }, { status: 500 });
   }

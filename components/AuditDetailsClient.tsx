@@ -119,7 +119,7 @@ export default function AuditDetailsClient({ auditRecord: initialAuditRecord, ca
 
         <div className="flex flex-col justify-between gap-2 pt-2 sm:flex-row sm:items-center">
           <ButtonLink variant="secondary" href="/">← {t('audit.backHome')}</ButtonLink>
-          {isAuthor && <ButtonLink variant="primary" href="/my-audits">{t('audit.manageRecords')}</ButtonLink>}
+          {isAuthor && <ButtonLink variant="primary" href="/account/audits">{t('audit.manageRecords')}</ButtonLink>}
         </div>
       </div>
     </main>

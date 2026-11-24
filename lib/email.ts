@@ -1,9 +1,11 @@
+import { after } from 'next/server';
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import { mergeAdminRecipientEmails } from '@/lib/admin-recipient-core.mjs';
 import { buildPendingPaymentLines } from '@/lib/payment-notification-core.mjs';
 import { formatPaymentAmount, getPaymentMethodLabel } from '@/lib/payment-core.mjs';
-import { buildReportCompletionEmail } from '@/lib/report-email-core.mjs';
+import type { Prisma } from '@/lib/generated/prisma/client';
+import { decryptSecret, encryptSecret } from '@/lib/secret';
 import { getEmailProviderPlan, normalizeEmailError } from '@/lib/email-delivery-core.mjs';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { prisma } from '@/lib/prisma';
@@ -55,6 +57,12 @@ function smtpConfigured() {
   );
 }
 
+class MailTransportError extends Error {
+  constructor(message: string, readonly status: 'failed' | 'temporary_failure' | 'unknown') {
+    super(message);
+  }
+}
+
 function signAliyunParams(params: Record<string, string>, secret: string) {
   const canonical = Object.keys(params)
     .sort()
@@ -94,17 +102,26 @@ async function sendWithAliyunDirectMail(input: SendEmailInput) {
   };
   params.Signature = signAliyunParams(params, accessKeySecret);
 
+  if (!/^[a-z0-9-]{1,40}$/.test(regionId)) throw new MailTransportError('DirectMail 地域无效。', 'failed');
+  const endpoint = regionId === 'cn-hangzhou' ? 'dm.aliyuncs.com' : `dm.${regionId}.aliyuncs.com`;
   const body = new URLSearchParams(params);
-  const response = await fetch('https://dm.aliyuncs.com/', {
+  const response = await fetch(`https://${endpoint}/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
+    signal: AbortSignal.timeout(8_000),
+    redirect: 'error',
   });
 
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`阿里云邮件发送失败 (${response.status}): ${text.slice(0, 160)}`);
+    const status = response.status === 429 ? 'temporary_failure' : response.status >= 500 ? 'unknown' : 'failed';
+    throw new MailTransportError(`DirectMail HTTP ${response.status}`, status);
   }
+  const responseData = await response.json();
+  if (responseData?.Code || typeof responseData?.RequestId !== 'string' || !responseData.RequestId.trim()) {
+    throw new MailTransportError('DirectMail 未返回有效的接受凭证。', 'unknown');
+  }
+  return { requestId: responseData.RequestId, messageId: typeof responseData.EnvId === 'string' ? responseData.EnvId : undefined };
 }
 
 async function sendWithSmtp(input: SendEmailInput) {
@@ -114,6 +131,10 @@ async function sendWithSmtp(input: SendEmailInput) {
     host: process.env.SMTP_HOST,
     port,
     secure,
+    requireTLS: !secure,
+    connectionTimeout: 5_000,
+    greetingTimeout: 5_000,
+    socketTimeout: 8_000,
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
@@ -122,94 +143,133 @@ async function sendWithSmtp(input: SendEmailInput) {
 
   const fromAddress = process.env.SMTP_FROM || process.env.SMTP_USER || '';
   const fromName = process.env.SMTP_FROM_NAME || '观隅';
-  await transporter.sendMail({
+  const result = await transporter.sendMail({
     from: `"${fromName}" <${fromAddress}>`,
     to: input.to,
     subject: input.subject,
     text: input.text,
     html: input.html,
   });
+  if (!result.accepted.length) throw new MailTransportError('SMTP 未接受收件地址。', 'failed');
+  return { messageId: result.messageId };
 }
 
-export async function sendEmail(input: SendEmailInput) {
-  const providerPlan = getEmailProviderPlan({
-    smtpConfigured: smtpConfigured(),
-    aliyunConfigured: aliyunConfigured(),
-  });
-  const errors: string[] = [];
-
-  for (const provider of providerPlan) {
-    try {
-      if (provider === 'smtp') await sendWithSmtp(input);
-      else await sendWithAliyunDirectMail(input);
-      return { delivered: true, provider };
-    } catch (error) {
-      errors.push(`${provider}: ${normalizeEmailError(error)}`);
-    }
-  }
-
-  if (providerPlan.length === 0 && process.env.NODE_ENV !== 'production') {
-    console.log('[dev-email]', JSON.stringify(input, null, 2));
-    return { delivered: false, provider: 'dev-log' };
-  }
-
-  if (providerPlan.length === 0) {
-    throw new Error('邮件服务未配置，请联系管理员设置 SMTP 或阿里云 DirectMail。');
-  }
-  throw new Error(`邮件投递失败：${errors.join(' | ')}`);
+function configuredProvider() {
+  const plan = getEmailProviderPlan({ smtpConfigured: smtpConfigured(), aliyunConfigured: aliyunConfigured() });
+  const selected = process.env.GUANYU_EMAIL_PROVIDER?.trim();
+  return selected ? plan.find(provider => provider === selected) : plan[0];
 }
 
-export async function sendTrackedEmail(input: TrackedEmailInput) {
-  await ensureRuntimeSchema();
-  const delivery = await prisma.emailDelivery.create({
-    data: {
-      userId: input.userId || null,
-      auditId: input.auditId || null,
-      category: input.category,
-      recipient: input.to,
-      subject: input.subject,
-      status: 'pending',
-      attempts: 1,
-      metadataJson: JSON.stringify(input.metadata || {}),
-    },
-  });
+async function createDelivery(input: TrackedEmailInput, tx: Prisma.TransactionClient, payloadEncrypted?: string) {
+  return tx.emailDelivery.create({ data: {
+    userId: input.userId || null,
+    auditId: input.auditId || null,
+    category: input.category,
+    recipient: input.to,
+    subject: input.subject,
+    status: 'pending',
+    payloadEncrypted,
+    metadataJson: JSON.stringify(input.metadata || {}),
+  } });
+}
 
-  let attempts = 0;
-  let lastError: unknown;
-  let result: Awaited<ReturnType<typeof sendEmail>> | null = null;
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    attempts = attempt;
+async function deliverEmail(deliveryId: string, input: SendEmailInput, attempts: number) {
+  const provider = configuredProvider();
+  let status: 'accepted' | 'failed' | 'temporary_failure' | 'unknown' = 'failed';
+  let error: string | null = null;
+  let receipt: { requestId?: string; messageId?: string } = {};
+  if (!provider) {
+    if (process.env.NODE_ENV !== 'production') console.log('[dev-email]', JSON.stringify(input, null, 2));
+    error = '邮件通道未配置。';
+  } else {
     try {
-      result = await sendEmail(input);
-      break;
-    } catch (error) {
-      lastError = error;
-      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 350));
+      receipt = provider === 'smtp' ? await sendWithSmtp(input) : await sendWithAliyunDirectMail(input);
+      status = 'accepted';
+    } catch (failure) {
+      const smtpCode = Number((failure as { responseCode?: number } | null)?.responseCode);
+      status = failure instanceof MailTransportError ? failure.status
+        : smtpCode >= 500 ? 'failed' : smtpCode >= 400 ? 'temporary_failure' : 'unknown';
+      error = failure instanceof MailTransportError ? normalizeEmailError(failure)
+        : smtpCode ? `SMTP ${smtpCode}` : '上游接受状态不明。';
     }
   }
 
   try {
-    if (!result) throw lastError || new Error('邮件投递失败');
-    const updated = await prisma.emailDelivery.update({
-      where: { id: delivery.id },
+    await prisma.emailDelivery.update({
+      where: { id: deliveryId },
       data: {
-        attempts,
-        status: result.delivered ? 'sent' : 'failed',
-        provider: result.provider,
-        error: result.delivered ? null : '开发环境仅记录邮件，未实际投递。',
-        sentAt: result.delivered ? new Date() : null,
+        status, error, provider: provider ?? null,
+        providerRequestId: receipt.requestId ?? null,
+        providerMessageId: receipt.messageId ?? null,
+        sentAt: status === 'accepted' ? new Date() : null,
+        ...(status !== 'temporary_failure' || attempts >= 3 ? { payloadEncrypted: null } : {}),
       },
     });
-    return { delivered: result.delivered, provider: result.provider, deliveryId: updated.id };
-  } catch (error) {
-    const message = normalizeEmailError(error);
-    await prisma.emailDelivery.update({
-      where: { id: delivery.id },
-      data: { status: 'failed', attempts, error: message },
-    });
-    console.error('[email-delivery-failed]', JSON.stringify({ category: input.category, recipient: input.to, deliveryId: delivery.id, error: message }));
-    return { delivered: false, provider: 'none', deliveryId: delivery.id, error: message };
+  } catch {
+    console.error('[email-delivery] tracking update failed', { deliveryId, provider, status });
   }
+  return { accepted: status === 'accepted', provider: provider || 'none', deliveryId, status, error };
+}
+
+export async function sendTrackedEmail(input: TrackedEmailInput) {
+  await ensureRuntimeSchema();
+  const delivery = await createDelivery(input, prisma);
+  await prisma.emailDelivery.update({
+    where: { id: delivery.id },
+    data: { status: 'sending', attempts: 1 },
+  });
+  return deliverEmail(delivery.id, input, 1);
+}
+
+export function queueTrackedEmail(input: TrackedEmailInput, tx: Prisma.TransactionClient) {
+  return createDelivery(input, tx, encryptSecret(JSON.stringify({ html: input.html, text: input.text })));
+}
+
+export function scheduleEmailDelivery() {
+  try {
+    after(async () => {
+      await dispatchQueuedEmails().catch(() => console.error('[email-delivery] queue dispatch failed'));
+    });
+  } catch {
+    // Standalone callers can persist outbox entries without a Next.js request.
+  }
+}
+
+export async function dispatchQueuedEmails(limit = 10) {
+  const now = Date.now();
+  await prisma.emailDelivery.updateMany({
+    where: { status: 'sending', updatedAt: { lte: new Date(now - 5 * 60_000) } },
+    data: { status: 'unknown', error: '发送中断，服务商接受状态未知。', payloadEncrypted: null },
+  });
+
+  const queued = await prisma.emailDelivery.findMany({
+    where: {
+      payloadEncrypted: { not: null },
+      attempts: { lt: 3 },
+      OR: [{ status: 'pending' }, { status: 'temporary_failure', updatedAt: { lte: new Date(now - 60_000) } }],
+    },
+    orderBy: { updatedAt: 'asc' },
+    take: limit,
+  });
+
+  await Promise.all(queued.map(async (row) => {
+    const claim = await prisma.emailDelivery.updateMany({
+      where: { id: row.id, status: row.status, attempts: row.attempts },
+      data: { status: 'sending', attempts: { increment: 1 } },
+    });
+    if (!claim.count) return;
+    const payload = decryptSecret(row.payloadEncrypted);
+    if (!payload) {
+      await prisma.emailDelivery.update({
+        where: { id: row.id },
+        data: { status: 'failed', error: '待发邮件无法解密。', payloadEncrypted: null },
+      });
+      return;
+    }
+    const body = JSON.parse(payload) as Pick<SendEmailInput, 'html' | 'text'>;
+    await deliverEmail(row.id, { ...body, to: row.recipient, subject: row.subject }, row.attempts + 1);
+  }));
+  return queued.length;
 }
 
 export async function sendRegisterCodeEmail(email: string, code: string) {
@@ -249,15 +309,15 @@ export async function sendPasswordResetCodeEmail(email: string, code: string) {
   });
 }
 
-export async function notifyPasswordChanged(input: { userId: string; email: string }) {
-  return sendTrackedEmail({
+export async function queuePasswordChanged(tx: Prisma.TransactionClient, input: { userId: string; email: string }) {
+  return queueTrackedEmail({
     category: 'password_changed',
     userId: input.userId,
     to: input.email,
     subject: '观隅账号密码已修改',
     text: '你的观隅账号密码刚刚被修改。若不是你本人操作，请立即通过找回密码流程重置密码并联系管理员。',
     html: `<div style="margin:0;padding:28px 16px;background:#f2ead9;font-family:Arial,'PingFang SC','Microsoft YaHei',sans-serif;color:#2d251b;line-height:1.75"><main style="max-width:620px;margin:0 auto;background:#fffdf7;border:1px solid #dfcfad;border-radius:14px;padding:26px"><h1 style="margin:0 0 12px;font-size:22px">账号密码已修改</h1><p style="margin:0">你的观隅账号密码刚刚被修改。</p><p style="margin:14px 0 0;color:#5f5546">若不是你本人操作，请立即通过找回密码流程重置密码，并联系管理员核查账号安全。</p><p style="margin:20px 0 0"><a href="${appUrl('/login')}" style="display:inline-block;background:#7a4f22;color:#fff;text-decoration:none;padding:10px 14px;border-radius:8px;font-weight:700">前往登录</a></p></main></div>`,
-  });
+  }, tx);
 }
 
 function appUrl(path = '/') {
@@ -294,8 +354,8 @@ function formatPointBalance(creditBalance?: number | null, creditBalanceCents?: 
   return Number((cents / 100).toFixed(1));
 }
 
-export async function sendWelcomeEmail(email: string) {
-  return sendTrackedEmail({
+export async function queueWelcomeEmail(tx: Prisma.TransactionClient, email: string) {
+  return queueTrackedEmail({
     category: 'welcome',
     to: email,
     subject: '欢迎使用观隅：新闻叙事审视使用指南',
@@ -324,7 +384,7 @@ export async function sendWelcomeEmail(email: string) {
         </div>
       </div>
     `,
-  });
+  }, tx);
 }
 
 export async function notifyAdminsPendingOrder(input: {
@@ -344,7 +404,7 @@ export async function notifyAdminsPendingOrder(input: {
   orderCreatedAt: Date | string;
 }) {
   const recipients = await adminNotifyRecipients();
-  if (recipients.length === 0) return { delivered: false, provider: 'no-recipient' };
+  if (recipients.length === 0) return { accepted: false, provider: 'no-recipient' };
 
   const amount = formatPaymentAmount(input.amountCents, input.currency);
   const paymentMethodLabel = getPaymentMethodLabel(input.paymentMethod);
@@ -387,7 +447,7 @@ export async function notifyAdminsPendingOrder(input: {
       </div>
     `,
   })));
-  return { delivered: results.some((result) => result.delivered), provider: results.find((result) => result.delivered)?.provider || 'none' };
+  return { accepted: results.some((result) => result.accepted), provider: results.find((result) => result.accepted)?.provider || 'none' };
 }
 
 export async function notifyUserPendingOrder(input: {
@@ -400,7 +460,7 @@ export async function notifyUserPendingOrder(input: {
   paymentMethod: string;
   paymentNote?: string | null;
 }) {
-  if (!input.userEmail) return { delivered: false, provider: 'no-recipient' };
+  if (!input.userEmail) return { accepted: false, provider: 'no-recipient' };
 
   const detailLines = buildPendingPaymentLines(input);
   return sendTrackedEmail({
@@ -431,56 +491,24 @@ export async function notifyUserPendingOrder(input: {
   });
 }
 
-export async function notifyReportCompleted(input: {
-  userEmail?: string | null;
-  audit: {
-    id: string;
-    userId?: string | null;
-    title: string;
-    source: string;
-    reportLanguage?: string | null;
-    modelName?: string | null;
-    reasoningDepth?: string | null;
-    createdAt?: Date | string | null;
-  };
-  report: unknown;
-}) {
-  const reportUrl = appUrl(`/audits/${input.audit.id}`);
-  const mail = buildReportCompletionEmail({
-    audit: input.audit,
-    report: input.report,
-    reportUrl,
+export async function queueReportCompleted(tx: Prisma.TransactionClient, auditId: string) {
+  const audit = await tx.audit.findUnique({
+    where: { id: auditId },
+    select: { id: true, userId: true, reportLanguage: true, user: { select: { email: true } } },
   });
-  const [adminRecipients, userResult] = await Promise.all([
-    adminNotifyRecipients(),
-    input.userEmail
-      ? sendTrackedEmail({
-          ...mail,
-          category: 'report_completed',
-          to: input.userEmail,
-          userId: input.audit.userId || null,
-          auditId: input.audit.id,
-          metadata: { recipientRole: 'creator' },
-        })
-      : Promise.resolve({ delivered: false }),
-  ]);
-  const userEmail = input.userEmail?.trim().toLowerCase();
-  const recipients = adminRecipients.filter((email) => email.toLowerCase() !== userEmail);
-  const adminResults = await Promise.all(recipients.map((recipient) => sendTrackedEmail({
-    ...mail,
+  if (!audit?.user.email) return;
+  const url = appUrl(`/audits/${encodeURIComponent(audit.id)}`);
+  const zh = (audit.reportLanguage || '').startsWith('zh');
+  const subject = zh ? '观隅报告已完成' : 'Your Guanyu report is ready';
+  await queueTrackedEmail({
+    to: audit.user.email,
+    subject,
+    text: `${subject}\n${url}`,
+    html: `<p>${subject}</p><p><a href="${escapeHtml(url)}">${zh ? '查看报告' : 'View report'}</a></p>`,
     category: 'report_completed',
-    to: recipient,
-    userId: input.audit.userId || null,
-    auditId: input.audit.id,
-    subject: `[Admin copy] ${mail.subject}`,
-    metadata: { recipientRole: 'administrator', creatorEmail: userEmail || null },
-  })));
-
-  return {
-    creatorDelivered: userResult.delivered,
-    administratorDelivered: adminResults.some((result) => result.delivered),
-    administratorRecipientCount: recipients.length,
-  };
+    userId: audit.userId,
+    auditId: audit.id,
+  }, tx);
 }
 
 export async function notifyAccountAccessChanged(input: {
@@ -551,7 +579,7 @@ export async function notifyAdminsFeedback(input: {
   submittedAt?: Date | string;
 }) {
   const recipients = await adminNotifyRecipients();
-  if (recipients.length === 0) return { delivered: false, provider: 'no-recipient', recipientCount: 0 };
+  if (recipients.length === 0) return { accepted: false, provider: 'no-recipient', recipientCount: 0 };
 
   const submittedAt = new Date(input.submittedAt || new Date()).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
   const accountLabel = input.userName
@@ -607,8 +635,8 @@ export async function notifyAdminsFeedback(input: {
   })));
 
   return {
-    delivered: results.some((result) => result.delivered),
-    provider: results.find((result) => result.delivered)?.provider || 'none',
+    accepted: results.some((result) => result.accepted),
+    provider: results.find((result) => result.accepted)?.provider || 'none',
     recipientCount: recipients.length,
   };
 }

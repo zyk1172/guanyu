@@ -56,8 +56,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       ok: true,
-      delivered: result.delivered,
-      message: result.delivered
+      delivered: result.accepted,
+      message: result.accepted
         ? '反馈已提交，已通过邮件通知超级管理员。'
         : '反馈已记录，但管理员邮件暂未投递成功，请稍后重试。',
     });

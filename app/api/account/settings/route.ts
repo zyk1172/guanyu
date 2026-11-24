@@ -3,6 +3,8 @@ import { getCurrentUser } from '@/lib/auth';
 import { getSuperAdminStatus } from '@/lib/admin';
 import { prisma } from '@/lib/prisma';
 import { encryptSecret } from '@/lib/secret';
+import { assertPersonalModelEndpoint, normalizeModelBaseUrl, personalModelProvider, personalModelProviders, sameModelBaseUrl } from '@/lib/model-endpoint';
+import { Prisma } from '@/lib/generated/prisma/client';
 import { getOrCreateAppSetting, hasActivePro } from '@/lib/billing';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { getEffectiveRssSourceConfig, getRssSourceCatalog, normalizeRssSourceConfig } from '@/lib/rss-core.mjs';
@@ -169,7 +171,7 @@ export async function PATCH(request: Request) {
       getSuperAdminStatus(userId),
       prisma.userSettings.findUnique({
         where: { userId },
-        select: { llmBaseUrl: true, searchProvider: true, deepseekApiKeyEncrypted: true },
+        select: { llmProvider: true, llmBaseUrl: true, llmApiKeyEncrypted: true, searchProvider: true, deepseekApiKeyEncrypted: true },
       }),
     ]);
     const canUseOwnApi = isSuperAdmin || hasActivePro(account || {});
@@ -177,6 +179,7 @@ export async function PATCH(request: Request) {
     const {
       defaultModelName,
       llmBaseUrl,
+      llmProvider,
       llmApiKey,
       enableTavilySearch,
       tavilyApiKey,
@@ -237,12 +240,31 @@ export async function PATCH(request: Request) {
       }, { status: 403 });
     }
     const safeModelName = String(defaultModelName || '').trim() || process.env.OPENAI_MODEL_DEFAULT || 'gpt-4o';
-    const safeLlmBaseUrl = String(llmBaseUrl || '').trim() || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
+    if (llmProvider !== undefined && !personalModelProviders.some(provider => provider === llmProvider)) {
+      return NextResponse.json({ error: '不支持的个人模型协议。' }, { status: 400 });
+    }
+    const safeProvider = personalModelProvider(llmProvider ?? currentSettings?.llmProvider);
+    const providerChanged = safeProvider !== personalModelProvider(currentSettings?.llmProvider);
+    const requestedBaseUrl = llmBaseUrl === undefined
+      ? currentSettings?.llmBaseUrl
+      : String(llmBaseUrl || '').trim();
+    let safeLlmBaseUrl = requestedBaseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
     const shouldValidateCustomBaseUrl = canUseOwnApi && (
-      modelSource === 'custom' ||
-      Boolean(trimmedApiKey) ||
-      safeLlmBaseUrl !== currentSettings?.llmBaseUrl
+      modelSource === 'custom' || Boolean(trimmedApiKey) || llmBaseUrl !== undefined || providerChanged
     );
+    if (shouldValidateCustomBaseUrl) {
+      try {
+        safeLlmBaseUrl = normalizeModelBaseUrl(safeLlmBaseUrl);
+        assertPersonalModelEndpoint(safeLlmBaseUrl, safeProvider);
+      } catch {
+        return NextResponse.json({ error: '请输入不带凭据、查询参数或片段的模型接口地址。' }, { status: 400 });
+      }
+    }
+    const endpointChanged = currentSettings && !sameModelBaseUrl(currentSettings.llmBaseUrl, safeLlmBaseUrl)
+      && currentSettings.llmBaseUrl !== safeLlmBaseUrl;
+    if (canUseOwnApi && currentSettings?.llmApiKeyEncrypted && !trimmedApiKey && (providerChanged || endpointChanged)) {
+      return NextResponse.json({ error: '更换模型协议或接口地址时，请重新填写该接口的 API Key。' }, { status: 400 });
+    }
     if (shouldValidateCustomBaseUrl) {
       try {
         await assertPublicOutboundUrl(safeLlmBaseUrl, { requireHttps: process.env.NODE_ENV === 'production' });
@@ -267,13 +289,18 @@ export async function PATCH(request: Request) {
       catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : 'DeepSeek 设置无效。' }, { status: 400 }); }
     }
 
-    const updatedSettings = await prisma.userSettings.upsert({
-      where: { userId },
-      update: {
+    const updatedSettings = currentSettings
+      ? await prisma.userSettings.update({
+        where: {
+          userId,
+          ...(canUseOwnApi ? { llmProvider: currentSettings.llmProvider, llmBaseUrl: currentSettings.llmBaseUrl, llmApiKeyEncrypted: currentSettings.llmApiKeyEncrypted } : {}),
+        },
+        data: {
         ...deepseekUpdate,
         ...(canUseOwnApi ? {
           defaultModelName: safeModelName,
           llmBaseUrl: safeLlmBaseUrl,
+          llmProvider: safeProvider,
         } : {}),
         ...apiKeyUpdate,
         ...(canUseOwnApi ? {
@@ -292,11 +319,13 @@ export async function PATCH(request: Request) {
         defaultEnableCharts,
         modelSource: canUseOwnApi && modelSource === 'custom' ? 'custom' : 'platform',
         defaultPlatformModelConfigId: validPlatformModel?.id || null,
-      },
-      create: {
+        },
+      })
+      : await prisma.userSettings.create({ data: {
         userId,
         ...deepseekUpdate,
         defaultModelName: canUseOwnApi ? safeModelName : (process.env.OPENAI_MODEL_DEFAULT || 'gpt-4o'),
+        llmProvider: canUseOwnApi ? safeProvider : 'openai_compatible',
         llmBaseUrl: canUseOwnApi ? safeLlmBaseUrl : (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'),
         llmApiKeyEncrypted: canUseOwnApi && trimmedApiKey ? encryptSecret(trimmedApiKey) : null,
         enableTavilySearch: canUseOwnApi ? Boolean(enableTavilySearch) : false,
@@ -311,8 +340,7 @@ export async function PATCH(request: Request) {
         modelSource: canUseOwnApi && modelSource === 'custom' ? 'custom' : 'platform',
         defaultPlatformModelConfigId: validPlatformModel?.id || null,
         rssFeedUrlsJson: canUseOwnApi && hasRssConfigUpdate ? JSON.stringify(normalizedRssFeedConfig) : '[]',
-      },
-    });
+      } });
 
     if (isSuperAdmin && hasRssConfigUpdate) {
       await prisma.appSetting.upsert({
@@ -325,6 +353,9 @@ export async function PATCH(request: Request) {
 
     return NextResponse.json({ ...withSafeModelFields(updatedSettings), canUseOwnApi });
   } catch (error: any) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && ['P2002', 'P2025'].includes(error.code)) {
+      return NextResponse.json({ error: '设置已变更，请刷新后重试。' }, { status: 409 });
+    }
     console.error('PATCH settings error:', error);
     return NextResponse.json({ error: '更新设置失败' }, { status: 500 });
   }

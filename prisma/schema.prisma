@@ -53,6 +53,7 @@ model User {
   modelUsageEvents          ModelUsageEvent[]
   serviceOperations         ServiceOperation[]
   savedArticles             SavedArticle[]
+  auditManagementRequests AuditManagementRequest[]
 }
 
 model Passkey {
@@ -122,6 +123,7 @@ model UserSettings {
   userId                       String   @unique
   user                         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   defaultModelName             String   @default("gpt-4o")
+  llmProvider                  String   @default("openai_compatible")
   llmBaseUrl                   String   @default("https://api.openai.com/v1")
   llmApiKeyEncrypted           String?
   searchProvider              String   @default("free") // free, deepseek
@@ -208,6 +210,7 @@ model AuditJob {
   lastHeartbeatAt        DateTime?
   nextAttemptAt          DateTime?
   workerId               String?
+  clientRequestId        String?
   inputJson              String
   modelSnapshotJson      String?
   creditCostCents        Int?
@@ -218,6 +221,7 @@ model AuditJob {
   updatedAt              DateTime  @updatedAt
 
   @@index([userId])
+  @@unique([userId, clientRequestId])
   @@index([status])
   @@index([status, nextAttemptAt])
   @@index([status, leaseExpiresAt])
@@ -251,10 +255,13 @@ model EmailDelivery {
   recipient    String
   subject      String
   provider     String?
-  status       String    @default("pending") // pending, sent, failed
+  status       String    @default("pending") // pending, sending, accepted, temporary_failure, failed, unknown
   attempts     Int       @default(0)
   error        String?
   metadataJson String    @default("{}")
+  providerRequestId String?
+  providerMessageId String?
+  payloadEncrypted String?
   sentAt       DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -276,6 +283,8 @@ model AppSetting {
   adminRssFeedIdsJson        String   @default("[]")
   newsSearchProvider        String   @default("free")
   newsSearchModelConfigId   String?
+  newsSearchDeepseekKeyEncrypted String?
+  newsSearchAiModelConfigId String?
   newsSearchDailyLimit      Int      @default(200)
   alipayQrImageUrl           String   @default("/alipay-qr.jpg")
   alipayPointsQrImageUrl     String   @default("/alipay-points.jpg")
@@ -634,4 +643,16 @@ model ExtensionSession {
 
   @@index([userId])
   @@index([lastUsedAt])
+}
+
+model AuditManagementRequest {
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  requestId   String
+  fingerprint String
+  changed     Int
+  createdAt   DateTime @default(now())
+
+  @@id([userId, requestId])
+  @@index([createdAt])
 }

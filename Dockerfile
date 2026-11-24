@@ -17,6 +17,7 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV APP_BIND_ADDRESS=0.0.0.0
+ENV GUANYU_BACKGROUND_WORKER=true
 
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
@@ -30,4 +31,4 @@ RUN DATABASE_URL="postgresql://guanyu:guanyu@localhost:5432/guanyu" npm ci --omi
 
 EXPOSE 3000
 USER node
-CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && node server.js"]
+CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && HOSTNAME=\"$APP_BIND_ADDRESS\" node server.js"]

@@ -126,14 +126,14 @@ export async function verifyCaptcha(challengeId: string, answer: string, ip: str
 
 export type EmailCodePurpose = 'register_email' | 'login_email' | 'password_reset' | 'access_email' | 'change_email';
 
-export async function createEmailVerificationCode(
+export async function issueEmailVerificationCode(
   email: string,
   ip: string,
   purpose: EmailCodePurpose = 'register_email'
 ) {
   const code = createNumericCode(6);
   const windowStart = new Date(Date.now() - 10 * 60 * 1000);
-  await prisma.$transaction(async (tx) => {
+  const issued = await prisma.$transaction(async (tx) => {
     const ipHash = hashForStorage(ip);
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`guanyu-${purpose}-email:${email}`}))`;
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`guanyu-${purpose}-ip:${ipHash}`}))`;
@@ -143,11 +143,24 @@ export async function createEmailVerificationCode(
     ]);
     if (emailCount >= 3) throw new Error('该邮箱验证码发送过于频繁，请稍后再试。');
     if (ipCount >= 5) throw new Error('当前网络请求验证码过于频繁，请稍后再试。');
-    await tx.verificationCode.create({
+    return tx.verificationCode.create({
+      select: { id: true },
       data: { email, codeHash: hashCode(code), purpose, expiresAt: new Date(Date.now() + 10 * 60 * 1000), ipHash },
     });
   });
-  return code;
+  return { id: issued.id, code };
+}
+
+export async function createEmailVerificationCode(email: string, ip: string, purpose?: EmailCodePurpose) {
+  return (await issueEmailVerificationCode(email, ip, purpose)).code;
+}
+
+export async function discardUnsentEmailCode(id: string, delivery: { status: string }) {
+  if (delivery.status === 'failed' || delivery.status === 'temporary_failure') {
+    if (process.env.NODE_ENV === 'production') {
+      await prisma.verificationCode.deleteMany({ where: { id, consumedAt: null } });
+    }
+  }
 }
 
 export async function verifyEmailCode(

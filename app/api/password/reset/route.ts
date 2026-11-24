@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyEmailCode } from '@/lib/captcha';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
-import { notifyPasswordChanged } from '@/lib/email';
+import { scheduleEmailDelivery, queuePasswordChanged } from '@/lib/email';
 import { assertValidPasswordInput, hashPassword } from '@/lib/password-core.mjs';
 import { prisma } from '@/lib/prisma';
 import { assertSameOrigin, assertSecureAccountTransport } from '@/lib/request-security';
@@ -48,11 +48,10 @@ export async function POST(request: NextRequest) {
         where: { userId: account.id, revokedAt: null },
         data: { revokedAt: new Date() },
       });
+      await queuePasswordChanged(tx, { userId: nextUser.id, email: nextUser.email });
       return nextUser;
     });
-    notifyPasswordChanged({ userId: updated.id, email: updated.email }).catch((error) => {
-      console.error('password reset notification failed', error);
-    });
+    scheduleEmailDelivery();
     const response = NextResponse.json({ ok: true, url: '/account' });
     await setSessionCookie(response, updated);
     return response;
