@@ -1,4 +1,5 @@
 import { headers } from 'next/headers';
+import { NextRequest } from 'next/server';
 import { notFound, redirect } from 'next/navigation';
 import Header from '@/components/Header';
 import { ButtonLink, Panel } from '@/components/ui/controls';
@@ -19,7 +20,7 @@ const deliveryStatus: Record<string, string> = {
 };
 
 export default async function MailPage() {
-  const request = new Request(process.env.NEXTAUTH_URL || 'http://localhost:3000', { headers: await headers() });
+  const request = new NextRequest(process.env.NEXTAUTH_URL || 'http://localhost:3000', { headers: await headers() });
   const user = await getCurrentUser(request);
   if (!user) redirect('/login');
   if (!await getSuperAdminStatus(user.id)) notFound();

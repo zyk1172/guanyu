@@ -1,4 +1,5 @@
 import { headers } from 'next/headers';
+import { NextRequest } from 'next/server';
 import { notFound, redirect } from 'next/navigation';
 import Header from '@/components/Header';
 import NewsSearchAdmin from '@/components/NewsSearchAdmin';
@@ -17,7 +18,7 @@ const sections = {
 export default async function AdminSectionPage({ params }: { params: Promise<{ section: string }> }) {
   const { section } = await params;
   if (section !== 'models' && section !== 'search' && section !== 'traffic') notFound();
-  const request = new Request(process.env.NEXTAUTH_URL || 'http://localhost:3000', { headers: await headers() });
+  const request = new NextRequest(process.env.NEXTAUTH_URL || 'http://localhost:3000', { headers: await headers() });
   const user = await getCurrentUser(request);
   if (!user) redirect('/login');
   if (!await getSuperAdminStatus(user.id)) notFound();
