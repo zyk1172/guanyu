@@ -114,15 +114,16 @@ test('audit PATCH and DELETE return the CSRF response before entering business e
   assert.equal((await deleteResponse.json()).code, 'CSRF_ORIGIN_MISMATCH');
 });
 
-test('online verification only trusts observed source URLs', () => {
-  const observed = [{ title: '真实来源', url: 'https://source.example/report/', snippet: 'source', provider: 'tavily' }];
+test('online verification requires an observed URL and a literal evidence excerpt', () => {
+  const observed = [{ title: '真实来源', url: 'https://source.example/report/', snippet: 'The survey covered 200 people.', provider: 'tavily' }];
   assert.equal(normalizeSourceUrl(' https://source.example/report/#fragment '), 'https://source.example/report');
   assert.equal(normalizeVerificationStatus('原文支持', true), 'source_supported');
 
   const normalized: any = normalizeOnlineVerification({ onlineVerification: {
     enabled: true,
     verifiedSources: [
-      { title: '真实来源', url: 'https://source.example/report/#fragment', verificationStatus: '已核验' },
+      { title: '真实来源', url: 'https://source.example/report/#fragment', verificationStatus: '已核验', evidenceQuote: 'The survey covered 200 people.' },
+      { title: '无法匹配的摘录', url: 'https://source.example/report', verificationStatus: '已核验', evidenceQuote: 'The survey covered 900 people.' },
       { title: '模型伪造', url: 'https://fake.example/invented', verificationStatus: '已核验' },
     ],
     backgroundSources: [],

@@ -173,6 +173,12 @@ Postgres 18 的持久化目录需要挂载到 `/var/lib/postgresql`，真实数�
 /share/SSD/container/guanyu/postgres/18/docker
 ```
 
+## 付款与订单
+
+用户登录并创建订单后，通过订单专属收银台核对套餐、金额和币种，再打开付款入口。提交付款平台流水号后，管理员在收款平台核对实际到账、金额、币种和收款账号，再确认发放点数与 Pro 权益。历史待核对订单继续使用原有管理员入口。
+
+可在部署变量中为基础点数包和专业点数包分别配置付款入口。PayPal 使用 `https://www.paypal.com/ncp/payment/<ID>`，支付宝使用 `https://qr.alipay.com/<ID>`。未配置付款链接时，收银台可按需读取随项目部署的对应收款码。渠道链接和收款码应对应实际使用的商户账号和套餐金额。
+
 ## DeepSeek 搜索 API（可选）
 
 默认仍使用免费网页搜索。[DeepSeek 官方 Search API](https://api-docs.deepseek.com/guides/search) 是独立接口，并非 DeepSeek 聊天网页的联网开关，可搭配其他厂商的模型使用。

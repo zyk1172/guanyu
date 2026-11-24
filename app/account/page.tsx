@@ -162,11 +162,9 @@ export default function AccountPage() {
   const [settingsMessage, setSettingsSettingsMessage] = useState<string | null>(null);
   const [billing, setBilling] = useState<any>(null);
   const [billingMessage, setBillingMessage] = useState<string | null>(null);
-  const [orderProgressStage, setOrderProgressStage] = useState<OrderProgressStage>('idle');
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
   const orderRequestLock = useRef(false);
-  const orderRequestIdRef = useRef<string | null>(null);
-  const [paymentNote, setPaymentNote] = useState('');
+  const orderRequest = useRef<{ selection: string; id: string } | null>(null);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
@@ -209,12 +207,6 @@ export default function AccountPage() {
   const pointsPackage = packageList?.find((item: any) => item.productId === 'STARTER');
   const advancedPackage = packageList?.find((item: any) => item.productId === 'PRO');
   const selectedPaymentPackage = selectedPackageType === 'PRO' ? advancedPackage : pointsPackage;
-  const selectedPackageLabel = selectedPackageType === 'PRO' ? t('billing.pro') : t('billing.starter');
-  const savedAlipayHint = String(billing?.alipayQrNote || '').trim();
-  const alipayPaymentHint = /买断|lifetime|待激活|pending pro/i.test(savedAlipayHint)
-    ? t('account.paymentHint')
-    : savedAlipayHint || t('account.paymentHint');
-
   // 1. 登录路由守卫
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -414,42 +406,28 @@ export default function AccountPage() {
   };
 
   const handleCreateOrder = async () => {
-    if (orderRequestLock.current) return;
+    if (orderRequestLock.current || !selectedPaymentPackage?.available) return;
     setBillingMessage(null);
-    if (!paymentNote.trim()) {
-      setOrderProgressStage('error');
-      setBillingMessage(t('order.noteRequired'));
-      return;
-    }
     orderRequestLock.current = true;
     setIsCreatingOrder(true);
-    setOrderProgressStage('submitting');
-    setBillingMessage(t('order.creatingDetail'));
-    orderRequestIdRef.current = orderRequestIdRef.current || crypto.randomUUID();
+    const selection = `${selectedPackageType}:${paymentMethod}`;
     try {
-      const res = await fetch('/api/billing/orders', {
+      if (orderRequest.current?.selection !== selection) {
+        orderRequest.current = { selection, id: crypto.randomUUID() };
+      }
+      const response = await fetch('/api/billing/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productId: selectedPackageType, paymentMethod, paymentNote, clientRequestId: orderRequestIdRef.current }),
+        body: JSON.stringify({ productId: selectedPackageType, paymentMethod, clientRequestId: orderRequest.current.id }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        setOrderProgressStage('error');
-        setBillingMessage(data.error || '创建订单失败');
+      const data = await response.json();
+      if (!response.ok) {
+        setBillingMessage(data.error || t('order.createFailed'));
         return;
       }
-      setOrderProgressStage('syncing');
-      setBillingMessage(t('order.syncingDetail'));
-      setPaymentNote('');
-      orderRequestIdRef.current = null;
-      if (selectedPaymentPackage?.paymentUrl) {
-        window.open(selectedPaymentPackage.paymentUrl, '_blank', 'noopener,noreferrer');
-      }
-      await fetchBilling();
-      setOrderProgressStage('success');
-      setBillingMessage(t('order.createdDetail', undefined, { id: data.id }));
+      orderRequest.current = null;
+      router.push(`/checkout/${encodeURIComponent(data.id)}`);
     } catch {
-      setOrderProgressStage('error');
       setBillingMessage(t('order.createFailed'));
     } finally {
       orderRequestLock.current = false;
@@ -1352,62 +1330,14 @@ export default function AccountPage() {
                     <span className="text-xxs font-bold text-[var(--color-text-muted)]">{t('account.paymentAmount')}</span>
                     <span className="text-sm font-bold text-[var(--color-primary)]">{selectedPaymentPackage ? `${selectedPaymentPackage.currency === 'USD' ? '$' : '¥'}${(selectedPaymentPackage.amountCents / 100).toFixed(2)}` : '-'}</span>
                   </div>
-                  <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('account.payExactAmount')}</p>
+                  <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{language.startsWith('zh') ? '请在收银台复核应付金额与所选付款方式。' : 'Review the amount and payment method in checkout.'}</p>
                 </div>
                 <div className="mt-3 rounded-lg bg-[var(--color-surface-muted)] px-2.5 py-2 text-xxs font-semibold text-[var(--color-text)]">{t('billing.oneTime')}</div>
-                <div className="mt-4 flex justify-center">
-                  {(paymentMethod === 'paypal_qr' ? billing?.paypalQrImageUrl : billing?.alipayQrImageUrl) ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={paymentMethod === 'paypal_qr' ? billing?.paypalQrImageUrl : billing?.alipayQrImageUrl}
-                      alt={paymentMethod === 'paypal_qr' ? t('account.paypalQr') : t('account.alipayQr')}
-                      className="h-56 w-56 rounded-xl border bg-[var(--color-surface)] p-2 object-contain shadow-sm"
-                   />
-                  ) : (
-                    <div className="flex h-56 w-56 items-center justify-center rounded-xl border bg-[var(--color-surface-muted)] text-center text-xs font-bold text-[var(--color-text-subtle)]">
-                      {t('account.paymentPlaceholder')}
-                    </div>
-                  )}
-                </div>
-                <p className="mt-2 text-xxs text-[var(--color-text-subtle)]">{paymentMethod === 'paypal_qr' ? t('account.paypalPaymentHint') : alipayPaymentHint}</p>
-                <Input
-                  value={paymentNote}
-                  onChange={(e) => setPaymentNote(e.target.value)}
-                  aria-label={t('account.paymentNote')}
-                  placeholder={t('account.paymentNote')}
-                  className="mt-3 w-full"
-               />
-                <Button variant="primary"
-                  type="button"
-                  onClick={handleCreateOrder}
-                  disabled={isCreatingOrder}
-                  className="order-action-button relative mt-2 w-full overflow-hidden"
-               >
-                  {isCreatingOrder ? (
-                    <>
-                      <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
-                      {orderProgressStage === 'syncing' ? t('order.syncingButton') : t('order.creatingButton')}
-                    </>
-                  ) : (
-                    <>
-                      <MailCheck className="h-4 w-4" aria-hidden="true" />
-                      {t('account.createOrder', undefined, { package: selectedPackageLabel })}
-                    </>
-                  )}
+                <Button variant="primary" onClick={handleCreateOrder} busy={isCreatingOrder} disabled={!selectedPaymentPackage?.available} className="mt-3 w-full">
+                  {isCreatingOrder ? t('order.creatingButton') : language.startsWith('zh') ? '前往安全收银台' : 'Go to secure checkout'}
                 </Button>
-                <OrderProgress
-                  stage={orderProgressStage}
-                  title={
-                    orderProgressStage === 'submitting'
-                      ? t('order.creatingTitle')
-                      : orderProgressStage === 'syncing'
-                        ? t('order.syncingTitle')
-                        : orderProgressStage === 'success'
-                          ? t('order.createdTitle')
-                          : t('order.failedTitle')
-                  }
-                  detail={billingMessage || ''}
-               />
+                {selectedPaymentPackage && !selectedPaymentPackage.available && <p role="status" className="mt-2 text-sm text-[var(--color-text-muted)]">{language.startsWith('zh') ? '此付款方式暂不可用，请选择其他方式。' : 'This payment method is unavailable. Choose another method.'}</p>}
+                {billingMessage && <p role="alert" className="mt-2 text-sm text-[var(--color-danger)]">{billingMessage}</p>}
               </div>
             </Panel>
               </>
@@ -1432,6 +1362,7 @@ export default function AccountPage() {
                   }
                   detail={adminOrderMessage || ''}
                />
+                <p className="text-sm text-[var(--color-text-muted)]">请在收款平台核对流水号、实际到账金额、币种和收款账号，再确认发放权益。</p>
                 {adminBilling.pendingOrders?.length ? (
                   adminBilling.pendingOrders.map((order: any) => (
                     <Panel as="div" key={order.id} className="text-xs transition-colors duration-150">

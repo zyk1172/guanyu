@@ -2,7 +2,7 @@
 
 import { useConfirmation } from '@/components/ui/ConfirmationProvider';
 
-import { Button } from '@/components/ui/controls';
+import { Button, ButtonLink } from '@/components/ui/controls';
 import { formatOrderStatus } from '@/lib/account-display';
 import { useCallback, useEffect, useState } from 'react';
 import { useUiLanguage } from './LanguageProvider';
@@ -33,7 +33,7 @@ export default function OrderHistory({ refreshKey = '' }: { refreshKey?: string 
   };
   return <section aria-label={zh ? '我的订单' : 'My orders'} className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
     <div className="flex items-center justify-between gap-3"><h3 className="ui-panel-title">{zh ? '我的订单' : 'My orders'}</h3><Button variant="ghost" type="button" disabled={loading || !!busy} onClick={() => void load()}>{loading ? (zh ? '加载中…' : 'Loading…') : (zh ? '刷新状态' : 'Refresh status')}</Button></div>
-    <p className="mt-2 text-xs leading-relaxed text-[var(--color-text-muted)]">{zh ? '扫码转账需要人工核对。以“点数已到账”和到账时间为准；取消申请不会自动退款。' : 'QR transfers require manual review. Credits are available after fulfillment. Cancelling a request does not automatically refund payment.'}</p>
+    <p className="mt-2 text-xs leading-relaxed text-[var(--color-text-muted)]">{zh ? '付款后由管理员核对。点数以到账状态及到账时间为准。' : 'Payments are verified manually. Check the fulfillment status and time for credit delivery.'}</p>
     {error && <p role="alert" className="mt-2 text-xs text-[var(--color-danger)]">{error}</p>}
     {!loading && !orders.length && !error && <p className="mt-3 text-xs">{zh ? '暂无订单。' : 'No orders yet.'}</p>}
     <div className="mt-3 space-y-3">{orders.map((order) => <article key={order.id} className="rounded-lg border border-[var(--color-border)] p-3 text-xs">
@@ -41,7 +41,10 @@ export default function OrderHistory({ refreshKey = '' }: { refreshKey?: string 
       <p className="mt-2 break-all text-[var(--color-text-muted)]">{zh ? '订单' : 'Order'}: {order.id} · {order.currency} {(order.amountCents / 100).toFixed(2)}</p>
       <p className="mt-1 text-[var(--color-text-muted)]">{new Date(order.createdAt).toLocaleString(language)}</p>
       {(order.fulfilledAt || order.confirmedAt) && ['FULFILLED', 'confirmed'].includes(order.status) && <p className="mt-1 font-bold">{zh ? '到账时间' : 'Fulfilled at'}: {new Date(order.fulfilledAt || order.confirmedAt!).toLocaleString(language)}</p>}
-      {['PENDING', 'pending'].includes(order.status) && <Button variant="secondary" type="button" disabled={!!busy} onClick={() => void cancel(order.id)} className="mt-2">{busy === order.id ? (zh ? '处理中…' : 'Processing…') : (zh ? '取消待确认申请' : 'Cancel pending request')}</Button>}
+      <div className="mt-2 flex flex-wrap gap-2">
+        {['CHECKOUT_PENDING', 'PAYMENT_SUBMITTED'].includes(order.status) && <ButtonLink href={`/checkout/${encodeURIComponent(order.id)}`}>{order.status === 'CHECKOUT_PENDING' ? (zh ? '继续付款' : 'Continue checkout') : (zh ? '查看订单' : 'View order')}</ButtonLink>}
+        {['CHECKOUT_PENDING', 'PENDING', 'pending'].includes(order.status) && <Button disabled={!!busy} onClick={() => void cancel(order.id)}>{busy === order.id ? (zh ? '处理中…' : 'Processing…') : (zh ? '取消订单' : 'Cancel order')}</Button>}
+      </div>
     </article>)}</div>
   </section>;
 }
