@@ -2,7 +2,7 @@
 
 import { useConfirmation } from '@/components/ui/ConfirmationProvider';
 
-import AdminBackLink from '@/components/AdminBackLink';
+import { AdminSectionHeader } from '@/components/AdminSectionFrame';
 import Header from '@/components/Header';
 import { useUiLanguage } from '@/components/LanguageProvider';
 import { Button, ButtonLink, Input, Panel, Select } from '@/components/ui/controls';
@@ -119,13 +119,14 @@ export default function AuditManagementList({ scope, initialSearch }: { scope: '
     <main className="workspace-page pb-12">
       <Header />
 
-      <div id="main-content" tabIndex={-1} className="workspace-container workspace-content space-y-6">
-        {scope === 'site' && <AdminBackLink />}
-        <p className="text-sm text-[var(--color-text-muted)]">{relatedCoverageCopy(language).listHint}</p>
-        <div>
-          <h1 className="ui-page-title">{scope === 'own' ? t('myAudits.title') : zh ? '全站报告管理' : 'Site reports'}</h1>
-          <p className="text-xs text-[var(--color-text-muted)]">{t('myAudits.description')}</p>
-        </div>
+      <div id="main-content" tabIndex={-1} className={`workspace-container workspace-content ${scope === 'site' ? 'space-y-4' : 'space-y-6'}`}>
+        {scope === 'site' ? <AdminSectionHeader section="audits" /> : (
+          <div>
+            <h1 className="ui-page-title">{t('myAudits.title')}</h1>
+            <p className="text-xs text-[var(--color-text-muted)]">{t('myAudits.description')}</p>
+            <p className="mt-2 text-sm text-[var(--color-text-muted)]">{relatedCoverageCopy(language).listHint}</p>
+          </div>
+        )}
 
         {/* 紧凑型筛选工具栏 */}
         <Panel as="div" className="space-y-3">

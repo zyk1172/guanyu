@@ -204,7 +204,7 @@ export default function PlatformModelAdmin() {
   return (
     <Panel className="settings-form">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--color-border)] pb-3">
-        <div><h3 className="ui-panel-title text-[var(--color-text)]">{t('platformAdmin.title', '平台模型管理')}</h3><p className="mt-1 text-xs text-[var(--color-text-muted)]">{t('platformAdmin.description', '集中配置用户可选模型、联网方式、思考强度、点数倍率及成本统计。')}</p></div>
+        <p className="text-sm text-[var(--color-text-muted)]">{t('platformAdmin.description', '集中配置用户可选模型、联网方式、思考强度、点数倍率及成本统计。')}</p>
         <Button variant="primary" type="button" onClick={() => { setDraft(EMPTY); setExpanded(true); }}>{t('platformAdmin.add', '新增模型')}</Button>
       </div>
 

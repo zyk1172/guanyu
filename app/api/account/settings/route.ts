@@ -7,7 +7,7 @@ import { assertPersonalModelEndpoint, normalizeModelBaseUrl, personalModelProvid
 import { Prisma } from '@/lib/generated/prisma/client';
 import { getOrCreateAppSetting, hasActivePro } from '@/lib/billing';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
-import { getEffectiveRssSourceConfig, getRssSourceCatalog, normalizeRssSourceConfig } from '@/lib/rss-core.mjs';
+import { DEFAULT_RSS_FEED_IDS, getEffectiveRssSourceConfig, getRssSourceCatalog, normalizeRssSourceConfig } from '@/lib/rss-core.mjs';
 import { assertPublicOutboundUrl } from '@/lib/safe-outbound';
 import { cacheDel, CACHE_KEYS } from '@/lib/cache';
 import { sameOriginResponse } from '@/lib/request-security';
@@ -77,7 +77,10 @@ export async function GET(request: Request) {
     }
 
     const canUseOwnApi = isSuperAdmin || hasActivePro(account);
-    const rssSourceCatalog = getRssSourceCatalog();
+    const rssSourceCatalog = getRssSourceCatalog().map(source => ({
+      ...source,
+      recommended: DEFAULT_RSS_FEED_IDS.includes(source.id),
+    }));
 
     if (!settings) {
       // 预防性创建：如果用户不小心丢了配置

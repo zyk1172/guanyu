@@ -27,6 +27,7 @@ export function homeNewsPayload(snapshot: Snapshot, sources: RssSource[], langua
     const sourceId = customIds.get(headline.sourceId);
     return sourceId ? { ...headline, id: `${sourceId}:${headline.url}`, sourceId } : headline;
   });
+  const headlineOnly = new Set(sources.filter(source => source.headlineOnly).map(source => source.id));
   const now = Date.now();
   const sourceHeadlines: Record<string, HomeHeadline[]> = Object.fromEntries(
     sources.map(({ id }) => [customIds.get(id) ?? id, []]),
@@ -43,7 +44,7 @@ export function homeNewsPayload(snapshot: Snapshot, sources: RssSource[], langua
     return {
       ...headline,
       publishedAt: Number.isFinite(published) && published <= now + 300_000 ? headline.publishedAt : '',
-      imageHref: newsImageHref(headline.url, headline.imageUrl),
+      imageHref: headlineOnly.has(headline.sourceId) ? undefined : newsImageHref(headline.url, headline.imageUrl),
     };
   }
 
