@@ -1,3 +1,4 @@
+import { AppError } from '@/lib/app-error';
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { getSuperAdminStatus } from '@/lib/admin';
@@ -148,6 +149,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       }
       claimedAttempt = serviceOperation;
     } catch (error) {
+      if (error instanceof AppError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
       return NextResponse.json({ error: error instanceof Error ? error.message : '当前点数不足。' }, { status: 402 });
     }
 

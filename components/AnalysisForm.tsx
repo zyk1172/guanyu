@@ -1,5 +1,6 @@
 'use client';
 
+import type { AnalysisQuote } from '@/lib/analysis-quote';
 import { Button, Input, Textarea } from '@/components/ui/controls';
 import Dialog from '@/components/ui/Dialog';
 import { ANALYSIS_DRAFT_KEY, decodeAnalysisDraft, encodeAnalysisDraft } from '@/lib/analysis-draft';
@@ -24,8 +25,10 @@ interface AnalysisFormProps {
     mode: AnalysisMode;
     reportLanguage: ReportLanguage;
     sourceUrl?: string;
+    quote: AnalysisQuote;
   }) => Promise<void> | void;
   isLoading: boolean;
+  quoteRefresh?: number;
   articleUrl?: { url: string; selectedAt: number };
 }
 
@@ -61,7 +64,7 @@ function explainParseFailure(code: string) {
   }
 }
 
-export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: AnalysisFormProps) {
+export default function AnalysisForm({ onSubmit, isLoading, quoteRefresh = 0, articleUrl }: AnalysisFormProps) {
   const { status } = useSession();
   const router = useRouter();
   const { language, t } = useUiLanguage();
@@ -82,7 +85,7 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
   const [parseFailure, setParseFailure] = useState<ParseFailure | null>(null);
   const [parseTrigger, setParseTrigger] = useState<HTMLElement | null>(null);
   const [canAnalyze, setCanAnalyze] = useState(false);
-  const [analysisCostCents, setAnalysisCostCents] = useState<number | null>(null);
+  const [analysisQuote, setAnalysisQuote] = useState<AnalysisQuote | null>(null);
   const parseController = useRef<AbortController | null>(null);
   const parseNumber = useRef(0);
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
@@ -105,6 +108,13 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
     setManualOpen(true);setUrlInput(articleUrl.url); setInputMode('url'); setSelectedNews(null); setParseFailure(null);
   }, [articleUrl]);
 
+  useEffect(() => {
+    if (!quoteRefresh) return;
+    setManualOpen(true);
+    setAnalysisQuote(null);
+    setCanAnalyze(false);
+  }, [quoteRefresh]);
+
   const signInWithDraft = () => {
     try {
       window.sessionStorage.setItem(ANALYSIS_DRAFT_KEY, encodeAnalysisDraft({ title, source, content, focus, urlInput, parsedSourceUrl, inputMode: inputMode === 'url' ? 'url' : 'text' }));
@@ -115,7 +125,7 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
     } catch { setDraftNotice('storageError'); }
   };
 
-  const handleParseUrl = async (selectedUrl?: string, selectedArticle?: NewsArticle) => {
+  const handleParseUrl = async (selectedUrl?: string, selectedArticle?: NewsArticle, confirmedQuote?: AnalysisQuote) => {
     const trimmed = (selectedUrl ?? urlInput).trim();
     if (!trimmed) return;
     if (!parseFailure) setParseTrigger(document.activeElement instanceof HTMLElement ? document.activeElement : null);
@@ -163,8 +173,11 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
       setContent(data.content);
       setParsedSourceUrl(parsedUrl);
       if (selectedArticle?.provider === 'rss') {
-        // Use this response directly, never a previous article or the user's draft.
-        await onSubmit({ title: parsedTitle, source: parsedSource, content: data.content, focus, mode, reportLanguage, sourceUrl: parsedUrl });
+        if (confirmedQuote) {
+          await onSubmit({ title: parsedTitle, source: parsedSource, content: data.content, focus, mode, reportLanguage, sourceUrl: parsedUrl, quote: confirmedQuote });
+        } else {
+          setManualOpen(true);
+        }
       }
       if (!selectedUrl) requestAnimationFrame(() => contentRef.current?.focus());
     } catch {
@@ -178,12 +191,13 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
 
   useEffect(() => () => { parseController.current?.abort(); }, []);
 
-  const handleNewsSelect = async (article: NewsArticle) => {
+  const handleNewsSelect = async (article: NewsArticle, confirmedQuote?: AnalysisQuote) => {
     if (isLoading || parseController.current) return;
-    if(article.provider!=='rss')setManualOpen(true);
+    const needsConfirmation = article.provider !== 'rss' || !confirmedQuote;
+    if (needsConfirmation && status === 'authenticated') setManualOpen(true);
     setSelectedNews(article);
     setUrlInput(article.url); setInputMode('url'); setParseFailure(null);
-    if(article.provider!=='rss')requestAnimationFrame(()=>document.getElementById('analysis')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' }));
+    if (needsConfirmation && status === 'authenticated') requestAnimationFrame(()=>document.getElementById('analysis')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' }));
     if (status !== 'authenticated') {
       try {
         sessionStorage.setItem(ANALYSIS_DRAFT_KEY, encodeAnalysisDraft({ title, source, content, focus, urlInput: article.url, parsedSourceUrl, inputMode: 'url' }));
@@ -191,7 +205,7 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
       } catch { setDraftNotice('storageError'); }
       return;
     }
-    await handleParseUrl(article.url, article);
+    await handleParseUrl(article.url, article, confirmedQuote);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -205,8 +219,9 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
     e.preventDefault();
     if (!content.trim() || content.trim().length < 50) return;
     if (status !== 'authenticated') { signInWithDraft(); return; }
+    if (!analysisQuote || !canAnalyze) return;
     try { window.sessionStorage.removeItem(ANALYSIS_DRAFT_KEY); } catch {}
-    onSubmit({ title, source, content, focus, mode, reportLanguage, ...(parsedSourceUrl ? { sourceUrl: parsedSourceUrl } : {}) });
+    onSubmit({ title, source, content, focus, mode, reportLanguage, quote: analysisQuote, ...(parsedSourceUrl ? { sourceUrl: parsedSourceUrl } : {}) });
   };
 
   const isFormValid = content.trim().length >= 50;
@@ -223,7 +238,7 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
 
   return (
     <>
-    <NewsSearch onSelect={handleNewsSelect} busy={isLoading||isParsing} canAnalyze={canAnalyze} analysisCostCents={analysisCostCents} onOpenManual={()=>{setManualOpen(true);requestAnimationFrame(()=>{contentRef.current?.scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});contentRef.current?.focus({preventScroll:true})})}}/>
+    <NewsSearch onSelect={handleNewsSelect} busy={isLoading||isParsing} canAnalyze={canAnalyze} analysisQuote={analysisQuote} onOpenManual={()=>{setManualOpen(true);requestAnimationFrame(()=>{contentRef.current?.scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});contentRef.current?.focus({preventScroll:true})})}}/>
     <details id="analysis" className="news-analysis-disclosure scroll-mt-24" open={manualOpen} onToggle={event=>setManualOpen(event.currentTarget.open)}><summary>{language.startsWith('zh')?'分析一篇报道':'Analyze an article'}<ChevronDown size={18} strokeWidth={1.75} aria-hidden="true"/></summary>
     <div className="news-analysis-panel">
       {draftNotice && <p role="status" className="mb-4 rounded-lg bg-[var(--color-primary-soft)] p-3 text-sm">{c[draftNotice]}</p>}
@@ -251,8 +266,8 @@ export default function AnalysisForm({ onSubmit, isLoading, articleUrl }: Analys
             <div><label htmlFor="focus" className="ui-label ui-field-label">{t('form.focusLabel')}</label><Input id="focus" value={focus} onChange={(e) => setFocus(e.target.value)} maxLength={2000} placeholder={t('form.focusPlaceholder')} /></div>
           </div>
         </details>
-        <TaskBudget compact onAvailabilityChange={setCanAnalyze} onAnalysisCostChange={setAnalysisCostCents} />
-        <Button variant="primary" type="submit" disabled={isLoading || isParsing || status === 'loading' || !isFormValid || (status === 'authenticated' && !canAnalyze)} className="w-full">{isLoading ? t('form.analyzing') : status === 'authenticated' ? t('form.start') : c.continue}</Button>
+        <TaskBudget compact refresh={quoteRefresh} onAvailabilityChange={setCanAnalyze} onAnalysisQuoteChange={setAnalysisQuote} />
+        <Button variant="primary" type="submit" disabled={isLoading || isParsing || status === 'loading' || !isFormValid || (status === 'authenticated' && (!canAnalyze || !analysisQuote))} className="w-full">{isLoading ? t('form.analyzing') : status === 'authenticated' ? t('form.start') : c.continue}</Button>
       </form>
 
     </div>

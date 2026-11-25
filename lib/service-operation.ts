@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import type { Prisma, ServiceOperation } from '@/lib/generated/prisma/client';
+import { AppError } from '@/lib/app-error';
 import { prisma } from '@/lib/prisma';
 import { changeBalance, type BillingModelSnapshot } from '@/lib/billing';
 
@@ -50,6 +51,12 @@ export type BeginServiceOperationParams = {
 
 export async function beginServiceOperation(params: BeginServiceOperationParams) {
   return prisma.$transaction(async (tx) => {
+    if (params.auditId) {
+      const audits = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "Audit" WHERE "id" = ${params.auditId} FOR KEY SHARE
+      `;
+      if (!audits.length) throw new AppError('AUDIT_NOT_FOUND', '目标报告已删除或不存在。', 404);
+    }
     const lockKey = `guanyu-service-operation:${params.userId}:${params.idempotencyKey}`;
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
 
@@ -93,7 +100,7 @@ export async function beginServiceOperation(params: BeginServiceOperationParams)
       operation: params.operation,
       currentAttempt,
       reservedCredits: params.reservedCredits,
-      resultId: null,
+      resultId: params.auditId ?? null,
       resultHash: null,
       resultJson: null,
       errorCode: null,

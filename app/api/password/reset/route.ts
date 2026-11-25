@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyEmailCode } from '@/lib/captcha';
+import { verifyEmailCodeTx } from '@/lib/captcha';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { scheduleEmailDelivery, queuePasswordChanged } from '@/lib/email';
 import { assertValidPasswordInput, hashPassword } from '@/lib/password-core.mjs';
@@ -28,15 +28,12 @@ export async function POST(request: NextRequest) {
     if (password !== confirmPassword) {
       return NextResponse.json({ error: '两次输入的密码不一致。' }, { status: 400 });
     }
-    const account = await prisma.user.findUnique({ where: { email } });
-    if (!account || account.isBanned) {
-      return NextResponse.json({ error: '验证码错误、已过期，或账号暂不可用。' }, { status: 400 });
-    }
-    const verified = await verifyEmailCode(email, code, 'password_reset');
-    if (!verified) {
-      return NextResponse.json({ error: '验证码错误、已过期，或已被使用。' }, { status: 400 });
-    }
     const updated = await prisma.$transaction(async (tx) => {
+      const [account] = await tx.$queryRaw<Array<{ id: string; isBanned: boolean }>>`
+        SELECT "id", "isBanned" FROM "User" WHERE "email" = ${email} FOR UPDATE
+      `;
+      if (!account || account.isBanned || !await verifyEmailCodeTx(tx, email, code, 'password_reset')) return null;
+
       const nextUser = await tx.user.update({
         where: { id: account.id },
         data: {
@@ -51,6 +48,7 @@ export async function POST(request: NextRequest) {
       await queuePasswordChanged(tx, { userId: nextUser.id, email: nextUser.email });
       return nextUser;
     });
+    if (!updated) return NextResponse.json({ error: '验证码错误、已过期，或账号暂不可用。' }, { status: 400 });
     scheduleEmailDelivery();
     const response = NextResponse.json({ ok: true, url: '/account' });
     await setSessionCookie(response, updated);

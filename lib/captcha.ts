@@ -163,6 +163,21 @@ export async function discardUnsentEmailCode(id: string, delivery: { status: str
   }
 }
 
+export async function sendLegacyVerificationCode(
+  email: string,
+  ip: string,
+  purpose: EmailCodePurpose,
+  send: (email: string, code: string) => Promise<{ status: string }>,
+) {
+  try {
+    const { id, code } = await issueEmailVerificationCode(email, ip, purpose);
+    await discardUnsentEmailCode(id, await send(email, code));
+  } catch {
+    // Account-specific issuance and mail failures must preserve the generic response.
+    console.warn('[legacy-email-code] issuance or delivery unavailable', purpose);
+  }
+}
+
 export async function verifyEmailCode(
   email: string,
   code: string,

@@ -17,9 +17,9 @@ function NewsPhoto({ src }: { src?: string }) {
   const [failed,setFailed]=useState(false);
   return src && !failed ? <Image className="news-card-photo" src={src} width={640} height={360} alt="" unoptimized loading="lazy" onError={()=>setFailed(true)} /> : null;
 }
-function NewsDetail({ story, close, analyze, disabled, active, cost, asOf }: {
+function NewsDetail({ story, close, analyze, disabled, active, cost, asOf, signedIn }: {
   story: HomeNewsStory; close: () => void; analyze: () => void;
-  disabled: boolean; active: boolean; cost: number | null; asOf: string;
+  disabled: boolean; active: boolean; cost: number | null; asOf: string; signedIn: boolean;
 }) {
   const { language } = useUiLanguage();
   const zh = language.startsWith('zh');
@@ -48,8 +48,8 @@ function NewsDetail({ story, close, analyze, disabled, active, cost, asOf }: {
       <div className="flex flex-wrap items-center gap-2">
         <ButtonLink href={headline.url} target="_blank" rel="noopener noreferrer">{zh ? '查看原文' : 'Open original'}</ButtonLink>
         <Button variant="primary" disabled={disabled} busy={active} onClick={analyze}>
-          {active ? (zh ? '分析中…' : 'Analyzing…') : (zh ? '确认分析' : 'Confirm analysis')}
-          {cost !== null && !active ? ` · ${formatCreditCents(cost)} ${zh ? '点' : 'credits'}` : ''}
+          {active ? (zh ? '分析中…' : 'Analyzing…') : (signedIn ? (zh ? '确认分析' : 'Confirm analysis') : (zh ? '登录后继续' : 'Sign in to continue'))}
+          {signedIn && cost !== null && !active ? ` · ${formatCreditCents(cost)} ${zh ? '点' : 'credits'}` : ''}
         </Button>
       </div>
     </div>
@@ -218,7 +218,7 @@ function NewsFeed({ onSelect, busy, canAnalyze, cost, identity, signedIn }: Feed
           </Button>
         </article>)}
       </div>
-      {selected && <NewsDetail story={selected} asOf={data?.fetchedAt || ''} cost={cost}
+      {selected && <NewsDetail story={selected} asOf={data?.fetchedAt || ''} cost={cost} signedIn={signedIn}
         close={() => setSelected(null)} active={active === selected.id}
         disabled={busy || !!active || !identity || (signedIn && !canAnalyze)}
         analyze={() => {

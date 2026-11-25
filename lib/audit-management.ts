@@ -69,6 +69,70 @@ export async function listManagedAudits(request: Request, scope: AuditManagement
   };
 }
 
+type AuditVisibility = { isPublic?: boolean; indexable?: boolean; isSourcePublic?: boolean };
+
+function visibilityUpdate(wasPublic: boolean, patch: AuditVisibility) {
+  if (patch.isPublic === false) {
+    return { isPublic: false, indexable: false, isSourcePublic: false, isCompletionPublic: false };
+  }
+  const isPublic = patch.isPublic ?? wasPublic;
+  const becomingPublic = isPublic && !wasPublic;
+  return {
+    ...(patch.isPublic !== undefined ? { isPublic } : {}),
+    ...(patch.indexable !== undefined || becomingPublic ? { indexable: isPublic && patch.indexable === true } : {}),
+    ...(patch.isSourcePublic !== undefined || becomingPublic ? { isSourcePublic: isPublic && patch.isSourcePublic === true } : {}),
+    ...(becomingPublic ? { isCompletionPublic: false } : {}),
+  };
+}
+
+async function lockAuditRows(tx: Prisma.TransactionClient, ids: string[], owner: string | null) {
+  return tx.$queryRaw<Array<{ id: string; userId: string; isPublic: boolean }>>`
+    SELECT "id", "userId", "isPublic" FROM "Audit" WHERE "id" = ANY(${ids}::text[])
+    AND (${owner}::text IS NULL OR "userId" = ${owner})
+    ORDER BY "id" FOR UPDATE
+  `;
+}
+
+async function requireLockedAudit(tx: Prisma.TransactionClient, id: string, userId: string, isSuperAdmin: boolean) {
+  const [audit] = await lockAuditRows(tx, [id], null);
+  if (!audit) throw new AccessError('记录不存在', 404);
+  if (audit.userId !== userId && !isSuperAdmin) throw new AccessError('你没有权限管理他人的审视记录。', 403);
+  return audit;
+}
+
+async function deleteLockedAudits(tx: Prisma.TransactionClient, ids: string[]) {
+  const active = await tx.serviceOperation.findFirst({
+    where: {
+      status: 'RUNNING',
+      expiresAt: { gt: new Date() },
+      OR: [
+        { resultId: { in: ids } },
+        // Older claims did not record their report ID until the worker started.
+        ...ids.flatMap(id => ['completion', 'followup', 'related-coverage:v1'].map(scope => ({
+          idempotencyKey: { startsWith: `${scope}:${id}:` },
+        }))),
+      ],
+    },
+    select: { id: true },
+  });
+  if (active) throw new AccessError('选中的报告仍有操作进行中，请稍后再试。', 409);
+  return (await tx.audit.deleteMany({ where: { id: { in: ids } } })).count;
+}
+
+export async function updateAuditVisibility(id: string, userId: string, isSuperAdmin: boolean, patch: AuditVisibility) {
+  return prisma.$transaction(async tx => {
+    const audit = await requireLockedAudit(tx, id, userId, isSuperAdmin);
+    return tx.audit.update({ where: { id }, data: visibilityUpdate(audit.isPublic, patch) });
+  });
+}
+
+export async function deleteManagedAudit(id: string, userId: string, isSuperAdmin: boolean) {
+  return prisma.$transaction(async tx => {
+    await requireLockedAudit(tx, id, userId, isSuperAdmin);
+    return deleteLockedAudits(tx, [id]);
+  });
+}
+
 export async function applyAuditBatch(userId: string, input: z.infer<typeof batchSchema>) {
   const ids = [...new Set(input.ids)].sort();
   const fingerprint = createHash('sha256').update(JSON.stringify([input.scope, input.action, ids])).digest('hex');
@@ -83,32 +147,15 @@ export async function applyAuditBatch(userId: string, input: z.infer<typeof batc
       return { changed: prior.changed };
     }
 
-    const owner = input.scope === 'own' ? userId : null;
-    const rows = await tx.$queryRaw<Array<{ id: string }>>`
-      SELECT "id" FROM "Audit" WHERE "id" = ANY(${ids}::text[])
-      AND (${owner}::text IS NULL OR "userId" = ${owner})
-      ORDER BY "id" FOR UPDATE
-    `;
+    const rows = await lockAuditRows(tx, ids, input.scope === 'own' ? userId : null);
     if (rows.length !== ids.length) throw new AccessError('部分报告不存在或不可管理。', 404);
-    const where = { id: { in: ids } };
-    let changed: number;
-    if (input.action === 'delete') {
-      const active = await tx.serviceOperation.findFirst({
-        where: {
-          status: 'RUNNING', expiresAt: { gt: new Date() },
-          OR: ids.flatMap(id => ['completion', 'followup'].map(scope => ({ idempotencyKey: { startsWith: `${scope}:${id}:` } }))),
-        },
-        select: { id: true },
-      });
-      if (active) throw new AccessError('选中的报告仍有操作进行中，请稍后再试。', 409);
-      changed = (await tx.audit.deleteMany({ where })).count;
-    } else {
-      const isPublic = input.action === 'publish';
-      changed = (await tx.audit.updateMany({
-        where: { ...where, isPublic: !isPublic },
-        data: { isPublic, indexable: false, isSourcePublic: false, isCompletionPublic: false },
+    const isPublic = input.action === 'publish';
+    const changed = input.action === 'delete'
+      ? await deleteLockedAudits(tx, ids)
+      : (await tx.audit.updateMany({
+        where: { id: { in: ids }, isPublic: !isPublic },
+        data: visibilityUpdate(!isPublic, { isPublic }),
       })).count;
-    }
     await tx.auditManagementRequest.create({ data: { userId, requestId: input.requestId, fingerprint, changed } });
     return { changed };
   });

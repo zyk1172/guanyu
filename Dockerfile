@@ -26,9 +26,10 @@ COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.ts ./
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/next.config.ts ./
+COPY --from=builder /app/scripts/check-deployment-env.mjs ./scripts/check-deployment-env.mjs
 
 RUN DATABASE_URL="postgresql://guanyu:guanyu@localhost:5432/guanyu" npm ci --omit=dev --legacy-peer-deps && mkdir -p /app/data && chown -R node:node /app
 
 EXPOSE 3000
 USER node
-CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && HOSTNAME=\"$APP_BIND_ADDRESS\" node server.js"]
+CMD ["sh", "-c", "node scripts/check-deployment-env.mjs && ./node_modules/.bin/prisma migrate deploy && HOSTNAME=\"$APP_BIND_ADDRESS\" exec node server.js"]

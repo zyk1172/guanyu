@@ -1,3 +1,5 @@
+import { platformAnalysisVersion, type AnalysisQuote } from '@/lib/analysis-quote';
+import { AppError } from '@/lib/app-error';
 import { personalModelFingerprint } from '@/lib/model-config';
 import { randomUUID } from 'crypto';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
@@ -50,7 +52,7 @@ export function normalizeAnalyzeJobInput(input: Partial<AnalyzeJobInput>) {
   };
 }
 
-export async function createAnalyzeJob(userId: string, input: Partial<AnalyzeJobInput>, requestId?: unknown) {
+export async function createAnalyzeJob(userId: string, input: Partial<AnalyzeJobInput>, requestId?: unknown, confirmedQuote?: AnalysisQuote | null) {
   await ensureRuntimeSchema();
   const normalizedInput = normalizeAnalyzeJobInput(input);
   assertArticleText(normalizedInput.content, normalizedInput.title);
@@ -61,6 +63,9 @@ export async function createAnalyzeJob(userId: string, input: Partial<AnalyzeJob
     const existing = await prisma.auditJob.findUnique({ where: requestKey });
     if (existing) return existing;
   }
+  if (confirmedQuote === null) {
+    throw new AppError('ANALYSIS_QUOTE_CHANGED', '请先确认当前分析费用，再提交审视任务。', 409);
+  }
   const admission = await reserveAnalyzeJobAdmission(userId);
   try {
     const settings = await prisma.userSettings.findUnique({
@@ -70,27 +75,39 @@ export async function createAnalyzeJob(userId: string, input: Partial<AnalyzeJob
     const usageSource = await getUsageSource(userId, settings?.modelSource || 'platform');
     let snapshotJson: string | null = null;
     let creditCostCents = 0;
+    let modelVersion: string | undefined;
+    let platformSnapshot: ReturnType<typeof platformModelSnapshot> | undefined;
     if (usageSource === 'platform') {
       const selectedModel = await resolvePlatformModel({
         userDefaultId: settings?.defaultPlatformModelConfigId,
         operation: 'analysis',
       });
-      const snapshot = platformModelSnapshot(selectedModel);
-      creditCostCents = operationCostCents('analysis', snapshot.multiplierBps);
-      snapshotJson = encodePlatformModelSnapshot(snapshot);
+      platformSnapshot = platformModelSnapshot(selectedModel);
+      creditCostCents = operationCostCents('analysis', platformSnapshot.multiplierBps);
+      snapshotJson = encodePlatformModelSnapshot(platformSnapshot);
+      modelVersion = platformAnalysisVersion(platformSnapshot);
+    } else if (settings) {
+      modelVersion = personalModelFingerprint(settings);
+      snapshotJson = JSON.stringify({ personalFingerprint: modelVersion });
+    }
+    if (confirmedQuote && (
+      confirmedQuote.source !== usageSource || confirmedQuote.costCents !== creditCostCents || confirmedQuote.modelVersion !== modelVersion
+    )) {
+      throw new AppError('ANALYSIS_QUOTE_CHANGED', '分析费用或模型已变更，请确认更新后的报价。', 409);
+    }
+    if (platformSnapshot) {
       await buildUsagePlan(userId, 'deep', 'platform', {
         platformCostCents: creditCostCents,
         modelSnapshot: {
-          configId: snapshot.configId,
-          displayName: snapshot.displayName,
-          modelName: snapshot.modelId,
-          multiplierBps: snapshot.multiplierBps,
-          configVersion: snapshot.configVersion,
+          configId: platformSnapshot.configId,
+          displayName: platformSnapshot.displayName,
+          modelName: platformSnapshot.modelId,
+          multiplierBps: platformSnapshot.multiplierBps,
+          configVersion: platformSnapshot.configVersion,
         },
       });
     } else {
       await buildUsagePlan(userId, 'deep', 'custom');
-      if (settings) snapshotJson = JSON.stringify({ personalFingerprint: personalModelFingerprint(settings) });
     }
     return await prisma.auditJob.create({
       data: {

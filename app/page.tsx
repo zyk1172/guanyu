@@ -1,5 +1,6 @@
 'use client';
 
+import type { AnalysisQuote } from '@/lib/analysis-quote';
 import SiteFooter from '@/components/SiteFooter';
 import { ArrowRight } from 'lucide-react';
 import Link from 'next/link';
@@ -27,6 +28,7 @@ interface AuditSubmitData {
   mode: AnalysisMode;
   reportLanguage: ReportLanguage;
   sourceUrl?: string;
+  quote: AnalysisQuote;
 }
 
 function waitForPoll(delay: number, signal: AbortSignal) {
@@ -47,6 +49,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastSubmittedData, setLastSubmittedData] = useState<AuditSubmitData | null>(null);
+  const [quoteRefresh, setQuoteRefresh] = useState(0);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const submitting = useRef(false);
   const pendingSubmission = useRef<{ input: AuditSubmitData; requestId: string } | null>(null);
@@ -174,6 +177,12 @@ export default function Home() {
 
       if (!response.ok) {
         if (response.status < 500) pendingSubmission.current = null;
+        if (resData.code === 'ANALYSIS_QUOTE_CHANGED') {
+          setLastSubmittedData(null);
+          setQuoteRefresh(previous => previous + 1);
+          setError(language.startsWith('zh') ? '分析价格或模型已变更，请在分析表单中确认最新报价后再提交。' : 'The price or model has changed. Confirm the updated quote before submitting.');
+          return;
+        }
         throw new Error(resData.error || `请求失败 (${response.status})`);
       }
 
@@ -206,10 +215,10 @@ export default function Home() {
       <Header />
       <div id="main-content" tabIndex={-1} className="workspace-container">
         <div className="space-y-5">
-            <AnalysisForm onSubmit={handleAnalyze} isLoading={isLoading} />
+            <AnalysisForm onSubmit={handleAnalyze} isLoading={isLoading} quoteRefresh={quoteRefresh} />
             {isLoading && <div ref={progressPanel} className="scroll-mt-24">{lastSubmittedData?.title&&<p className="mb-3 text-base font-semibold">{lastSubmittedData.title}</p>}<LoadingState /></div>}
             {activeJobId && !isLoading && <p role="status" className="text-sm text-[var(--color-text-muted)]">{t('home.backgroundJob')}</p>}
-            {error && <div ref={errorPanel} tabIndex={-1} className="scroll-mt-24"><ErrorMessage message={error} onRetry={handleRetry} /></div>}
+            {error && <div ref={errorPanel} tabIndex={-1} className="scroll-mt-24"><ErrorMessage message={error} onRetry={activeJobId || lastSubmittedData ? handleRetry : undefined} /></div>}
         </div>
         <p className="news-public-link"><Link href="/audits">{language.startsWith('zh')?'公开审读 · 浏览报告':'Public reviews · Browse reports'}<ArrowRight size={18} strokeWidth={1.75} aria-hidden="true"/></Link></p>
       </div>
