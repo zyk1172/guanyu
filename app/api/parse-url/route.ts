@@ -3,6 +3,7 @@ import { requireClientIp, reservePublicUrlParseAttempt } from '@/lib/rate-limit'
 import { sameOriginResponse } from '@/lib/request-security';
 import { readNewsArticle } from '@/lib/article-extraction';
 import { ArticleInputError } from '@/lib/article-input';
+import { AppError } from '@/lib/app-error';
 
 export const maxDuration = 30;
 export const runtime = 'nodejs';
@@ -13,7 +14,7 @@ function parseErrorCode(error: unknown): string {
   const name = String(value?.name || '');
   const message = String(value?.message || error || '');
   if (name === 'AbortError' || /超时|timeout|timed out/i.test(message)) return 'UPSTREAM_TIMEOUT';
-  if (/频繁|rate limit|too many requests/i.test(message)) return 'RATE_LIMITED';
+  if (/状态码\s*429|rate limit|too many requests/i.test(message)) return 'UPSTREAM_RATE_LIMITED';
   if (/内网|localhost|协议|URL 格式|受限制|外部服务地址|private|loopback/i.test(message)) return 'URL_PRIVATE_ADDRESS';
   if (/状态码\s*(401|403)|登录墙|访问被拒|forbidden|unauthorized/i.test(message)) return 'UPSTREAM_FORBIDDEN';
   if (/状态码\s*(404|410)|not found/i.test(message)) return 'UPSTREAM_NOT_FOUND';
@@ -31,11 +32,13 @@ export async function POST(request: Request) {
   const originError = sameOriginResponse(request);
   if (originError) return originError;
   try {
+    let clientIp;
     try {
-      await reservePublicUrlParseAttempt(requireClientIp(request));
-    } catch (error: any) {
-      return NextResponse.json({ error: error?.message || '网页解析请求过于频繁，请稍后再试。', code: 'RATE_LIMITED' }, { status: 429 });
+      clientIp = requireClientIp(request);
+    } catch {
+      return NextResponse.json({ error: '正文读取服务暂不可用。', code: 'PARSE_UNAVAILABLE' }, { status: 503 });
     }
+    await reservePublicUrlParseAttempt(clientIp);
     const body = await request.json();
     const { url } = body;
 
@@ -48,7 +51,7 @@ export async function POST(request: Request) {
     return NextResponse.json(result);
 
   } catch (error: any) {
-    if (error instanceof ArticleInputError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+    if (error instanceof AppError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
     if (error?.name === 'AbortError') {
       return parseErrorResponse({ name: 'AbortError', message: '抓取超时，请检查链接或稍后重试。' }, '抓取超时，请检查链接或稍后重试。', 504);
     }
@@ -57,7 +60,7 @@ export async function POST(request: Request) {
       const code = parseErrorCode(error);
       const status = code === 'URL_PRIVATE_ADDRESS' || code === 'INVALID_URL'
         ? 400
-        : code === 'RATE_LIMITED'
+        : code === 'UPSTREAM_RATE_LIMITED'
           ? 429
           : code === 'UPSTREAM_TIMEOUT'
             ? 504

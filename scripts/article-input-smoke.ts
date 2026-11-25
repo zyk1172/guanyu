@@ -10,6 +10,8 @@ import { handleAnalyze } from '../lib/analyze-service';
 import { createAnalyzeJob, runAnalyzeJob } from '../lib/analyze-job';
 import { readNewsArticle } from '../lib/article-extraction';
 import { POST as createJob } from '../app/api/analyze/jobs/route';
+import { POST as parseUrl } from '../app/api/parse-url/route';
+import { privacyHmacHash } from '../lib/privacy-hash';
 import { ANALYZE_ADMISSION_ACTION } from '../lib/rate-limit';
 
 async function main() {
@@ -53,6 +55,25 @@ async function main() {
     assert.equal(await prisma.auditJob.count({where:{userId:user.id}}),0);
     await assert.rejects(readNewsArticle(`${baseUrl}/private`));
     assert.equal(calls,before,'article extraction must not inherit the local model endpoint exception');
+
+    const parseIp = `2001:db8::${suffix.split('-')[0].slice(0, 4)}`;
+    const parseRequest = () => new NextRequest('http://localhost/api/parse-url', {
+      method: 'POST',
+      headers: { origin: 'http://localhost', 'x-forwarded-for': parseIp, 'content-type': 'application/json' },
+      body: '{}',
+    });
+    const previousProxyTrust = process.env.TRUST_PROXY_HEADERS;
+    try {
+      process.env.TRUST_PROXY_HEADERS = 'true';
+      for (let attempt = 0; attempt < 10; attempt += 1) assert.equal((await parseUrl(parseRequest())).status, 400);
+      const limited = await parseUrl(parseRequest());
+      assert.equal(limited.status, 429);
+      assert.equal((await limited.json()).code, 'RATE_LIMITED');
+    } finally {
+      if (previousProxyTrust === undefined) delete process.env.TRUST_PROXY_HEADERS;
+      else process.env.TRUST_PROXY_HEADERS = previousProxyTrust;
+      await prisma.verificationCode.deleteMany({ where: { purpose: 'parse_url_attempt', email: `parse-url:${privacyHmacHash(parseIp)}` } });
+    }
 
     const token=await encode({secret:process.env.NEXTAUTH_SECRET!,token:{id:user.id,sessionVersion:1}});
     const request=(authenticated:boolean,origin='http://localhost')=>new NextRequest('http://localhost/api/analyze/jobs',{method:'POST',headers:{origin,'content-type':'application/json',...(authenticated?{cookie:`next-auth.session-token=${token}`}:{})},body:JSON.stringify(errorInput)});
