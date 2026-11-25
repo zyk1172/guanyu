@@ -47,23 +47,25 @@ export default function OrderHistory({ refreshKey = '' }: { refreshKey?: string 
           <div className="min-w-0 [overflow-wrap:anywhere]">
             <strong>{order.packageName} · {order.points} {zh ? '点' : 'credits'}</strong>
             <p className="mt-1 text-xs text-[var(--color-text-muted)]">{zh ? '订单号' : 'Order ID'} {order.id}</p>
-            <time className="mt-1 block text-xs text-[var(--color-text-muted)]" dateTime={order.createdAt}>{new Date(order.createdAt).toLocaleString(language)}</time>
           </div>
           <div className="min-w-0">
             <p className="font-semibold">{formatOrderStatus(order.status, language)}</p>
             <p className="mt-1 tabular-nums">{order.currency} {(order.amountCents / 100).toFixed(2)}</p>
+          </div>
+          <div className="min-w-0 text-xs text-[var(--color-text-muted)] md:text-end">
+            <p>{zh ? '下单时间' : 'Ordered at'} <time dateTime={order.createdAt}>{new Date(order.createdAt).toLocaleString(language)}</time></p>
             {(order.fulfilledAt || order.confirmedAt) && ['FULFILLED', 'confirmed'].includes(order.status) &&
-              <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+              <p className="mt-1">
                 {zh ? '到账时间' : 'Fulfilled at'} <time dateTime={order.fulfilledAt || order.confirmedAt!}>{new Date(order.fulfilledAt || order.confirmedAt!).toLocaleString(language)}</time>
               </p>}
-          </div>
-          <div className="flex flex-wrap items-start gap-2 md:justify-end">
-            {['CHECKOUT_PENDING', 'PAYMENT_SUBMITTED'].includes(order.status) && <ButtonLink href={`/checkout/${encodeURIComponent(order.id)}`}>
-              {order.status === 'CHECKOUT_PENDING' ? (zh ? '继续付款' : 'Continue checkout') : (zh ? '查看订单' : 'View order')}
-            </ButtonLink>}
-            {['CHECKOUT_PENDING', 'PENDING', 'pending'].includes(order.status) && <Button disabled={!!busy} onClick={() => void cancel(order.id)}>
-              {busy === order.id ? (zh ? '处理中…' : 'Processing…') : (zh ? '取消订单' : 'Cancel order')}
-            </Button>}
+            <div className="flex flex-wrap items-start gap-2 empty:hidden md:justify-end [&:not(:empty)]:mt-2">
+              {['CHECKOUT_PENDING', 'PAYMENT_SUBMITTED'].includes(order.status) && <ButtonLink href={`/checkout/${encodeURIComponent(order.id)}`}>
+                {order.status === 'CHECKOUT_PENDING' ? (zh ? '继续付款' : 'Continue checkout') : (zh ? '查看订单' : 'View order')}
+              </ButtonLink>}
+              {['CHECKOUT_PENDING', 'PENDING', 'pending'].includes(order.status) && <Button disabled={!!busy} onClick={() => void cancel(order.id)}>
+                {busy === order.id ? (zh ? '处理中…' : 'Processing…') : (zh ? '取消订单' : 'Cancel order')}
+              </Button>}
+            </div>
           </div>
         </li>)}
       </ul>
