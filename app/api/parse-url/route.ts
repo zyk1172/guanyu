@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireClientIp, reservePublicUrlParseAttempt } from '@/lib/rate-limit';
 import { sameOriginResponse } from '@/lib/request-security';
+import { readCrawledArticle } from '@/lib/article-crawl';
 import { readNewsArticle } from '@/lib/article-extraction';
 import { ArticleInputError } from '@/lib/article-input';
 import { AppError } from '@/lib/app-error';
@@ -46,7 +47,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '缺少 URL 参数。', code: 'INVALID_INPUT' }, { status: 400 });
     }
 
-    const result = await readNewsArticle(url);
+    const result = (await readCrawledArticle(url).catch(() => null)) ?? await readNewsArticle(url);
 
     return NextResponse.json(result);
 

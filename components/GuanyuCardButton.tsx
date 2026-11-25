@@ -3,10 +3,11 @@
 import Dialog from '@/components/ui/Dialog';
 
 import { Button } from '@/components/ui/controls';
+import { reportFilename } from '@/lib/report-filename.mjs';
 import { getReadWorthDisplayLabel, normalizeReportLanguage, type ReadWorthLabel, type ReportLanguage } from '@/lib/types';
 import { Download, ImageDown, LoaderCircle, Share2 } from 'lucide-react';
 import QRCode from 'qrcode';
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 
 interface GuanyuCardContent {
   oneSentenceView: string;
@@ -14,18 +15,6 @@ interface GuanyuCardContent {
   largestInformationGap: string;
   mostWorthAsking: string;
   readingValue: ReadWorthLabel;
-}
-
-interface ThemePalette {
-  bg: string;
-  surface: string;
-  text: string;
-  muted: string;
-  border: string;
-  primary: string;
-  success: string;
-  warning: string;
-  danger: string;
 }
 
 const COPY = {
@@ -37,166 +26,118 @@ function textFor(language: ReportLanguage) {
   return COPY[language === 'zh-CN' || language === 'zh-TW' ? 'zh-CN' : 'en-US'];
 }
 
-function escaped(value: string) {
-  return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[character] || character));
+function cardSignals(card: GuanyuCardContent, copy: ReturnType<typeof textFor>) {
+  return [
+    { label: copy.credible, text: card.mostCredible, color: '--color-success' },
+    { label: copy.gap, text: card.largestInformationGap, color: '--color-warning' },
+    { label: copy.question, text: card.mostWorthAsking, color: '--color-primary' },
+  ];
 }
 
-function usesCjkWordFlow(language: ReportLanguage) {
-  return language.startsWith('zh-') || language === 'ja-JP' || language === 'ko-KR';
-}
-
-function wrapLines(value: string, maxChars: number, language: ReportLanguage) {
-  const source = String(value || '').replace(/\s+/g, ' ').trim();
-  const cjk = usesCjkWordFlow(language);
-  const tokens = cjk ? Array.from(source) : source.split(' ').filter(Boolean);
+function wrapText(context: CanvasRenderingContext2D, text: string, width: number, language: string) {
+  const segmenter = new Intl.Segmenter(language, { granularity: 'word' });
   const lines: string[] = [];
   let line = '';
-  for (const token of tokens) {
-    const candidate = line ? `${line}${cjk ? '' : ' '}${token}` : token;
-    if (candidate.length > maxChars && line) {
-      lines.push(line.trim());
-      line = token;
-    } else {
-      line = candidate;
+  for (const { segment } of segmenter.segment(text.replace(/\s+/g, ' ').trim())) {
+    if (context.measureText(line + segment).width <= width) {
+      line += segment;
+      continue;
+    }
+    if (line.trim()) lines.push(line.trimEnd());
+    line = segment.trimStart();
+    if (context.measureText(line).width > width) {
+      const longWord = line;
+      line = '';
+      for (const letter of longWord) {
+        if (line && context.measureText(line + letter).width > width) {
+          lines.push(line);
+          line = '';
+        }
+        line += letter;
+      }
     }
   }
-  if (line.trim()) lines.push(line.trim());
+  if (line.trim()) lines.push(line.trimEnd());
   return lines;
 }
 
-function wrap(value: string, maxChars: number, maxLines: number, language: ReportLanguage, truncate = false) {
-  const lines = wrapLines(value, maxChars, language);
-  if (lines.length <= maxLines) return lines;
-  const visible = lines.slice(0, maxLines);
-  if (truncate) visible[visible.length - 1] = `${visible[visible.length - 1]}…`;
-  return visible;
-}
-
-function scaledFont(value: number, scale: number) {
-  return Math.max(5, Number((value * scale).toFixed(2)));
-}
-
-function getTypographyScale(title: string, card: GuanyuCardContent, language: ReportLanguage) {
-  const cjk = usesCjkWordFlow(language);
-  const fields = [
-    { value: title, chars: cjk ? 18 : 34, lines: 2 },
-    { value: card.oneSentenceView, chars: cjk ? 31 : 57, lines: 3 },
-    { value: card.mostCredible, chars: cjk ? 34 : 58, lines: 3 },
-    { value: card.largestInformationGap, chars: cjk ? 34 : 58, lines: 3 },
-    { value: card.mostWorthAsking, chars: cjk ? 34 : 58, lines: 3 },
-  ];
-
-  for (let scale = 1; scale >= 0.18; scale -= 0.04) {
-    const fits = fields.every((field) => wrapLines(field.value, Math.floor(field.chars / scale), language).length <= field.lines);
-    if (fits) return Number(scale.toFixed(2));
-  }
-  return 0.18;
-}
-
-function svgText(lines: string[], x: number, y: number, options: { size: number; lineHeight: number; fill: string; weight?: number; anchor?: string }) {
-  return lines.map((line, index) => `<text x="${x}" y="${y + index * options.lineHeight}" fill="${options.fill}" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC','Noto Sans CJK SC',Arial,sans-serif" font-size="${options.size}" font-weight="${options.weight || 500}" text-anchor="${options.anchor || 'start'}">${escaped(line)}</text>`).join('');
-}
-
-function paletteFromDocument(): ThemePalette {
-  const style = getComputedStyle(document.documentElement);
-  const value = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
-  return {
-    bg: value('--color-bg', '#f4ecd8'),
-    surface: value('--color-surface', '#fff8e8'),
-    text: value('--color-text', '#2d251b'),
-    muted: value('--color-text-muted', '#6f6252'),
-    border: value('--color-border-strong', '#d8c7a8'),
-    primary: value('--color-primary', '#7a4f22'),
-    success: value('--color-success', '#397a57'),
-    warning: value('--color-warning', '#b67d19'),
-    danger: value('--color-danger', '#a64c3d'),
-  };
-}
-
-function verdictColor(label: ReadWorthLabel, colors: ThemePalette) {
-  if (label === '深度阅读') return colors.success;
-  if (label === '概览阅读') return colors.primary;
-  if (label === '有限参考') return colors.warning;
-  return colors.muted;
-}
-
-function createSvg(title: string, card: GuanyuCardContent, language: ReportLanguage, colors: ThemePalette, qrDataUrl: string) {
+async function createCardPng(title: string, card: GuanyuCardContent, language: ReportLanguage, qrUrl: string) {
+  await document.fonts.ready;
+  const image = new Image();
+  image.src = qrUrl;
+  await image.decode();
+  const canvas = document.createElement('canvas');
+  canvas.width = 1080;
+  const drawing = canvas.getContext('2d');
+  if (!drawing) throw new Error(textFor(language).failed);
+  const context = drawing;
+  const styles = getComputedStyle(document.documentElement);
+  const color = (name: string) => styles.getPropertyValue(name).trim();
+  const family = styles.getPropertyValue('--font-ui').trim() || 'system-ui, sans-serif';
   const copy = textFor(language);
-  const verdict = verdictColor(card.readingValue, colors);
-  const typographyScale = getTypographyScale(title, card, language);
-  const scaledChars = (value: number) => Math.floor(value / typographyScale);
-  const font = (value: number) => scaledFont(value, typographyScale);
-  const titleLines = wrap(title, scaledChars(usesCjkWordFlow(language) ? 18 : 34), 2, language, true);
-  const viewLines = wrap(card.oneSentenceView, scaledChars(usesCjkWordFlow(language) ? 31 : 57), 3, language);
-  const signals = [
-    [copy.credible, card.mostCredible, colors.success, '01'],
-    [copy.gap, card.largestInformationGap, colors.warning, '02'],
-    [copy.question, card.mostWorthAsking, colors.danger, '03'],
-  ] as const;
-
-  const signalSvg = signals.map(([label, content, color, index], itemIndex) => {
-    const y = 625 + itemIndex * 145;
-    const lines = wrap(content, scaledChars(usesCjkWordFlow(language) ? 34 : 58), 3, language);
-    return `<g>
-      <line x1="74" y1="${y - 16}" x2="1006" y2="${y - 16}" stroke="${colors.border}" stroke-width="2" opacity="0.72" />
-      <circle cx="103" cy="${y + 28}" r="25" fill="${color}" opacity="0.92" />
-      <text x="103" y="${y + 37}" fill="#fff" font-family="Arial,sans-serif" font-size="${font(20)}" font-weight="800" text-anchor="middle">${index}</text>
-      ${svgText([label], 150, y + 18, { size: font(27), lineHeight: font(33), fill: colors.text, weight: 800 })}
-      ${svgText(lines, 150, y + 55, { size: font(20), lineHeight: font(28), fill: colors.muted, weight: 500 })}
-    </g>`;
-  }).join('');
-
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1350" viewBox="0 0 1080 1350">
-    <rect width="1080" height="1350" fill="${colors.bg}" />
-    <rect x="28" y="28" width="1024" height="1294" rx="24" fill="${colors.surface}" stroke="${colors.border}" stroke-width="4" />
-    <rect x="50" y="50" width="980" height="1250" rx="18" fill="none" stroke="${colors.border}" stroke-width="1.5" stroke-dasharray="8 8" opacity="0.85" />
-    <text x="540" y="113" fill="${colors.text}" font-family="Georgia,'Songti SC',serif" font-size="${font(48)}" font-weight="800" text-anchor="middle">观隅卡</text>
-    <text x="540" y="151" fill="${colors.primary}" font-family="Arial,sans-serif" font-size="${font(18)}" font-weight="700" letter-spacing="${font(5)}" text-anchor="middle">GUANYU CARD</text>
-    <line x1="310" y1="130" x2="410" y2="130" stroke="${colors.primary}" stroke-width="2" opacity="0.7" />
-    <line x1="670" y1="130" x2="770" y2="130" stroke="${colors.primary}" stroke-width="2" opacity="0.7" />
-    <rect x="70" y="190" width="940" height="164" rx="16" fill="${colors.bg}" stroke="${colors.border}" stroke-width="2" />
-    <text x="101" y="232" fill="${colors.primary}" font-family="Arial,sans-serif" font-size="${font(16)}" font-weight="800" letter-spacing="${font(2)}">NEWS TITLE</text>
-    ${svgText(titleLines, 101, 280, { size: font(35), lineHeight: font(46), fill: colors.text, weight: 800 })}
-    <rect x="70" y="378" width="940" height="220" rx="16" fill="${colors.bg}" stroke="${colors.primary}" stroke-width="2" />
-    <text x="101" y="424" fill="${colors.primary}" font-family="Arial,sans-serif" font-size="${font(16)}" font-weight="800" letter-spacing="${font(2)}">${escaped(copy.view.toUpperCase())}</text>
-    <text x="101" y="473" fill="${colors.primary}" font-family="Georgia,'Songti SC',serif" font-size="${font(29)}" font-weight="800">“</text>
-    ${svgText(viewLines, 138, 473, { size: font(24), lineHeight: font(34), fill: colors.text, weight: 650 })}
-    <text x="936" y="552" fill="${colors.primary}" font-family="Georgia,serif" font-size="${font(88)}" font-weight="800" opacity="0.18">”</text>
-    ${signalSvg}
-    <rect x="70" y="1060" width="940" height="84" rx="14" fill="${verdict}" opacity="0.14" stroke="${verdict}" stroke-width="2" />
-    <circle cx="117" cy="1102" r="19" fill="${verdict}" />
-    <text x="117" y="1109" fill="#fff" font-family="Arial,sans-serif" font-size="${font(17)}" font-weight="800" text-anchor="middle">✓</text>
-    <text x="152" y="1096" fill="${colors.muted}" font-family="Arial,sans-serif" font-size="${font(14)}" font-weight="800" letter-spacing="${font(2)}">${escaped(copy.reading.toUpperCase())}</text>
-    <text x="152" y="1127" fill="${colors.text}" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC',Arial,sans-serif" font-size="${font(26)}" font-weight="800">${escaped(getReadWorthDisplayLabel(card.readingValue, language))}</text>
-    <line x1="70" y1="1170" x2="1010" y2="1170" stroke="${colors.border}" stroke-width="2" />
-    <text x="390" y="1218" fill="${colors.text}" font-family="Georgia,'Songti SC',serif" font-size="${font(33)}" font-weight="800" text-anchor="middle">观隅</text>
-    <text x="390" y="1246" fill="${colors.primary}" font-family="Arial,sans-serif" font-size="${font(12)}" font-weight="800" letter-spacing="${font(3)}" text-anchor="middle">AI NARRATIVE AUDIT</text>
-    <rect x="844" y="1172" width="120" height="120" rx="10" fill="#ffffff" stroke="${colors.border}" stroke-width="1.5" />
-    <image href="${qrDataUrl}" x="854" y="1182" width="100" height="100" preserveAspectRatio="xMidYMid meet" />
-    <text x="904" y="1298" fill="${colors.muted}" font-family="Arial,sans-serif" font-size="${font(9)}" font-weight="800" letter-spacing="${font(1)}" text-anchor="middle">${escaped(copy.scan)}</text>
-  </svg>`;
-}
-
-async function svgToPng(svg: string) {
-  const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  try {
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const next = new Image();
-      next.onload = () => resolve(next);
-      next.onerror = () => reject(new Error('观隅卡图片渲染失败。'));
-      next.src = url;
+  const width = canvas.width;
+  const inset = 64;
+  const col = width - inset * 2;
+  let y = 60;
+  const layers: Array<() => void> = [];
+  const rectangle = (x: number, top: number, w: number, h: number, fill: string) => {
+    layers.push(() => { context.fillStyle = fill; context.fillRect(x, top, w, h); });
+  };
+  function write(text: string, size: number, leading: number, weight: number, fill: string, x = inset, w = col) {
+    const font = `${weight} ${size}px ${family}`;
+    context.font = font;
+    const lines = wrapText(context, text, w, language);
+    const top = y;
+    layers.push(() => {
+      context.font = font;
+      context.textBaseline = 'top';
+      context.fillStyle = fill;
+      lines.forEach((line, i) => context.fillText(line, x, top + i * leading));
     });
-    const canvas = document.createElement('canvas');
-    canvas.width = 1080;
-    canvas.height = 1350;
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error('当前浏览器无法创建观隅卡图片。');
-    context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    return await new Promise<Blob>((resolve, reject) => canvas.toBlob((result) => result ? resolve(result) : reject(new Error('观隅卡 PNG 导出失败。')), 'image/png'));
-  } finally {
-    URL.revokeObjectURL(url);
+    y += lines.length * leading;
   }
+
+  rectangle(0, 0, width, 14, color('--color-primary'));
+  const verdict = getReadWorthDisplayLabel(card.readingValue, language);
+  write(`${copy.title} · ${copy.reading} ${verdict}`, 32, 44, 650, color('--color-primary'));
+  y += 24;
+  write(title, 60, 76, 750, color('--color-text'));
+  y += 30;
+  const heroY = y;
+  const hero = layers.length;
+  y += 26;
+  write(copy.view, 32, 44, 650, color('--color-primary'), inset + 28, col - 56);
+  y += 10;
+  write(card.oneSentenceView, 48, 64, 650, color('--color-text'), inset + 28, col - 56);
+  y += 28;
+  const heroHeight = y - heroY;
+  layers.splice(hero, 0, () => {
+    context.fillStyle = color('--color-primary-soft');
+    context.beginPath();
+    context.roundRect(inset, heroY, col, heroHeight, 20);
+    context.fill();
+  });
+
+  for (const signal of cardSignals(card, copy)) {
+    y += 28;
+    rectangle(inset, y + 4, 6, 39, color(signal.color));
+    write(signal.label, 33, 46, 680, color('--color-text'), inset + 22, col - 22);
+    y += 6;
+    write(signal.text, 42, 58, 450, color('--color-text'), inset + 22, col - 22);
+    y += 18;
+    rectangle(inset, y, col, 2, color('--color-border'));
+  }
+  y += 28;
+  const qrY = y;
+  const qrSize = 155;
+  write(copy.scan, 30, 42, 600, color('--color-text-muted'), inset, col - qrSize - 28);
+  layers.push(() => context.drawImage(image, width - inset - qrSize, qrY, qrSize, qrSize));
+  canvas.height = Math.max(y, qrY + qrSize) + 56;
+  context.fillStyle = color('--color-surface');
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  layers.forEach(draw => draw());
+  return new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error(copy.failed)), 'image/png'));
 }
 
 export default function GuanyuCardButton({ auditId, title, reportLanguage }: { auditId: string; title: string; reportLanguage: string }) {
@@ -204,14 +145,10 @@ export default function GuanyuCardButton({ auditId, title, reportLanguage }: { a
   const copy = textFor(language);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ card: GuanyuCardContent; qrUrl: string; png: Blob } | null>(null);
   const [trigger, setTrigger] = useState<HTMLElement | null>(null);
-  const pngRef = useRef<Blob | null>(null);
-  const supportsSystemShare = typeof navigator !== 'undefined' && typeof (navigator as { share?: unknown }).share === 'function';
-
-  useEffect(() => () => {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-  }, [previewUrl]);
+  const supportsSystemShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+  const filename = reportFilename(title, 'png', language.startsWith('zh') ? ' - 观隅卡' : ' - Guanyu Card');
 
   const generate = async () => {
     setTrigger(document.activeElement instanceof HTMLElement ? document.activeElement : null);
@@ -220,72 +157,78 @@ export default function GuanyuCardButton({ auditId, title, reportLanguage }: { a
     try {
       const response = await fetch(`/api/audits/${encodeURIComponent(auditId)}/card`, { method: 'POST' });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || copy.failed);
-      const colors = paletteFromDocument();
+      if (!response.ok || !payload.card) throw new Error(payload.error || copy.failed);
       const reportUrl = new URL(`/audits/${encodeURIComponent(auditId)}`, window.location.origin).toString();
-      const qrDataUrl = await QRCode.toDataURL(reportUrl, {
-        width: 180,
-        margin: 1,
-        errorCorrectionLevel: 'M',
-        color: { dark: '#191817', light: '#ffffff' },
-      });
-      const svg = createSvg(title, payload.card as GuanyuCardContent, language, colors, qrDataUrl);
-      const png = await svgToPng(svg);
-      pngRef.current = png;
-      setPreviewUrl((previous) => {
-        if (previous) URL.revokeObjectURL(previous);
-        return URL.createObjectURL(png);
-      });
-    } catch (requestError: any) {
-      setError(requestError?.message || copy.failed);
+      const qrUrl = await QRCode.toDataURL(reportUrl, { width: 320, margin: 4, errorCorrectionLevel: 'M' });
+      const card = payload.card as GuanyuCardContent;
+      setPreview({ card, qrUrl, png: await createCardPng(title, card, language, qrUrl) });
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : copy.failed);
     } finally {
       setIsGenerating(false);
     }
   };
 
   const download = () => {
-    if (!pngRef.current) return;
-    const url = URL.createObjectURL(pngRef.current);
+    if (!preview) return;
+    const url = URL.createObjectURL(preview.png);
     const link = document.createElement('a');
     link.href = url;
-    link.download = 'guanyu-card.png';
-    document.body.appendChild(link);
+    link.download = filename;
     link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   const share = async () => {
-    if (!pngRef.current || !supportsSystemShare) return;
-    const file = new File([pngRef.current], 'guanyu-card.png', { type: 'image/png' });
+    if (!preview || !supportsSystemShare) return;
+    const file = new File([preview.png], filename, { type: 'image/png' });
     if (navigator.canShare && !navigator.canShare({ files: [file] })) {
       setError(copy.unavailable);
       return;
     }
     try {
-      await navigator.share({ title: '观隅卡', files: [file] });
-    } catch (shareError: any) {
-      if (shareError?.name !== 'AbortError') setError(copy.unavailable);
+      await navigator.share({ title, files: [file] });
+    } catch (shareError) {
+      if (!(shareError instanceof Error) || shareError.name !== 'AbortError') setError(copy.unavailable);
     }
   };
 
-  return (
-    <>
-      <Button variant="secondary" type="button" onClick={generate} disabled={isGenerating}>
-        {isGenerating ? <span className="inline-flex items-center gap-1.5"><LoaderCircle className="h-3.5 w-3.5 animate-spin" />{copy.generating}</span> : <span className="inline-flex items-center gap-1.5"><ImageDown className="h-3.5 w-3.5" />{copy.generate}</span>}
-      </Button>
-      {error && <span className="w-full text-right text-xxs font-semibold text-[var(--color-danger)]">{error}</span>}
-      {previewUrl && (
-        <Dialog open title={copy.preview} closeLabel={copy.close} returnFocus={trigger} onClose={() => setPreviewUrl(null)}>
-            {/* Blob previews are generated in the browser and cannot use the Next image optimizer. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={previewUrl} alt={copy.title} width={360} height={450} className="mx-auto block w-full max-w-[360px] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)]" />
-            <div className="mt-3 flex flex-wrap justify-end gap-2">
-              <Button variant="secondary" type="button" onClick={download}><Download className="h-3.5 w-3.5" />{copy.download}</Button>
-              {supportsSystemShare && <Button variant="primary" type="button" onClick={() => void share()}><Share2 className="h-3.5 w-3.5" />{copy.share}</Button>}
-            </div>
-        </Dialog>
-      )}
-    </>
-  );
+  return <>
+    <Button variant="secondary" onClick={generate} disabled={isGenerating}>
+      {isGenerating ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <ImageDown aria-hidden="true" />}
+      {isGenerating ? copy.generating : copy.generate}
+    </Button>
+    {!preview && error && <span role="alert" className="w-full text-sm text-[var(--color-danger)]">{error}</span>}
+    {preview && <Dialog open title={copy.preview} closeLabel={copy.close} returnFocus={trigger} onClose={() => { setPreview(null); setError(null); }}>
+      <article className="space-y-4 break-words" aria-label={copy.title}>
+        <header className="space-y-2 border-t-4 border-[var(--color-primary)] pt-3">
+          <p className="text-sm font-semibold text-[var(--color-primary)]">
+            {copy.reading} · {getReadWorthDisplayLabel(preview.card.readingValue, language)}
+          </p>
+          <h3 className="ui-page-title">{title}</h3>
+        </header>
+        <div className="rounded-lg bg-[var(--color-primary-soft)] p-4">
+          <h4 className="text-sm font-semibold text-[var(--color-primary)]">{copy.view}</h4>
+          <p className="mt-2 text-lg font-semibold leading-relaxed">{preview.card.oneSentenceView}</p>
+        </div>
+        <dl className="divide-y divide-[var(--color-border)]">
+          {cardSignals(preview.card, copy).map(signal => <div key={signal.label} className="py-3">
+            <dt className="font-semibold" style={{ color: `var(${signal.color})` }}>{signal.label}</dt>
+            <dd className="mt-1 text-base leading-relaxed">{signal.text}</dd>
+          </div>)}
+        </dl>
+        <footer className="flex items-center justify-between gap-3 border-t border-[var(--color-border)] pt-3">
+          <p className="text-sm text-[var(--color-text-muted)]">{copy.scan}</p>
+          {/* Generated QR codes already fit their intrinsic size. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={preview.qrUrl} alt="" width={64} height={64} />
+        </footer>
+      </article>
+      {error && <p role="alert" className="mt-2 text-sm text-[var(--color-danger)]">{error}</p>}
+      <div className="ui-dialog-actions sticky bottom-0 border-t border-[var(--color-border)] bg-[var(--color-surface)] pt-3">
+        <Button variant="secondary" onClick={download}><Download aria-hidden="true" />{copy.download}</Button>
+        {supportsSystemShare && <Button variant="primary" onClick={() => void share()}><Share2 aria-hidden="true" />{copy.share}</Button>}
+      </div>
+    </Dialog>}
+  </>;
 }

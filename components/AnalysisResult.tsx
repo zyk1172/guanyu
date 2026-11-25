@@ -1,7 +1,8 @@
 'use client';
 
+import { readCompletionArticle } from '@/lib/ai-completion-core.mjs';
+import { reportFilename } from '@/lib/report-filename.mjs';
 import { Button, Input, Panel } from '@/components/ui/controls';
-import { emphasizeReportMarkdown, reportEmphasisHtml } from '@/lib/report-emphasis';
 import { buildReportExport, renderMarkdownExport } from '@/lib/report-export-content';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { computeReadWorth } from '../lib/readWorth';
@@ -589,20 +590,26 @@ function WebVerificationView({ report }: { report: DeepAnalysisResult }) {
   );
 }
 
-function completionPreviewHtml(value: string) {
-  const escaped = reportEmphasisHtml(value);
-  return escaped
-    .replace(/&lt;span style=&quot;color:(#047857|#b91c1c)&quot;&gt;([\s\S]*?)&lt;\/span&gt;/g, '<span style="color:$1;font-weight:700">$2</span>');
-}
-
 function AiCompletionButton({ auditId, reportLanguage }: { auditId: string; reportLanguage: string }) {
   const { t: uiText } = useUiLanguage();
   const [markdown, setMarkdown] = useState<string | null>(null);
+  const article = readCompletionArticle(markdown);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showControls, setShowControls] = useState(false);
   const activeModel = useActiveModel('completion');
   const text = (key: string) => getReportText(key, reportLanguage);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`/api/audits/${encodeURIComponent(auditId)}/completion`, { signal: controller.signal, cache: 'no-store' })
+      .then(response => response.ok ? response.json() : null)
+      .then(data => {
+        if (!controller.signal.aborted && readCompletionArticle(data?.markdown)) setMarkdown(current => current ?? data.markdown);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [auditId]);
 
   const generate = async () => {
     setIsGenerating(true);
@@ -615,6 +622,7 @@ function AiCompletionButton({ auditId, reportLanguage }: { auditId: string; repo
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || text('completionFailed'));
+      if (response.status === 202) throw new Error(data.message || text('generatingCompletion'));
       setMarkdown(String(data.markdown || ''));
     } catch (requestError: any) {
       setError(requestError?.message || text('completionFailed'));
@@ -624,14 +632,14 @@ function AiCompletionButton({ auditId, reportLanguage }: { auditId: string; repo
   };
 
   const download = () => {
-    if (!markdown) return;
-    const blob = new Blob([emphasizeReportMarkdown(markdown)], { type: 'text/markdown;charset=utf-8' });
+    if (!markdown || !article) return;
+    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = 'guanyu-ai-completion.md';
+    link.download = reportFilename(article.title, 'md');
     link.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   return (
@@ -652,15 +660,16 @@ function AiCompletionButton({ auditId, reportLanguage }: { auditId: string; repo
         </div>
       )}
       {error && <span className="w-full text-right text-xxs font-semibold text-[var(--color-danger)]">{error}</span>}
-      {markdown && (
+      {article && (
         <Panel className="w-full">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] pb-2">
             <h3 className="text-sm font-bold text-[var(--color-text)]">{text('completionPreview')}</h3>
             <Button variant="secondary" type="button" onClick={download}>{text('downloadCompletion')}</Button>
           </div>
-          <div className="max-h-[38rem] overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
-            <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-7 text-[var(--color-text)]" dangerouslySetInnerHTML={{ __html: completionPreviewHtml(markdown) }} />
-          </div>
+          <article className="mx-auto max-w-3xl space-y-4 [overflow-wrap:anywhere]">
+            <h4 className="ui-page-title">{article.title}</h4>
+            {article.paragraphs.map((paragraph: string, index: number) => <p key={index} className="text-base leading-7">{paragraph}</p>)}
+          </article>
         </Panel>
       )}
     </>
@@ -713,7 +722,7 @@ function DownloadButton({ report, originalContent, qaMessages, auditId, canGener
               : [];
           }),
         });
-        saveMarkdown(renderMarkdownExport(snapshot), 'guanyu-report.md');
+        saveMarkdown(renderMarkdownExport(snapshot), reportFilename(meta.title, 'md'));
         return;
       }
       const response = await fetch(`/api/audits/${encodeURIComponent(auditId)}/export`, {

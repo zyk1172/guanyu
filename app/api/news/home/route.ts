@@ -1,5 +1,6 @@
 import { after, NextResponse } from 'next/server';
 import { AccessError, reserveAccessAttempt } from '@/lib/access';
+import { articleCrawlerEnabled, crawlRecentArticles } from '@/lib/article-crawl';
 import {
   FeedRefreshingError,
   homeNewsCacheKey,
@@ -57,19 +58,22 @@ function unavailable(status = 503) {
 export async function GET(request: Request) {
   try {
     const language = requestLanguage(request);
-    const { sources } = await getRssContext(request);
+    const { sources, configSource } = await getRssContext(request);
+    const crawl = configSource === 'admin' && articleCrawlerEnabled();
     const cacheKey = homeNewsCacheKey(sources, language);
     const cached = await readHomeSnapshot(cacheKey);
     if (cached?.stale) {
       after(async () => {
         try {
-          await refreshHomeSnapshot(cacheKey, sources, language);
+          const snapshot = await refreshHomeSnapshot(cacheKey, sources, language);
+          if (crawl) await crawlRecentArticles(snapshot.headlines);
         } catch {
           // The last successful snapshot remains readable while upstream is unavailable.
         }
       });
     }
     const snapshot = cached?.data ?? await refreshHomeSnapshot(cacheKey, sources, language);
+    if (!cached && crawl) after(() => crawlRecentArticles(snapshot.headlines).catch(() => {}));
     return newsResponse(request, snapshot, sources, language, cacheKey, {
       sharedVersion: snapshot.fetchedAt,
       stale: cached?.stale,

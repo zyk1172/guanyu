@@ -4,8 +4,9 @@ import { getCurrentUser } from '@/lib/auth';
 import { getSuperAdminStatus } from '@/lib/admin';
 import { assertServiceCreditsAvailable, changeBalance, CREDIT_COSTS } from '@/lib/billing';
 import { prisma } from '@/lib/prisma';
-import { buildReportExport, renderMarkdownExport, type ExportAudit } from '@/lib/report-export-content';
-import { exportCopy, getExportBrand, normalizeExportLanguage } from '@/lib/export-language-core.mjs';
+import { buildReportExport, renderMarkdownExport } from '@/lib/report-export-content';
+import { exportCopy } from '@/lib/export-language-core.mjs';
+import { encodedFilename, reportFilename } from '@/lib/report-filename.mjs';
 import { withHistoricalAuditModelName } from '@/lib/audit-model-display';
 import { sameOriginResponse } from '@/lib/request-security';
 
@@ -29,15 +30,9 @@ function sha256(content: string | Uint8Array) {
   return createHash('sha256').update(content).digest('hex');
 }
 
-function filePart(value: string) {
-  return value.replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, '_').slice(0, 48) || 'report';
-}
-
-function filenameFor(audit: ExportAudit, format: ExportFormat, includeOriginal: boolean) {
-  const language = normalizeExportLanguage(audit.reportLanguage);
-  const brand = getExportBrand(language);
-  const prefix = `${filePart(brand.name)}_${filePart(exportCopy(language, '新闻叙事审视报告', 'News Narrative Review Report'))}`;
-  return `${prefix}_${filePart(audit.title)}_${audit.createdAt.toISOString().slice(0, 10)}${includeOriginal ? '_original' : ''}.${FORMATS[format].extension}`;
+function filenameFor(audit: { title: string; reportLanguage: string | null }, format: ExportFormat, includeOriginal: boolean) {
+  const suffix = includeOriginal ? ` - ${exportCopy(audit.reportLanguage, '含原文', 'With source article')}` : '';
+  return reportFilename(audit.title, FORMATS[format].extension, suffix);
 }
 
 async function getAuthorizedAudit(request: Request, id: string) {
@@ -62,8 +57,7 @@ function artifactKey(scope: ArtifactScope, includeOriginal: boolean) {
   return { userId_reportId_reportVersion_exportFormat_includeOriginal: { ...scope, includeOriginal } };
 }
 
-function downloadResponse(scope: ArtifactScope, includeOriginal: boolean, artifact: { content: string | null; downloadFilename: string }, charged: boolean) {
-  const filename = artifact.downloadFilename;
+function downloadResponse(scope: ArtifactScope, includeOriginal: boolean, artifact: { content: string | null }, filename: string, charged: boolean) {
   if (scope.exportFormat === 'MARKDOWN') return NextResponse.json({ content: artifact.content, filename, charged });
   const query = new URLSearchParams({ format: scope.exportFormat });
   if (includeOriginal) query.set('original', '1');
@@ -86,7 +80,7 @@ export async function GET(request: Request, { params }: Context) {
   return new NextResponse(content, {
     headers: {
       'Content-Type': FORMATS[format].mime,
-      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(artifact.downloadFilename)}`,
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodedFilename(filenameFor(found.audit, format, query.get('original') === '1'))}`,
       'Cache-Control': 'private, no-store',
     },
   });
@@ -105,6 +99,7 @@ export async function POST(request: Request, { params }: Context) {
   const includeOriginal = input?.includeOriginal === true;
   const { audit, user } = found;
   const { cost, version } = FORMATS[format];
+  const filename = filenameFor(audit, format, includeOriginal);
   const scope = { userId: user.id, reportId: id, reportVersion: audit.reportVersion, exportFormat: format };
   const where = artifactKey(scope, includeOriginal);
   const ready = { ...scope, status: 'READY', content: { not: null } };
@@ -121,7 +116,7 @@ export async function POST(request: Request, { params }: Context) {
     const report = buildReportExport(audit, { includeOriginal, followups });
     const snapshotHash = sha256(JSON.stringify(report));
     if (existing?.status === 'READY' && existing.content && existing.templateVersion === version && existing.snapshotHash === snapshotHash) {
-      return downloadResponse(scope, includeOriginal, existing, false);
+      return downloadResponse(scope, includeOriginal, existing, filename, false);
     }
 
     try {
@@ -139,7 +134,7 @@ export async function POST(request: Request, { params }: Context) {
     const data = {
       content: generated.toString(format === 'MARKDOWN' ? 'utf8' : 'base64'),
       contentHash: hash, fileHash: hash, fileSizeBytes: generated.byteLength, snapshotHash,
-      downloadFilename: filenameFor(audit, format, includeOriginal), status: 'READY',
+      downloadFilename: filename, status: 'READY',
       language: audit.reportLanguage, templateVersion: version, errorCode: null, errorMessageSanitized: null,
     };
 
@@ -175,7 +170,7 @@ export async function POST(request: Request, { params }: Context) {
       return { artifact, charged: Boolean(charge && !charge.repeated) };
     }, { maxWait: 5_000, timeout: 30_000 });
     if (!saved) return NextResponse.json({ error: '导出内容已更新，请重试。' }, { status: 409 });
-    return downloadResponse(scope, includeOriginal, saved.artifact, saved.charged);
+    return downloadResponse(scope, includeOriginal, saved.artifact, filename, saved.charged);
   } catch (error) {
     console.error('Report export failed', { auditId: id, format, error: error instanceof Error ? error.name : 'unknown' });
     return NextResponse.json({ error: '报告导出失败，请稍后重试。' }, { status: 500 });

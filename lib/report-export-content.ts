@@ -1,3 +1,4 @@
+import { readCompletionArticle } from './ai-completion-core.mjs';
 import { exportAppendixNotice, exportCopy, exportDisclaimer, exportFieldLabel, exportLocalizedValue, getExportBrand, normalizeExportLanguage } from './export-language-core.mjs';
 import { formatJudgmentType, formatMaterialType, formatUnconfirmedItem, formatVerificationStatus, getReportText } from './report-display-core.mjs';
 import { emphasizeReportMarkdown, emphasizeReportTextMarkdown, normalizeEmphasisPhrases } from './report-emphasis';
@@ -252,7 +253,13 @@ export function buildReportExport(audit: ExportAudit, options: ExportOptions = {
     }
     return item;
   }));
-  add(label('AI 补充分析', 'AI supplementary analysis'), [prose(audit.completionMarkdown || report.completionMarkdown)]);
+  const completedDraft = audit.completionMarkdown || report.completionMarkdown;
+  const article = readCompletionArticle(completedDraft);
+  if (article) {
+    add(label('AI 改写新闻稿', 'AI-rewritten article'), [{ heading: article.title, body: article.paragraphs.join('\n\n') }]);
+  } else {
+    add(label('AI 补充分析', 'AI supplementary analysis'), [prose(completedDraft)]);
+  }
   add(label('已完成追问', 'Completed follow-ups'), (options.followups ?? []).map((turn, index): ExportEntry => ({
     heading: `${index + 1}. ${text(turn.question)}`,
     body: text(turn.answer),

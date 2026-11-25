@@ -6,7 +6,7 @@ import { buildPendingPaymentLines } from '@/lib/payment-notification-core.mjs';
 import { formatPaymentAmount, getPaymentMethodLabel } from '@/lib/payment-core.mjs';
 import type { Prisma } from '@/lib/generated/prisma/client';
 import { decryptSecret, encryptSecret } from '@/lib/secret';
-import { getEmailProviderPlan, normalizeEmailError } from '@/lib/email-delivery-core.mjs';
+import { directMailReceipt, getEmailProviderPlan, normalizeEmailError, smtpDeliveryFailure } from '@/lib/email-delivery-core.mjs';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { prisma } from '@/lib/prisma';
 
@@ -57,8 +57,10 @@ function smtpConfigured() {
   );
 }
 
+type MailReceipt = { requestId?: string; messageId?: string };
+
 class MailTransportError extends Error {
-  constructor(message: string, readonly status: 'failed' | 'temporary_failure' | 'unknown') {
+  constructor(message: string, readonly status: 'failed' | 'temporary_failure' | 'unknown', readonly receipt?: MailReceipt) {
     super(message);
   }
 }
@@ -90,6 +92,7 @@ async function sendWithAliyunDirectMail(input: SendEmailInput) {
     Format: 'JSON',
     FromAlias: fromAlias,
     HtmlBody: input.html,
+    ...(input.text?.trim() ? { TextBody: input.text } : {}),
     RegionId: regionId,
     ReplyToAddress: 'false',
     SignatureMethod: 'HMAC-SHA1',
@@ -113,15 +116,15 @@ async function sendWithAliyunDirectMail(input: SendEmailInput) {
     redirect: 'error',
   });
 
-  if (!response.ok) {
-    const status = response.status === 429 ? 'temporary_failure' : response.status >= 500 ? 'unknown' : 'failed';
-    throw new MailTransportError(`DirectMail HTTP ${response.status}`, status);
+  const { requestId, messageId, code } = directMailReceipt(await response.json().catch(() => null));
+  const receipt = { requestId, messageId };
+  if (!response.ok || code) {
+    const status = response.status === 429 || code === 'Throttling' ? 'temporary_failure'
+      : response.status >= 500 ? 'unknown' : 'failed';
+    throw new MailTransportError(`DirectMail HTTP ${response.status}${code ? ` ${code}` : ''}`, status, receipt);
   }
-  const responseData = await response.json();
-  if (responseData?.Code || typeof responseData?.RequestId !== 'string' || !responseData.RequestId.trim()) {
-    throw new MailTransportError('DirectMail 未返回有效的接受凭证。', 'unknown');
-  }
-  return { requestId: responseData.RequestId, messageId: typeof responseData.EnvId === 'string' ? responseData.EnvId : undefined };
+  if (!requestId) throw new MailTransportError('DirectMail 未返回有效的接受凭证。', 'unknown', receipt);
+  return receipt;
 }
 
 async function sendWithSmtp(input: SendEmailInput) {
@@ -144,7 +147,7 @@ async function sendWithSmtp(input: SendEmailInput) {
   const fromAddress = process.env.SMTP_FROM || process.env.SMTP_USER || '';
   const fromName = process.env.SMTP_FROM_NAME || '观隅';
   const result = await transporter.sendMail({
-    from: `"${fromName}" <${fromAddress}>`,
+    from: { name: fromName, address: fromAddress },
     to: input.to,
     subject: input.subject,
     text: input.text,
@@ -173,11 +176,11 @@ async function createDelivery(input: TrackedEmailInput, tx: Prisma.TransactionCl
   } });
 }
 
-async function deliverEmail(deliveryId: string, input: SendEmailInput, attempts: number) {
+async function deliverEmail(deliveryId: string, input: SendEmailInput, attempts: number, category: string) {
   const provider = configuredProvider();
   let status: 'accepted' | 'failed' | 'temporary_failure' | 'unknown' = 'failed';
   let error: string | null = null;
-  let receipt: { requestId?: string; messageId?: string } = {};
+  let receipt: MailReceipt = {};
   if (!provider) {
     if (process.env.NODE_ENV !== 'production') console.log('[dev-email]', JSON.stringify(input, null, 2));
     error = '邮件通道未配置。';
@@ -186,11 +189,18 @@ async function deliverEmail(deliveryId: string, input: SendEmailInput, attempts:
       receipt = provider === 'smtp' ? await sendWithSmtp(input) : await sendWithAliyunDirectMail(input);
       status = 'accepted';
     } catch (failure) {
-      const smtpCode = Number((failure as { responseCode?: number } | null)?.responseCode);
-      status = failure instanceof MailTransportError ? failure.status
-        : smtpCode >= 500 ? 'failed' : smtpCode >= 400 ? 'temporary_failure' : 'unknown';
-      error = failure instanceof MailTransportError ? normalizeEmailError(failure)
-        : smtpCode ? `SMTP ${smtpCode}` : '上游接受状态不明。';
+      if (failure instanceof MailTransportError) {
+        status = failure.status;
+        error = normalizeEmailError(failure);
+        receipt = failure.receipt || {};
+      } else if (provider === 'smtp') {
+        const smtp = smtpDeliveryFailure(failure);
+        status = smtp.status as typeof status;
+        error = smtp.detail;
+      } else {
+        status = 'unknown';
+        error = 'DirectMail 上游接受状态不明。';
+      }
     }
   }
 
@@ -208,6 +218,12 @@ async function deliverEmail(deliveryId: string, input: SendEmailInput, attempts:
   } catch {
     console.error('[email-delivery] tracking update failed', { deliveryId, provider, status });
   }
+  if (provider || process.env.NODE_ENV === 'production') {
+    const details = { deliveryId, category, provider: provider || 'none', status, error, providerRequestId: receipt.requestId,
+      recipientProvider: /@(?:gmail|googlemail)\.com$/i.test(input.to) ? 'gmail' : 'other' };
+    if (status === 'accepted') console.info('[email-delivery]', details);
+    else console.warn('[email-delivery]', details);
+  }
   return { accepted: status === 'accepted', provider: provider || 'none', deliveryId, status, error };
 }
 
@@ -218,7 +234,7 @@ export async function sendTrackedEmail(input: TrackedEmailInput) {
     where: { id: delivery.id },
     data: { status: 'sending', attempts: 1 },
   });
-  return deliverEmail(delivery.id, input, 1);
+  return deliverEmail(delivery.id, input, 1, input.category);
 }
 
 export function queueTrackedEmail(input: TrackedEmailInput, tx: Prisma.TransactionClient) {
@@ -267,7 +283,7 @@ export async function dispatchQueuedEmails(limit = 10) {
       return;
     }
     const body = JSON.parse(payload) as Pick<SendEmailInput, 'html' | 'text'>;
-    await deliverEmail(row.id, { ...body, to: row.recipient, subject: row.subject }, row.attempts + 1);
+    await deliverEmail(row.id, { ...body, to: row.recipient, subject: row.subject }, row.attempts + 1, row.category);
   }));
   return queued.length;
 }
