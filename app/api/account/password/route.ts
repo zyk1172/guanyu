@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
-import { notifyPasswordChanged } from '@/lib/email';
+import { scheduleEmailDelivery, queuePasswordChanged } from '@/lib/email';
 import { assertValidPasswordInput, hashPassword, verifyPassword } from '@/lib/password-core.mjs';
 import { prisma } from '@/lib/prisma';
 import { reservePasswordChangeAttempt } from '@/lib/rate-limit';
@@ -49,12 +49,11 @@ export async function PATCH(request: NextRequest) {
         where: { userId: user.id, revokedAt: null },
         data: { revokedAt: new Date() },
       });
+      await queuePasswordChanged(tx, { userId: nextUser.id, email: nextUser.email });
       return nextUser;
     });
-    notifyPasswordChanged({ userId: account.id, email: account.email }).catch((error) => {
-      console.error('password change notification failed', error);
-    });
-    const response = NextResponse.json({ ok: true, message: '密码已修改。我们已向你的邮箱发送安全通知。' });
+    scheduleEmailDelivery();
+    const response = NextResponse.json({ ok: true, message: '密码已修改，安全通知已排队。' });
     await setSessionCookie(response, updated);
     return response;
   } catch (error) {

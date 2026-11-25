@@ -1,5 +1,7 @@
 'use client';
 
+import type { AnalysisQuote } from '@/lib/analysis-quote';
+
 import { Button, Input, Select } from '@/components/ui/controls';
 import type { NewsSearchDraft } from '@/lib/news-search-core';
 import { NEWS_SEARCH_DRAFT_KEY, decodeNewsSearchDraft, encodeNewsSearchDraft } from '@/lib/news-search-core';
@@ -11,7 +13,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useUiLanguage } from './LanguageProvider';
 import HomeNewsFeed from './HomeNewsFeed';
 
-export default function NewsSearch({ onSelect, busy, canAnalyze, analysisCostCents, onOpenManual }: { onSelect: (article: NewsArticle) => Promise<void> | void; busy: boolean; canAnalyze: boolean; analysisCostCents: number | null; onOpenManual: () => void }) {
+export default function NewsSearch({ onSelect, busy, canAnalyze, analysisQuote, onOpenManual }: { onSelect: (article: NewsArticle, confirmedQuote?: AnalysisQuote) => Promise<void> | void; busy: boolean; canAnalyze: boolean; analysisQuote: AnalysisQuote | null; onOpenManual: () => void }) {
   const { language } = useUiLanguage();
   const { status } = useSession();
   const text = (zh: string, en: string) => language.startsWith('zh') ? zh : en;
@@ -100,10 +102,10 @@ export default function NewsSearch({ onSelect, busy, canAnalyze, analysisCostCen
     finally { if (current === requestNumber.current) setSearching(false); }
   }
 
-  function choose(article: NewsArticle) {
+  function choose(article: NewsArticle, confirmRss = false) {
     const saved = persist({ query: resultQuery || query || article.title.slice(0, 128), provider, period, result, pending: status === 'authenticated' ? null : article });
     if (!saved && status !== 'authenticated') { setError(text('浏览器无法保存选择，请先登录后再选择报道。', 'Your browser could not save this selection. Sign in before choosing an article.')); return; }
-    return onSelect(article);
+    return onSelect(article, status === 'authenticated' && confirmRss ? analysisQuote ?? undefined : undefined);
   }
   const actualSource = result?.providers.map(name => ({ bing: 'Bing News', brave: 'Brave News', searxng: 'SearXNG', duckduckgo: 'DuckDuckGo', deepseek: 'DeepSeek API' }[name] || name)).join(' / ');
 
@@ -135,6 +137,6 @@ export default function NewsSearch({ onSelect, busy, canAnalyze, analysisCostCen
         <div className="flex flex-wrap items-center gap-3 sm:flex-col sm:items-end sm:justify-center"><Button variant="secondary" type="button" disabled={busy || status === 'loading'}  aria-label={text(`分析这篇：${article.title}`, `Analyze article: ${article.title}`)} onClick={() => choose(article)}>{text('分析这篇', 'Analyze article')}</Button><a href={article.url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-1 text-xs text-[var(--color-link)]">{text('查看原文', 'Open original')}<ArrowUpRight size={14} aria-hidden="true" /></a></div>
       </li>)}</ol>
     </section>}
-    {result ? <Button variant="ghost" onClick={()=>{setResult(null);persist({query:resultQuery||query,provider,period,result:null,pending:null})}}>{text('返回今日关注','Back to today’s focus')}</Button> : <HomeNewsFeed onSelect={choose} busy={busy} canAnalyze={canAnalyze} cost={analysisCostCents}/>}
+    {result ? <Button variant="ghost" onClick={()=>{setResult(null);persist({query:resultQuery||query,provider,period,result:null,pending:null})}}>{text('返回今日关注','Back to today’s focus')}</Button> : <HomeNewsFeed onSelect={article => choose(article, true)} busy={busy} canAnalyze={canAnalyze && Boolean(analysisQuote)} cost={analysisQuote?.costCents ?? null}/>}
   </div>;
 }

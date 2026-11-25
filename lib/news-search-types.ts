@@ -13,4 +13,5 @@ export type NewsSearchResult = {
 export type NewsCapabilities = {
   defaultProvider: NewsProvider; deepseekAvailable: boolean;
   deepseekSource: 'personal' | 'platform' | null; paidAllowed: boolean;
+  unavailableReason?: 'deployment_disabled' | 'sign_in_required' | 'credential_unreadable' | 'missing_credential' | null;
 };

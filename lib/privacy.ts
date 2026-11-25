@@ -1,3 +1,4 @@
+import { recoverExpiredServiceOperations } from '@/lib/service-operation';
 import { prisma } from '@/lib/prisma';
 import { hashForStorage } from '@/lib/rate-limit';
 
@@ -28,7 +29,7 @@ export async function exportUserData(userId: string) {
     prisma.purchaseOrder.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
     prisma.pointTransaction.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
     prisma.reportDiscussionMessage.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
-    prisma.emailDelivery.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
+    prisma.emailDelivery.findMany({ where: { userId }, omit: { payloadEncrypted: true }, orderBy: { createdAt: 'desc' } }),
     prisma.exportArtifact.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
     prisma.reportFollowup.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
     prisma.rssFeed.findMany({ where: { ownerUserId: userId }, orderBy: { createdAt: 'desc' } }),
@@ -257,6 +258,10 @@ export async function runPrivacyCleanup() {
       ],
     },
   });
+  await prisma.auditManagementRequest.deleteMany({
+    where: { createdAt: { lt: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) } },
+  });
+  const expiredServiceOperations = await recoverExpiredServiceOperations();
   const serviceOperations = await prisma.serviceOperation.updateMany({
     where: {
       status: 'COMPLETED',
@@ -265,5 +270,5 @@ export async function runPrivacyCleanup() {
     },
     data: { resultJson: null },
   });
-  return { emails, jobs, verificationCodes, extensionLinkCodes, serviceOperations, traffic, passkeyChallenges, newsSearchCaches };
+  return { emails, jobs, verificationCodes, extensionLinkCodes, serviceOperations, expiredServiceOperations, traffic, passkeyChallenges, newsSearchCaches };
 }

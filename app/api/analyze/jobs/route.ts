@@ -1,3 +1,4 @@
+import { analysisQuoteSchema } from '@/lib/analysis-quote';
 import { after, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
@@ -38,7 +39,7 @@ export async function POST(request: Request) {
       focus: body.focus,
       sourceUrl: body.sourceUrl,
       reportLanguage: body.reportLanguage || reportLanguageFromRequest(request),
-    });
+    }, body.clientRequestId, analysisQuoteSchema.safeParse(body.quote).data ?? null);
   } catch (error) {
     if (error instanceof AppError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
     return NextResponse.json({ error: error instanceof Error ? error.message : '创建观隅分析任务失败。' }, { status: 400 });

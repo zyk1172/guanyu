@@ -3,8 +3,6 @@
 import { useConfirmation } from '@/components/ui/ConfirmationProvider';
 
 import AccountProfile from '@/components/AccountProfile';
-import NewsSearchAdmin from '@/components/NewsSearchAdmin';
-import TrafficAdmin from '@/components/TrafficAdmin';
 import { Button, ButtonLink, Input, Panel, Select, Textarea } from '@/components/ui/controls';
 
 import DeepseekSearchSettings from '@/components/DeepseekSearchSettings';
@@ -12,14 +10,11 @@ import Header from '@/components/Header';
 import { useUiLanguage } from '@/components/LanguageProvider';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import OrderHistory from '@/components/OrderHistory';
-import PlatformModelAdmin from '@/components/PlatformModelAdmin';
 import { PlatformModelSelector } from '@/components/PlatformModelSelector';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
-import { formatEmailCategory, formatOrderStatus, formatPlanType } from '@/lib/account-display';
+import { formatOrderStatus, formatPlanType } from '@/lib/account-display';
 import {
   THINKING_DEPTH_OPTIONS,
-  getReportLanguageLabel,
-  getThinkingDepthLabel,
   normalizeReportLanguage,
   normalizeThinkingDepthValue,
 } from '@/lib/types';
@@ -29,7 +24,6 @@ import {
   DatabaseBackup,
   LayoutDashboard,
   LoaderCircle,
-  MailCheck,
   MessagesSquare,
   ReceiptText,
   ShieldCheck,
@@ -128,10 +122,11 @@ export default function AccountPage() {
   const router = useRouter();
   const { language, t } = useUiLanguage();
 
-  const [activeTab, setActiveTab] = useState<'info' | 'settings' | 'history' | 'system'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'settings' | 'system'>('info');
 
   // 模型与偏好设置
   const [modelName, setModelName] = useState('gpt-4o');
+  const [llmProvider, setLlmProvider] = useState<'openai_compatible' | 'openai' | 'anthropic'>('openai_compatible');
   const [llmBaseUrl, setLlmBaseUrl] = useState('https://api.openai.com/v1');
   const [llmApiKey, setLlmApiKey] = useState('');
   const [hasLlmApiKey, setHasLlmApiKey] = useState(false);
@@ -153,11 +148,8 @@ export default function AccountPage() {
   const [isPublic, setIsPublic] = useState(false);
   const [enableCharts, setEnableCharts] = useState(true);
 
-  const [myAudits, setMyAudits] = useState<any[]>([]);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
-  const [showAllAudits, setShowAllAudits] = useState(false);
   const [accountCreatedAt, setAccountCreatedAt] = useState<string | null>(null);
-  const [isFetchingAudits, setIsFetchingAudits] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [settingsMessage, setSettingsSettingsMessage] = useState<string | null>(null);
   const [billing, setBilling] = useState<any>(null);
@@ -214,21 +206,6 @@ export default function AccountPage() {
     }
   }, [status, router]);
 
-  const fetchMyAudits = useCallback(async () => {
-    setIsFetchingAudits(true);
-    try {
-      const res = await fetch(showAllAudits ? '/api/audits/admin' : '/api/audits/my');
-      if (res.ok) {
-        const data = await res.json();
-        setMyAudits(data);
-      }
-    } catch (err) {
-      console.error('获取我的审视历史失败:', err);
-    } finally {
-      setIsFetchingAudits(false);
-    }
-  }, [showAllAudits]);
-
   const fetchBilling = useCallback(async () => {
     try {
       const res = await fetch('/api/billing/status');
@@ -247,7 +224,7 @@ export default function AccountPage() {
     }
   }, []);
 
-  // 2. 加载设置与审视记录
+  // 2. 加载账户和设置
   useEffect(() => {
     if (session) {
       // 获取用户偏好设置
@@ -256,6 +233,7 @@ export default function AccountPage() {
         .then((data) => {
           if (data && !data.error) {
             setModelName(data.defaultModelName);
+            setLlmProvider(data.llmProvider === 'openai' || data.llmProvider === 'anthropic' ? data.llmProvider : 'openai_compatible');
             setLlmBaseUrl(data.llmBaseUrl || 'https://api.openai.com/v1');
             setHasLlmApiKey(Boolean(data.hasLlmApiKey));
         setAllowPaidSearch(Boolean(data.paidSearchAllowed));
@@ -281,17 +259,15 @@ export default function AccountPage() {
           }
         });
 
-      // 获取当前用户审视记录
-      fetchMyAudits();
       fetchBilling();
     }
-  }, [session, fetchMyAudits, fetchBilling]);
+  }, [session, fetchBilling]);
 
   useEffect(() => {
-    if (isSuperAdmin) {
+    if (isSuperAdmin && activeTab === 'system') {
       fetchAdminBilling();
     }
-  }, [isSuperAdmin, fetchAdminBilling]);
+  }, [activeTab, isSuperAdmin, fetchAdminBilling]);
 
   useEffect(() => {
     if (!isSuperAdmin && activeTab === 'system') {
@@ -299,11 +275,7 @@ export default function AccountPage() {
     }
   }, [activeTab, isSuperAdmin]);
 
-  useEffect(() => {
-    if (session && activeTab === 'history') {
-      fetchMyAudits();
-    }
-  }, [session, activeTab, fetchMyAudits]);
+
 
   // 3. 保存设置逻辑
   const handleSaveSettings = async (e: React.FormEvent) => {
@@ -317,6 +289,7 @@ export default function AccountPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           defaultModelName: modelName.trim(),
+          llmProvider,
           llmBaseUrl: llmBaseUrl.trim(),
           llmApiKey: llmApiKey.trim(),
           ...(canUseOwnApi ? { searchProvider, deepseekApiKey: deepseekApiKey.trim(), clearDeepseekApiKey } : {}),
@@ -755,47 +728,11 @@ export default function AccountPage() {
       setRestorePassphrase('');
       setRestoreConfirmation('');
       setBackupMessage(data.message || t('backup.restored'));
-      await Promise.all([fetchAdminBilling(), fetchBilling(), fetchMyAudits()]);
+      await Promise.all([fetchAdminBilling(), fetchBilling()]);
     } catch (error: any) {
       setBackupMessage(error?.message || t('backup.restoreFailed'));
     } finally {
       setBackupBusy(null);
-    }
-  };
-
-  // 4. 修改单个审视记录公开状态
-  const toggleAuditPublic = async (id: string, currentPublic: boolean) => {
-    try {
-      const res = await fetch(`/api/audits/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isPublic: !currentPublic }),
-      });
-      if (res.ok) {
-        setMyAudits((prev) =>
-          prev.map((audit) =>
-            audit.id === id ? { ...audit, isPublic: !currentPublic } : audit
-          )
-        );
-      }
-    } catch (err) {
-      console.error('修改公开状态失败:', err);
-    }
-  };
-
-  // 5. 删除审视记录
-  const handleDeleteAudit = async (id: string) => {
-    if (!await confirm('确定要永久删除此条审视记录吗？此操作无法撤销。')) return;
-
-    try {
-      const res = await fetch(`/api/audits/${id}`, {
-        method: 'DELETE',
-      });
-      if (res.ok) {
-        setMyAudits((prev) => prev.filter((audit) => audit.id !== id));
-      }
-    } catch (err) {
-      console.error('删除审视失败:', err);
     }
   };
 
@@ -807,16 +744,7 @@ export default function AccountPage() {
     );
   }
 
-  const getDepthLabel = getThinkingDepthLabel;
   const apiSettingsLocked = !canUseOwnApi;
-
-  const getModeLabel = (mode: string) => {
-    switch (mode) {
-      case 'quick': return '历史快速分析';
-      case 'deep': return '观隅分析';
-      default: return mode;
-    }
-  };
   const adminUsers = (adminBilling?.users || []).filter((user: any) => {
     const keyword = adminUserSearch.trim().toLowerCase();
     if (!keyword) return true;
@@ -847,11 +775,7 @@ export default function AccountPage() {
            >
               {t('account.settingsTab')}
             </Button>
-            <Button variant="tab" aria-pressed={activeTab === 'history'}
-              onClick={() => setActiveTab('history')}
-           >
-              {t('account.historyTab')}
-            </Button>
+            <ButtonLink variant="ghost" href="/account/audits">{t('account.historyTab')}</ButtonLink>
             {isSuperAdmin && (
               <Button variant="tab" aria-pressed={activeTab === 'system'}
                 onClick={() => setActiveTab('system')}
@@ -882,16 +806,13 @@ export default function AccountPage() {
                     <p className="mt-0.5 max-w-3xl text-xs leading-relaxed text-[var(--color-text-muted)]">{t('admin.systemDescription', '集中处理平台运营、用户权限、内容审核和数据安全。以下功能仅超级管理员可见。')}</p>
                   </div>
                 </div>
-                <Button variant="secondary"
-                  type="button"
-                  onClick={() => {
-                    setShowAllAudits(true);
-                    setActiveTab('history');
-                  }}
-                  className="w-fit"
-               >
-                  {t('admin.manageReports', '管理全站报告')}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <ButtonLink href="/admin/audits">{t('admin.manageReports', '管理全站报告')}</ButtonLink>
+                  <ButtonLink href="/admin/mail">{t('admin.emailRecords', '邮件记录')}</ButtonLink>
+                  <ButtonLink href="/admin/models">{language.startsWith('zh') ? '平台模型' : 'Platform models'}</ButtonLink>
+                  <ButtonLink href="/admin/search">{language.startsWith('zh') ? '搜索设置' : 'Search settings'}</ButtonLink>
+                  <ButtonLink href="/admin/traffic">{language.startsWith('zh') ? '访问统计' : 'Traffic'}</ButtonLink>
+                </div>
               </div>
               {adminBilling ? (
                 <div className="grid grid-cols-2 gap-px bg-[var(--color-border)] sm:grid-cols-4">
@@ -899,7 +820,6 @@ export default function AccountPage() {
                     { icon: Users, label: t('admin.registeredUsers', '注册用户'), value: adminBilling.users?.length || 0 },
                     { icon: ReceiptText, label: t('admin.pendingOrders', '待确认订单'), value: adminBilling.pendingOrders?.length || 0 },
                     { icon: MessagesSquare, label: t('admin.pendingReports', '待审核举报'), value: adminBilling.discussionReports?.length || 0 },
-                    { icon: MailCheck, label: t('admin.emailRecords', '邮件记录'), value: adminBilling.emailDeliveries?.length || 0 },
                   ].map(({ icon: Icon, label, value }) => (
                     <div key={label} className="flex items-center gap-3 bg-[var(--color-card)] px-4 py-3">
                       <Icon className="h-4 w-4 shrink-0 text-[var(--color-primary)]" aria-hidden="true" />
@@ -917,13 +837,6 @@ export default function AccountPage() {
                 </div>
               )}
             </Panel>
-          )}
-          {activeTab === 'system' && isSuperAdmin && <TrafficAdmin />}
-          {activeTab === 'system' && isSuperAdmin && <NewsSearchAdmin />}
-          {activeTab === 'system' && isSuperAdmin && (
-            <div className="col-span-full">
-              <PlatformModelAdmin />
-            </div>
           )}
           {activeTab === 'info' && <Panel as="div" className="col-span-full"><AccountProfile /></Panel>}
           <Panel as="div" className="system flex min-w-0 flex-col gap-4 space-y-4">
@@ -1107,21 +1020,6 @@ export default function AccountPage() {
                     {adminUserMessage}
                   </p>
                 )}
-                <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="font-bold text-[var(--color-text)]">邮件投递记录</div>
-                    <div className="text-xxs text-[var(--color-text-muted)]">成功、失败与失败原因会保留在这里。</div>
-                  </div>
-                  <div className="mt-2 max-h-48 space-y-1 overflow-y-auto text-xxs">
-                    {(adminBilling.emailDeliveries || []).length ? adminBilling.emailDeliveries.map((delivery: any) => (
-                      <div key={delivery.id} className="rounded border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-2 py-1.5 text-[var(--color-text-muted)]">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1"><span className={`font-bold ${delivery.status === 'sent' ? 'text-[var(--color-success)]' : delivery.status === 'failed' ? 'text-[var(--color-danger)]' : 'text-[var(--color-warning)]'}`}>{delivery.status === 'sent' ? '已发送' : delivery.status === 'failed' ? '发送失败' : '待发送'}</span><span>{formatEmailCategory(delivery.category, language)}</span><span>{delivery.provider || '未选择通道'}</span><span>{new Date(delivery.createdAt).toLocaleString(language)}</span></div>
-                        <div className="mt-0.5 break-all">{delivery.recipient} · {delivery.subject}</div>
-                        {delivery.error && <div className="mt-0.5 break-all text-[var(--color-danger)]">{delivery.error}</div>}
-                      </div>
-                    )) : <div className="py-2 text-[var(--color-text-muted)]">暂时没有邮件投递记录。</div>}
-                  </div>
-                </div>
                 <div className="mt-3 max-h-[520px] space-y-3 overflow-y-auto pr-1">
                   {adminUsers.map((user: any) => {
                     const credit = ((user.creditBalanceCents || user.creditBalance * 100 || 0) / 100).toFixed(1);
@@ -1465,6 +1363,21 @@ export default function AccountPage() {
                 <p className="text-xxs text-[var(--color-text-subtle)]">{t('account.modelHint')}</p>
               </div>
 
+              <label className="ui-label settings-field">
+                <span>{language.startsWith('zh') ? '模型协议' : 'Model protocol'}</span>
+                <Select value={llmProvider} disabled={apiSettingsLocked} onChange={event => {
+                  const provider = event.target.value as typeof llmProvider;
+                  setLlmProvider(provider);
+                  setLlmApiKey('');
+                  if (provider === 'openai') setLlmBaseUrl('https://api.openai.com/v1');
+                  if (provider === 'anthropic') setLlmBaseUrl('https://api.anthropic.com/v1');
+                }}>
+                  <option value="openai_compatible">OpenAI-compatible Chat Completions</option>
+                  <option value="openai">OpenAI Responses</option>
+                  <option value="anthropic">Anthropic Messages</option>
+                </Select>
+              </label>
+
               <div className="space-y-1">
                 <label htmlFor="account-llmBaseUrl" className="ui-label block text-[var(--color-text-muted)]">
                   {t('account.baseUrl')}
@@ -1479,7 +1392,7 @@ export default function AccountPage() {
                   placeholder="https://api.openai.com/v1"
                   className="w-full"
                />
-                <p className="text-xxs text-[var(--color-text-subtle)]">OpenAI-compatible Chat Completions API Base URL。</p>
+                <p className="text-xxs text-[var(--color-text-subtle)]">{language.startsWith('zh') ? '更换协议或地址后需重新填写密钥。' : 'Enter a new API key when changing protocol or URL.'}</p>
               </div>
 
               <div className="space-y-1 md:col-span-2">
@@ -1776,104 +1689,6 @@ export default function AccountPage() {
           </form>
         )}
 
-        {/* 3. 我的审视历史记录面板 */}
-        {activeTab === 'history' && (
-          <div className="space-y-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h3 className="ui-panel-title text-[var(--color-text-muted)]">
-                  {showAllAudits ? '全站报告管理' : '我的审视历史'} (共 {myAudits.length} 条)
-                </h3>
-                {isSuperAdmin && (
-                  <p className="mt-1 text-xxs font-semibold text-[var(--color-warning)]">
-                    超级管理员模式可删除全站报告，请谨慎操作。
-                  </p>
-                )}
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {isSuperAdmin && (
-                  <Button variant="secondary"
-                    onClick={() => setShowAllAudits((value) => !value)}
-                 >
-                    {showAllAudits ? '只看我的' : '全站报告管理'}
-                  </Button>
-                )}
-                <Button variant="ghost"
-                  onClick={fetchMyAudits}
-               >
-                  刷新
-                </Button>
-              </div>
-            </div>
-
-            {isFetchingAudits ? (
-              <div className="text-center py-12 text-sm text-[var(--color-text-subtle)] animate-pulse font-semibold">{t('account.historyLoading')}</div>
-            ) : myAudits.length === 0 ? (
-              <div className="bg-[var(--color-surface)] p-12 text-center text-xs text-[var(--color-text-subtle)] rounded-xl border border-dashed border-[var(--color-border)]">
-                {t('account.noHistory')}
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-3.5">
-                {myAudits.map((audit) => (
-                  <Panel as="div"
-                    key={audit.id}
-                    className="flex flex-col md:flex-row md:items-center justify-between gap-4 transition"
-                 >
-                    <div className="space-y-1 md:max-w-2xl">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="ui-badge text-[var(--color-link)] bg-[var(--color-primary-soft)]">
-                          {getDepthLabel(audit.reasoningDepth)}
-                        </span>
-                        <span className="ui-badge text-[var(--color-text-muted)] bg-[var(--color-surface)]">
-                          {getModeLabel(audit.analysisMode)}
-                        </span>
-                        <span className="ui-badge text-[var(--color-link)] bg-[var(--color-primary-soft)]">
-                          {getReportLanguageLabel(audit.reportLanguage)}
-                        </span>
-                        <span className="text-xxs text-[var(--color-text-subtle)] font-semibold">{new Date(audit.createdAt).toLocaleDateString()}</span>
-                        {showAllAudits && audit.user?.email && (
-                          <span className="ui-badge bg-[var(--color-warning-soft)] text-[var(--color-warning)]">
-                            {audit.user.email}
-                          </span>
-                        )}
-                      </div>
-                      <h4 className="text-sm font-bold text-[var(--color-text)]">{audit.title}</h4>
-                      <p className="text-xs text-[var(--color-text-muted)] line-clamp-1">{audit.newsSummary}</p>
-                    </div>
-
-                    <div className="flex items-center gap-2.5 justify-end text-xs font-bold flex-wrap">
-                      {showAllAudits ? (
-                        <Button variant="secondary" aria-pressed={audit.isPublic}
-                          onClick={() => toggleAuditPublic(audit.id, audit.isPublic)}
-                       >
-                          {audit.isPublic ? '公开展示' : '仅自己可见'}
-                        </Button>
-                      ) : (
-                        <Button variant="secondary" aria-pressed={audit.isPublic}
-                          onClick={() => toggleAuditPublic(audit.id, audit.isPublic)}
-                       >
-                          {audit.isPublic ? '公开展示' : '仅自己可见'}
-                        </Button>
-                      )}
-
-                      <ButtonLink variant="primary"
-                        href={`/audits/${audit.id}`}
-                     >
-                        详情
-                      </ButtonLink>
-
-                      <Button variant="danger"
-                        onClick={() => handleDeleteAudit(audit.id)}
-                     >
-                        删除
-                      </Button>
-                    </div>
-                  </Panel>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
       </div >
     </main >
   );

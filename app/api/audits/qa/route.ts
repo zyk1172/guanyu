@@ -1,3 +1,4 @@
+import { AppError } from '@/lib/app-error';
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
@@ -208,6 +209,7 @@ ${recentHistory.map((h) => `${h.role === 'user' ? '用户' : 'AI'}: ${h.content}
         return NextResponse.json({ status: 'processing', message: '该追问正在生成中，请稍后刷新查看。' }, { status: 202 });
       }
     } catch (error) {
+      if (error instanceof AppError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
       return NextResponse.json({ error: error instanceof Error ? error.message : '当前点数不足。' }, { status: 402 });
     }
 

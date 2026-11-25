@@ -61,8 +61,8 @@ jobs:
             exit 1
           fi
 
-      - name: Sync Prisma schema for CI
-        run: npx prisma db push
+      - name: Apply Prisma deployment migrations
+        run: npx prisma migrate deploy
 
       - name: Seed CI accounts
         run: npm run seed:ci

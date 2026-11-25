@@ -24,7 +24,7 @@ export async function resolveOperationModel(params: {
       searchOptions: personalDeepseekSearchOptions(settings) || { provider: 'free' as const },
       snapshot: null as PlatformModelSnapshot | null,
       costCents: 0,
-      provider: 'openai_compatible' as const,
+      provider: custom.provider,
       baseUrl: custom.baseURL,
       apiKey: custom.apiKey,
       modelId: custom.modelName,

@@ -1,3 +1,4 @@
+import { AppError } from '@/lib/app-error';
 import { createHash } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
@@ -75,7 +76,10 @@ export async function POST(request: NextRequest) {
     let claimed;
     try {
       claimed = await beginServiceOperation({ userId: user.id, idempotencyKey, operation: 'followup', reservedCredits: model.costCents, transactionType: 'AI_COMPARISON', description: `多报道综合，消耗 ${cost} 点`, auditId: reports[0].id, modelSnapshot: model.snapshot ? { configId: model.snapshot.configId, displayName: model.snapshot.displayName, modelName: model.snapshot.modelId, multiplierBps: model.snapshot.multiplierBps, configVersion: model.snapshot.configVersion } : undefined });
-    } catch { return NextResponse.json({ error: '点数不足或暂时无法预扣，请检查余额后重试。' }, { status: 402 }); }
+    } catch (error) {
+      if (error instanceof AppError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status, headers });
+      return NextResponse.json({ error: '点数不足或暂时无法预扣，请检查余额后重试。' }, { status: 402 });
+    }
     if (claimed.state === 'completed') return NextResponse.json({ ...JSON.parse(claimed.operation.resultJson || '{}'), cached: true }, { headers });
     if (claimed.state === 'running') return NextResponse.json({ processing: true }, { status: 202, headers });
     operation = claimed.operation;

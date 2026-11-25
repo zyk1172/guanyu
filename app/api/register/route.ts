@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { assertValidPasswordInput, hashPassword } from '@/lib/password-core.mjs';
 import { setSessionCookie } from '@/lib/session-cookie';
 import { hasValidEmailCode, verifyEmailCodeTx } from '@/lib/captcha';
-import { sendWelcomeEmail } from '@/lib/email';
+import { scheduleEmailDelivery, queueWelcomeEmail } from '@/lib/email';
 import { grantSignupBonusTx } from '@/lib/billing';
 import { assertSameOrigin, assertSecureAccountTransport } from '@/lib/request-security';
 
@@ -100,6 +100,7 @@ export async function POST(request: NextRequest) {
         },
       });
       await grantSignupBonusTx(tx, created.id);
+      await queueWelcomeEmail(tx, created.email);
       return created;
     });
 
@@ -111,9 +112,7 @@ export async function POST(request: NextRequest) {
       ? NextResponse.json({ ok: true, url: '/account' })
       : NextResponse.redirect(new URL('/account', process.env.NEXTAUTH_URL || 'http://localhost:3000'), 303);
     await setSessionCookie(response, user);
-    sendWelcomeEmail(user.email).catch((error) => {
-      console.error('Send welcome email failed:', error);
-    });
+    scheduleEmailDelivery();
     return response;
   } catch (error: any) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {

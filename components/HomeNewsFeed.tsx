@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import { RefreshCw } from 'lucide-react';
+import Dialog from '@/components/ui/Dialog';
 import { Button, ButtonLink, Select } from '@/components/ui/controls';
 import { useUiLanguage } from './LanguageProvider';
 import { useSession } from 'next-auth/react';
@@ -16,28 +17,45 @@ function NewsPhoto({ src }: { src?: string }) {
   const [failed,setFailed]=useState(false);
   return src && !failed ? <Image className="news-card-photo" src={src} width={640} height={360} alt="" unoptimized loading="lazy" onError={()=>setFailed(true)} /> : null;
 }
-function NewsCard({ story, onAnalyze, disabled, active, cost, asOf }: { story:HomeNewsStory; onAnalyze:(story:HomeNewsStory)=>void; disabled:boolean; active:boolean; cost:number|null;asOf:string }) {
-  const {language}=useUiLanguage(),zh=language.startsWith('zh');
-  const headline=story.headline;
-  const related=story.reports.filter((report,index,reports)=>reports.findIndex(item=>item.publisher===report.publisher)===index);
-  const validTime=Number.isFinite(Date.parse(headline.publishedAt)) && Date.parse(headline.publishedAt)<=Date.parse(asOf)+5*60_000;
-  return <article className="news-card">
-    <NewsPhoto key={story.imageHref} src={story.imageHref}/>
-    <div className="news-card-content">
-      <p className="news-card-meta"><span>{headline.sourceName}</span>{validTime ? <time dateTime={headline.publishedAt}>{new Intl.DateTimeFormat(language,{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}).format(new Date(headline.publishedAt))}</time> : <span>{zh?'发布时间未知':'Date unknown'}</span>}</p>
-      <h2><a href={headline.url} target="_blank" rel="noopener noreferrer">{headline.title}</a></h2>
-      <p className="news-card-summary">{headline.summary || (zh?'订阅源未提供摘要，可查看原文了解详情。':'No excerpt was provided. Open the article for details.')}</p>
-      <div className="news-card-evidence">
-        {story.isHot ? <details><summary>{story.sourceCount>=2 ? (zh?`${story.sourceCount} 个来源关注`:`Covered by ${story.sourceCount} sources`) : (zh?'新闻头条收录':'In news headlines')}</summary><div>
-          {related.map(report=><p key={report.id}><a href={report.url} target="_blank" rel="noopener noreferrer">{report.sourceName} · {report.title}</a></p>)}
-          {story.index && <p><a href={story.index.url} target="_blank" rel="noopener noreferrer">{zh?'查看 Google 新闻头条依据':'View Google News headline reference'}</a></p>}
-        </div></details> : <p>{zh?'最新报道':'Latest report'}</p>}
-        {cost!==null&&<span className="news-card-price">{formatCreditCents(cost)}{zh?' 点/分析':' credits / analysis'}</span>}
+function NewsDetail({ story, close, analyze, disabled, active, cost, asOf, signedIn }: {
+  story: HomeNewsStory; close: () => void; analyze: () => void;
+  disabled: boolean; active: boolean; cost: number | null; asOf: string; signedIn: boolean;
+}) {
+  const { language } = useUiLanguage();
+  const zh = language.startsWith('zh');
+  const { headline } = story;
+  const related = story.reports.filter((report, index, reports) =>
+    reports.findIndex(item => item.publisher === report.publisher) === index);
+  const validTime = Number.isFinite(Date.parse(headline.publishedAt))
+    && Date.parse(headline.publishedAt) <= Date.parse(asOf) + 5 * 60_000;
+  return <Dialog open onClose={close} title={headline.title} closeLabel={zh ? '关闭' : 'Close'}>
+    <div className="space-y-4">
+      <p className="news-detail-meta">
+        {headline.sourceName}
+        {' · '}
+        {validTime ? <time dateTime={headline.publishedAt}>
+          {new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(headline.publishedAt))}
+        </time> : zh ? '发布时间未知' : 'Date unknown'}
+      </p>
+      {headline.summary && <p>{headline.summary}</p>}
+      {story.isHot && <div className="news-detail-evidence">
+        <p>{zh ? `${story.sourceCount} 个来源关注` : `Covered by ${story.sourceCount} sources`}</p>
+        <ul>
+          {related.map(report => <li key={report.id}><a href={report.url} target="_blank" rel="noopener noreferrer">{report.sourceName} · {report.title}</a></li>)}
+          {story.index && <li><a href={story.index.url} target="_blank" rel="noopener noreferrer">{zh ? 'Google 新闻头条' : 'Google News headline'}</a></li>}
+        </ul>
+      </div>}
+      <div className="flex flex-wrap items-center gap-2">
+        <ButtonLink href={headline.url} target="_blank" rel="noopener noreferrer">{zh ? '查看原文' : 'Open original'}</ButtonLink>
+        <Button variant="primary" disabled={disabled} busy={active} onClick={analyze}>
+          {active ? (zh ? '分析中…' : 'Analyzing…') : (signedIn ? (zh ? '确认分析' : 'Confirm analysis') : (zh ? '登录后继续' : 'Sign in to continue'))}
+          {signedIn && cost !== null && !active ? ` · ${formatCreditCents(cost)} ${zh ? '点' : 'credits'}` : ''}
+        </Button>
       </div>
-      <div className="news-card-actions"><Button variant="primary" disabled={disabled} aria-busy={active} aria-label={zh?`分析这篇：${headline.title}`:`Analyze article: ${headline.title}`} onClick={()=>onAnalyze(story)}>{active?(zh?'分析中…':'Analyzing…'):(zh?'分析这篇':'Analyze')}</Button><ButtonLink href={headline.url} target="_blank" rel="noopener noreferrer">{zh?'查看原文':'Original'}</ButtonLink></div>
     </div>
-  </article>;
+  </Dialog>;
 }
+
 type FeedProps = {
   onSelect: (article: NewsArticle) => Promise<void> | void;
   busy: boolean;
@@ -64,6 +82,7 @@ function NewsFeed({ onSelect, busy, canAnalyze, cost, identity, signedIn }: Feed
   const [source, setSource] = useState('all');
   const [limit, setLimit] = useState(6);
   const [active, setActive] = useState('');
+  const [selected, setSelected] = useState<HomeNewsStory | null>(null);
   const snapshot = useRef<BrowserNewsSnapshot | null>(null);
   const controller = useRef<AbortController | null>(null);
   const followup = useRef<number | undefined>(undefined);
@@ -191,7 +210,22 @@ function NewsFeed({ onSelect, busy, canAnalyze, cost, identity, signedIn }: Feed
     {data&&!data.hotCount&&mode==='latest'&&<p role="status" className="news-feed-notice">{zh?'暂未发现有足够依据的热点，当前展示最新报道。':'No supported hot topics are available. Showing the latest reports.'}</p>}
     {error&&<div role="alert" className="news-feed-notice"><p>{error}</p><Button busy={refreshing} onClick={() => void load(true)}>{zh?'重试':'Retry'}</Button></div>}
     {initialLoad==='loading'&&!data?<p role="status" className="news-feed-loading">{zh?'正在同步新闻与热点…':'Loading news and topic coverage…'}</p>:stories.length?<>
-      <div className="news-card-grid">{stories.slice(0,limit).map(story=><NewsCard key={story.id} story={story} asOf={data?.fetchedAt||''} onAnalyze={story=>void analyze(story)} disabled={busy||!!active||!identity||(signedIn&&!canAnalyze)} active={active===story.id} cost={cost}/>)}</div>
+      <div className="news-card-grid">
+        {stories.slice(0, limit).map(story => <article className="news-card" key={story.id}>
+          <NewsPhoto key={story.imageHref} src={story.imageHref} />
+          <Button variant="ghost" className="news-card-trigger" onClick={() => setSelected(story)}>
+            <span className="news-card-title">{story.headline.title}</span>
+          </Button>
+        </article>)}
+      </div>
+      {selected && <NewsDetail story={selected} asOf={data?.fetchedAt || ''} cost={cost} signedIn={signedIn}
+        close={() => setSelected(null)} active={active === selected.id}
+        disabled={busy || !!active || !identity || (signedIn && !canAnalyze)}
+        analyze={() => {
+          const story = selected;
+          setSelected(null);
+          void analyze(story);
+        }} />}
       {stories.length>limit&&<div className="news-feed-more"><Button onClick={()=>setLimit(limit+6)}>{zh?'查看更多报道':'More reports'}</Button></div>}
     </>:initialLoad==='ready'&&!error?<p role="status" className="news-feed-notice">{zh?'当前筛选下暂无报道。可以切换“最新”、选择其他新闻源，或搜索关键词。':'No reports match these filters. Try Latest, another source, or a keyword search.'}</p>:null}
   </section>;

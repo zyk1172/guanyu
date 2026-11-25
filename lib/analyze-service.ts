@@ -1,3 +1,4 @@
+import type { Prisma } from '@/lib/generated/prisma/client';
 import { after, NextResponse } from 'next/server';
 import { cacheDelByPrefix, CACHE_KEYS } from '@/lib/cache';
 import { prisma } from '@/lib/prisma';
@@ -9,7 +10,7 @@ import { searchWeb, WebSearchOptions } from '@/lib/search';
 import { WebResearchSession } from '@/lib/web-research';
 import { paidSearchAllowed, customWebResearchEnabled, effectiveSearchMode } from '@/lib/web-search-policy';
 import { decryptSecret } from '@/lib/secret';
-import { chooseModelConfig } from '@/lib/model-config';
+import { chooseModelConfig, personalModelFingerprint } from '@/lib/model-config';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { buildUsagePlan, commitUsageWithResult, getOrCreateAppSetting, refundAnalysisUsage, reserveAnalysisUsage } from '@/lib/billing';
 import { normalizeReportLanguage } from '@/lib/types';
@@ -525,6 +526,8 @@ type AnalyzeExecutionContext = {
   platformModelSnapshotJson?: string | null;
   creditCostCents?: number;
   requestedSource?: 'platform' | 'custom';
+  personalFingerprint?: string;
+  completeAudit?: (tx: Prisma.TransactionClient, auditId: string) => Promise<void>;
 };
 
 export async function handleAnalyze(userId: string, body: any, executionContext: AnalyzeExecutionContext = {}) {
@@ -561,7 +564,7 @@ export async function handleAnalyze(userId: string, body: any, executionContext:
     const actualReportLanguage = normalizeReportLanguage(reportLanguage || userSettings?.defaultReportLanguage);
     const actualIsPublic = userSettings?.defaultIsPublic !== undefined ? userSettings.defaultIsPublic : false;
     let selectedPlatformSnapshot: PlatformModelSnapshot | null = null;
-    let modelConfig: { apiKey: string; modelName: string; baseURL: string };
+    let modelConfig: { apiKey: string; modelName: string; baseURL: string; provider: PlatformModelSnapshot['provider'] };
     let actualReasoningDepth = userReasoningDepth;
     const requestedSource = isInternalRequest
       ? (executionContext.requestedSource === 'custom' ? 'custom' : 'platform')
@@ -579,7 +582,7 @@ export async function handleAnalyze(userId: string, body: any, executionContext:
       }
       const apiKey = await resolvePlatformModelApiKey(selectedPlatformSnapshot);
       if (!apiKey) return NextResponse.json({ error: '所选平台模型未配置可用的 API Key，请联系管理员。' }, { status: 503 });
-      modelConfig = { apiKey, modelName: selectedPlatformSnapshot.modelId, baseURL: selectedPlatformSnapshot.baseUrl };
+      modelConfig = { apiKey, provider: selectedPlatformSnapshot.provider, modelName: selectedPlatformSnapshot.modelId, baseURL: selectedPlatformSnapshot.baseUrl };
       actualReasoningDepth = normalizeThinkingDepthCore(selectedPlatformSnapshot.reasoningDepth);
       const expectedCostCents = operationCostCents('analysis', selectedPlatformSnapshot.multiplierBps);
       if (isInternalRequest && Number(executionContext.creditCostCents) !== expectedCostCents) {
@@ -599,6 +602,9 @@ export async function handleAnalyze(userId: string, body: any, executionContext:
         ? await buildUsagePlan(userId, actualAnalysisMode, 'platform', planOptions)
         : await reserveAnalysisUsage(userId, actualAnalysisMode, 'platform', planOptions);
     } else {
+      if (executionContext.personalFingerprint && (!userSettings || personalModelFingerprint(userSettings) !== executionContext.personalFingerprint)) {
+        return NextResponse.json({ error: '个人模型配置已变更，请重新提交审视任务。' }, { status: 422 });
+      }
       const customPlan = await buildUsagePlan(userId, actualAnalysisMode, 'custom');
       modelConfig = chooseModelConfig({ usageSource: customPlan.source, userSettings, appSetting });
       if (!modelConfig.apiKey || !modelConfig.modelName || !modelConfig.baseURL) {
@@ -697,7 +703,7 @@ export async function handleAnalyze(userId: string, body: any, executionContext:
     failureRecorder = recordFailedUsage;
     const invoke = async (invocationSystem: string, invocationPrompt: string, options: { timeoutMs: number; nativeSearch?: boolean; compact?: boolean; allowResearch?: boolean }) => {
       const result = await invokeModel({
-        provider: selectedPlatformSnapshot?.provider || 'openai_compatible',
+        provider: modelConfig.provider,
         baseUrl: modelConfig.baseURL,
         apiKey: modelConfig.apiKey,
         modelId: modelConfig.modelName,
@@ -816,7 +822,7 @@ export async function handleAnalyze(userId: string, body: any, executionContext:
       pointCost: usagePlan.costPoints,
       platformModelConfigId: selectedPlatformSnapshot?.configId || null,
       modelDisplayName: selectedPlatformSnapshot?.displayName || modelConfig.modelName,
-      modelProvider: selectedPlatformSnapshot?.provider || 'openai_compatible',
+      modelProvider: modelConfig.provider,
       modelMultiplier: selectedPlatformSnapshot ? selectedPlatformSnapshot.multiplierBps / 100 : null,
       modelConfigVersion: selectedPlatformSnapshot?.configVersion || null,
       reportLanguage: actualReportLanguage,
@@ -855,7 +861,7 @@ export async function handleAnalyze(userId: string, body: any, executionContext:
           modelName: modelConfig.modelName,
           platformModelConfigIdSnapshot: selectedPlatformSnapshot?.configId,
           modelDisplayNameSnapshot: selectedPlatformSnapshot?.displayName || modelConfig.modelName,
-          modelProviderSnapshot: selectedPlatformSnapshot?.provider || 'openai_compatible',
+          modelProviderSnapshot: modelConfig.provider,
           modelSearchModeSnapshot: usagePlan.source === 'platform' ? configuredSearchMode : 'custom',
           modelMultiplierBpsSnapshot: selectedPlatformSnapshot?.multiplierBps,
           modelConfigVersionSnapshot: selectedPlatformSnapshot?.configVersion,
@@ -875,6 +881,7 @@ export async function handleAnalyze(userId: string, body: any, executionContext:
       if (pointTransaction) {
         await tx.pointTransaction.update({ where: { id: pointTransaction.id }, data: { auditId: dbRecord.id } });
       }
+      await executionContext.completeAudit?.(tx, dbRecord.id);
       return dbRecord;
     });
     const dbRecord = committed.result;

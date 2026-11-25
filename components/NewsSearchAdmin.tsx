@@ -4,11 +4,13 @@ import { Button, Input, Panel, Select } from '@/components/ui/controls';
 import { useEffect, useState } from 'react';
 import { useUiLanguage } from './LanguageProvider';
 
-type Settings = { provider: 'free' | 'deepseek'; modelConfigId: string; dailyLimit: number; paidAllowed: boolean; models: Array<{ id: string; name: string; hasKey: boolean }> };
+type Settings = { provider: 'free' | 'deepseek'; aiModelConfigId: string; hasKey: boolean; dailyLimit: number; paidAllowed: boolean; models: Array<{ id: string; name: string }> };
 export default function NewsSearchAdmin() {
   const { language } = useUiLanguage();
   const text = (zh: string, en: string) => language.startsWith('zh') ? zh : en;
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [apiKey, setApiKey] = useState('');
+  const [clearKey, setClearKey] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -28,22 +30,46 @@ export default function NewsSearchAdmin() {
     if (!settings) return;
     setSaving(true); setError(''); setSaved(false);
     try {
-      const response = await fetch('/api/admin/news-search', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider: settings.provider, modelConfigId: settings.modelConfigId, dailyLimit: settings.dailyLimit }) });
+      const response = await fetch('/api/admin/news-search', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider: settings.provider, aiModelConfigId: settings.aiModelConfigId, dailyLimit: settings.dailyLimit, apiKey, clearKey }) });
       const data = await response.json();
       if (!response.ok) throw new Error(language.startsWith('zh') ? data.error : 'Unable to save news search settings.');
+      setSettings({ ...settings, hasKey: !clearKey && (Boolean(apiKey.trim()) || settings.hasKey) });
+      setApiKey('');
+      setClearKey(false);
       setSaved(true);
     } catch (error) { setError((error as Error).message); }
     finally { setSaving(false); }
   }
   return <Panel className="settings-form col-span-full" aria-label={text('首页新闻搜索设置', 'Homepage news search settings')}>
-    <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="ui-panel-title">{text('首页新闻搜索', 'Homepage news search')}</h3><Button variant="secondary" type="button"  disabled={loading || saving} onClick={() => { setLoading(true); setReload(reload + 1); }}>{text('刷新配置列表', 'Refresh configurations')}</Button></div>
-    <p className="mt-2 text-sm leading-relaxed text-[var(--color-text-muted)]">{text('首页搜索来源独立于报告分析模型。复用下方模型管理中已保存的 DeepSeek 搜索密钥，无需重复填写；新闻检索不会调用分析模型。访客只使用免费网页搜索。', 'News discovery is independent of report analysis models. Reuse an existing DeepSeek search key from model management below. Searching does not call an analysis model. Visitors use free web search.')}</p>
+    <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="ui-panel-title">{text('首页新闻搜索', 'Homepage news search')}</h3><Button variant="secondary" type="button"  disabled={loading || saving} onClick={() => { setLoading(true); setApiKey(''); setClearKey(false); setReload(reload + 1); }}>{text('刷新配置列表', 'Refresh configurations')}</Button></div>
     {loading ? <p role="status" className="mt-4 text-sm">{text('正在加载…', 'Loading…')}</p> : settings && <form className="mt-4 space-y-4" onSubmit={event => { event.preventDefault(); void save(); }}>
       <div className="settings-grid md:grid-cols-3">
         <label className="ui-label settings-field"><span>{text('首页默认搜索来源', 'Default news search source')}</span><Select  value={settings.provider} disabled={saving} onChange={event => { setSaved(false); setSettings({ ...settings, provider: event.target.value as Settings['provider'] }); }}><option value="free">{text('网页搜索工具（免费）', 'Free web search')}</option><option value="deepseek" disabled={!settings.paidAllowed}>DeepSeek API</option></Select></label>
-        <label className="ui-label settings-field"><span>{text('平台 DeepSeek 搜索密钥来源', 'Platform DeepSeek key configuration')}</span><Select  value={settings.modelConfigId} disabled={saving} onChange={event => { setSaved(false); setSettings({ ...settings, modelConfigId: event.target.value }); }}><option value="">{text('不提供平台搜索 API', 'No platform search API')}</option>{settings.models.map(model => <option key={model.id} value={model.id} disabled={!model.hasKey}>{model.name}{!model.hasKey ? text('（未保存搜索密钥）', ' (no search key)') : ''}</option>)}</Select></label>
+        <label className="ui-label settings-field">
+          <span>{text('平台 DeepSeek 搜索密钥', 'Platform DeepSeek search key')}</span>
+          <Input type="password" autoComplete="new-password" value={apiKey} disabled={saving}
+            placeholder={settings.hasKey && !clearKey ? text('已保存', 'Key saved') : ''}
+            onChange={event => { setSaved(false); setClearKey(false); setApiKey(event.target.value); }} />
+        </label>
         <label className="ui-label settings-field"><span>{text('平台 API 每日调用上限', 'Daily platform API request limit')}</span><Input  type="number" min={1} max={10000} required step={1} value={settings.dailyLimit} disabled={saving} onChange={event => { setSaved(false); setSettings({ ...settings, dailyLimit: Number(event.target.value) }); }} /></label>
       </div>
+      {settings.hasKey && <label className="flex min-h-11 items-center gap-2">
+        <Input type="checkbox" checked={clearKey} disabled={saving} onChange={event => {
+          setSaved(false);
+          setClearKey(event.target.checked);
+          if (event.target.checked) { setApiKey(''); setSettings({ ...settings, provider: 'free' }); }
+        }} />
+        {text('移除平台搜索密钥', 'Remove platform search key')}
+      </label>}
+      <label className="ui-label settings-field">
+        <span>{text('可选辅助模型（可能产生模型费用）', 'Optional search assistant (model fees may apply)')}</span>
+        <Select value={settings.aiModelConfigId} disabled={saving} onChange={event => {
+          setSaved(false); setSettings({ ...settings, aiModelConfigId: event.target.value });
+        }}>
+          <option value="">{text('关闭辅助模型', 'Disable search assistant')}</option>
+          {settings.models.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}
+        </Select>
+      </label>
       {!settings.paidAllowed && <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">{text('当前部署关闭付费搜索，DeepSeek 暂不可选。需要时由部署者设置 GUANYU_ALLOW_PAID_SEARCH=true；免费搜索不受影响。', 'Paid search is disabled. Set GUANYU_ALLOW_PAID_SEARCH=true in deployment settings to enable DeepSeek. Free search remains available.')}</p>}
       <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">{text('平台限额按北京时间统计上游调用尝试，命中缓存不占额度。DeepSeek 服务费用由平台承担，不额外扣用户搜索点数；报告分析按原规则计费。个人密钥仅向有权限的账号开放。', 'The platform cap counts upstream attempts per Shanghai calendar day; cache hits do not count. The platform pays provider fees. Reports keep their existing pricing. Personal keys require an eligible account.')}</p>
       <Button variant="primary" type="submit" disabled={saving}>{saving ? text('保存中…', 'Saving…') : text('保存新闻搜索设置', 'Save news search settings')}</Button>

@@ -42,7 +42,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: '你没有权限管理计费设置。' }, { status: 403 });
   }
 
-  const [setting, orders, users, emailDeliveries, discussionReports] = await Promise.all([
+  const [setting, orders, users, discussionReports] = await Promise.all([
     getOrCreateAppSetting(),
     prisma.purchaseOrder.findMany({
       where: { status: { in: ['pending', 'PENDING', 'PAYMENT_SUBMITTED', 'PAID'] } },
@@ -89,24 +89,6 @@ export async function GET(request: Request) {
       orderBy: { updatedAt: 'desc' },
       take: 100,
     }),
-    prisma.emailDelivery.findMany({
-      select: {
-        id: true,
-        category: true,
-        recipient: true,
-        subject: true,
-        provider: true,
-        status: true,
-        attempts: true,
-        error: true,
-        createdAt: true,
-        sentAt: true,
-        user: { select: { email: true } },
-        audit: { select: { title: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 30,
-    }),
     prisma.discussionReport.findMany({
       where: { status: 'PENDING' },
       include: {
@@ -122,7 +104,6 @@ export async function GET(request: Request) {
     setting: safeAppSetting(setting),
     pendingOrders: orders,
     users,
-    emailDeliveries,
     discussionReports,
   });
 }

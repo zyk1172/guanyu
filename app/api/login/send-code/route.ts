@@ -1,5 +1,6 @@
+import { AccessError, reserveAccessAttempt } from '@/lib/access';
 import { NextRequest, NextResponse } from 'next/server';
-import { createEmailVerificationCode, verifyCaptcha } from '@/lib/captcha';
+import { sendLegacyVerificationCode, verifyCaptcha } from '@/lib/captcha';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { sendLoginCodeEmail } from '@/lib/email';
 import { prisma } from '@/lib/prisma';
@@ -27,16 +28,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '图形验证码错误或已过期，请刷新后重试。' }, { status: 400 });
     }
 
+    await reserveAccessAttempt('legacy-email-code', ip, 5);
     const account = await prisma.user.findUnique({ where: { email }, select: { email: true, isBanned: true } });
     if (account && !account.isBanned) {
-      const code = await createEmailVerificationCode(email, ip, 'login_email');
-      await sendLoginCodeEmail(email, code);
+      await sendLegacyVerificationCode(email, ip, 'login_email', sendLoginCodeEmail);
     }
     return NextResponse.json({
       ok: true,
       message: process.env.NODE_ENV === 'production' ? SUCCESS_MESSAGE : `${SUCCESS_MESSAGE} 开发环境验证码仅见服务端日志。`,
     });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : '发送登录验证码失败，请稍后重试。' }, { status: 500 });
+    if (error instanceof AccessError) return NextResponse.json({ error: error.message }, { status: error.status });
+    console.error('[legacy-email-code] request failed');
+    return NextResponse.json({ error: '验证码请求暂时无法处理，请稍后重试。' }, { status: 500 });
   }
 }

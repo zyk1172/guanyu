@@ -1,4 +1,6 @@
 import { after, NextResponse } from 'next/server';
+import { AccessError } from '@/lib/access';
+import { deleteManagedAudit, updateAuditVisibility } from '@/lib/audit-management';
 import { getSuperAdminStatus } from '@/lib/admin';
 import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
@@ -92,45 +94,21 @@ export async function PATCH(
       return NextResponse.json({ error: '未授权，请先登录' }, { status: 401 });
     }
 
-    const userId = user.id;
-    const audit = await prisma.audit.findUnique({
-      where: { id },
-    });
-
-    if (!audit) {
-      return NextResponse.json({ error: '记录不存在' }, { status: 404 });
-    }
-
-    const isSuperAdmin = await getSuperAdminStatus(userId);
-    if (audit.userId !== userId && !isSuperAdmin) {
-      return NextResponse.json({ error: '你没有权限修改他人的审视记录。' }, { status: 403 });
-    }
-
     const parsed = UpdateAuditSchema.safeParse(await request.json());
     if (!parsed.success) {
       return NextResponse.json({ error: '请求参数无效。', code: 'INVALID_INPUT' }, { status: 400 });
     }
-    const { isPublic, indexable, isSourcePublic } = parsed.data;
-
-    const nextIsPublic = isPublic !== undefined ? isPublic : audit.isPublic;
-    const nextIndexable = indexable !== undefined ? indexable : audit.indexable;
-    const updatedAudit = await prisma.audit.update({
-      where: { id },
-      data: {
-        isPublic: nextIsPublic,
-        indexable: nextIndexable ? nextIsPublic : false,
-        isSourcePublic: isSourcePublic !== undefined ? isSourcePublic : audit.isSourcePublic,
-      },
-    });
+    const isSuperAdmin = await getSuperAdminStatus(user.id);
+    const updatedAudit = await updateAuditVisibility(id, user.id, isSuperAdmin, parsed.data);
 
     await invalidateAuditCaches();
-    const isSuperAdminForDto = await getSuperAdminStatus(userId);
     return NextResponse.json(
       withHistoricalAuditModelName(
-        isSuperAdminForDto ? adminAuditDto(updatedAudit) : ownerAuditDto(updatedAudit),
+        isSuperAdmin ? adminAuditDto(updatedAudit) : ownerAuditDto(updatedAudit),
       ),
     );
   } catch (error: any) {
+    if (error instanceof AccessError) return NextResponse.json({ error: error.message }, { status: error.status });
     console.error('PATCH audit error:', error);
     return NextResponse.json({ error: '更新审视公开状态失败' }, { status: 500 });
   }
@@ -150,27 +128,12 @@ export async function DELETE(
       return NextResponse.json({ error: '未授权，请先登录' }, { status: 401 });
     }
 
-    const userId = user.id;
-    const audit = await prisma.audit.findUnique({
-      where: { id },
-    });
-
-    if (!audit) {
-      return NextResponse.json({ error: '记录不存在' }, { status: 404 });
-    }
-
-    const isSuperAdmin = await getSuperAdminStatus(userId);
-    if (audit.userId !== userId && !isSuperAdmin) {
-      return NextResponse.json({ error: '你没有权限删除他人的审视记录。' }, { status: 403 });
-    }
-
-    await prisma.audit.delete({
-      where: { id },
-    });
+    await deleteManagedAudit(id, user.id, await getSuperAdminStatus(user.id));
 
     await invalidateAuditCaches();
     return NextResponse.json({ success: true });
   } catch (error: any) {
+    if (error instanceof AccessError) return NextResponse.json({ error: error.message }, { status: error.status });
     console.error('DELETE audit error:', error);
     return NextResponse.json({ error: '删除记录失败' }, { status: 500 });
   }

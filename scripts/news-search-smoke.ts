@@ -22,7 +22,7 @@ const transport = async (url: string | URL) => String(url).includes('fixture.exa
 const options = { freeOptions: { searxngUrl: 'https://fixture.example', request: transport } };
 function track(i: NewsSearchInput, a: Awaited<ReturnType<typeof resolveNewsSearchAccess>>) {
   const scope = i.provider === 'deepseek' ? `${a.scope}:${privacyHmacHash(a.encryptedKey!)}` : 'public';
-  keys.add(privacyHmacHash(JSON.stringify(['news-v3', scope, i.provider, i.period, i.language, i.query])));
+  keys.add(privacyHmacHash(JSON.stringify(['news-v4', scope, i.provider, i.period, i.language, i.query, a.aiModelConfigId || null])));
 }
 async function request(path: string, userId?: string, method = 'GET', body?: unknown, origin = new URL(base).origin) {
   const token = userId ? await encode({ secret: process.env.NEXTAUTH_SECRET!, token: { id: userId, sessionVersion: 1 } }) : '';
@@ -32,9 +32,9 @@ try {
   for (const [role, pro] of [['user', false], ['user', true], ['super_admin', false]] as const) {
     const user = await prisma.user.create({ data: { email: `news-${users.length}-${suffix}@example.test`, password: '!passwordless', role, ...(pro ? { proAccessExpiresAt: new Date(Date.now() + 86400_000) } : {}), settings: { create: { deepseekApiKeyEncrypted: encryptSecret('personal-fixture-key') } } } }); users.push(user.id);
   }
-  const model = await prisma.platformModelConfig.create({ data: { configKey: `news-${suffix}`, displayName: 'Search fixture', baseUrl: 'https://model.example', modelId: 'fixture', deepseekApiKeyEncrypted: encryptSecret('platform-fixture-key') } }); modelId = model.id;
+  const model = await prisma.platformModelConfig.create({ data: { configKey: `news-${suffix}`, displayName: 'Search fixture', baseUrl: 'https://model.example', modelId: 'fixture', apiKeyEncrypted: encryptSecret('fixture-model-key'), deepseekApiKeyEncrypted: encryptSecret('platform-fixture-key') } }); modelId = model.id;
   process.env.GUANYU_ALLOW_PAID_SEARCH = 'true';
-  const patch = { provider: 'deepseek', modelConfigId: model.id, dailyLimit: 1 };
+  const patch = { provider: 'deepseek', aiModelConfigId: model.id, apiKey: 'platform-fixture-key', dailyLimit: 1 };
   assert.equal((await adminPatch(await request('/api/admin/news-search', users[0], 'PATCH', patch))).status, 403);
   assert.equal((await adminPatch(await request('/api/admin/news-search', users[2], 'PATCH', patch, 'https://evil.example'))).status, 403);
   assert.equal((await adminPatch(await request('/api/admin/news-search', users[2], 'PATCH', patch))).status, 200);
@@ -57,9 +57,10 @@ try {
     if (proxyEnv.trust === undefined) delete process.env.TRUST_PROXY_HEADERS; else process.env.TRUST_PROXY_HEADERS = proxyEnv.trust;
   }
 
-  track(input, ordinary); let calls = 0;
-  const first = await runNewsSearch(input, ordinary, users[0], { freeOptions: { ...options.freeOptions, request: async url => { calls++; return transport(url); } } });
-  const second = await runNewsSearch(input, ordinary, users[0], { freeOptions: { ...options.freeOptions, request: async () => { throw new Error('cache must avoid outbound work'); } } });
+  const withoutAi = { ...ordinary, aiModelConfigId: null };
+  track(input, withoutAi); let calls = 0;
+  const first = await runNewsSearch(input, withoutAi, users[0], { freeOptions: { ...options.freeOptions, request: async url => { calls++; return transport(url); } } });
+  const second = await runNewsSearch(input, withoutAi, users[0], { freeOptions: { ...options.freeOptions, request: async () => { throw new Error('cache must avoid outbound work'); } } });
   assert.equal(first.articles.length, 1); assert.equal(second.cached, true); assert.equal(calls, 2);
   assert.equal(await prisma.pointTransaction.count({ where: { userId: { in: users } } }), 0);
 
@@ -91,16 +92,19 @@ try {
 
   const paid: NewsSearchInput = { ...input, provider: 'deepseek' }; track(paid, ordinary);
   let upstream = 0;
-  const fakeDeepseek: typeof fetch = async (_url, init) => { upstream++; assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer platform-fixture-key'); assert.match(JSON.parse(String(init?.body)).query, /^新闻报道 /); return Response.json({ results: [{ title: 'Fixture', url: 'https://news.example/fixture?utm_source=paid', summary: 'Fictional test material' }, { title: 'Non-news', url: 'https://other.example/blog' }] }); };
-  const concurrent = await Promise.allSettled([runNewsSearch(paid, ordinary, users[0], { ...options, deepseekFetch: fakeDeepseek }), runNewsSearch(paid, ordinary, users[0], { ...options, deepseekFetch: fakeDeepseek })]);
+  const fakeDeepseek: typeof fetch = async (_url, init) => { upstream++; assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer platform-fixture-key'); assert.match(JSON.parse(String(init?.body)).query, /^新闻报道 /); return Response.json({ results: [{ title: 'Fixture', url: 'https://news.example/fixture?utm_source=paid', summary: 'Fictional test material', date: '2026-01-02' }, { title: 'Non-news', url: 'https://other.example/blog' }] }); };
+  const concurrent = await Promise.allSettled([runNewsSearch(paid, ordinary, users[0], { freeOptions: { request: async () => { throw new Error('DeepSeek must not require the free index'); } }, deepseekFetch: fakeDeepseek }), runNewsSearch(paid, ordinary, users[0], { freeOptions: { request: async () => { throw new Error('DeepSeek must not require the free index'); } }, deepseekFetch: fakeDeepseek })]);
   assert.equal(upstream, 1); assert.ok(concurrent.some(item => item.status === 'fulfilled'));
-  const repeated = await runNewsSearch(paid, ordinary, users[0], { ...options, deepseekFetch: fakeDeepseek }); assert.equal(repeated.cached, true); assert.equal(upstream, 1); assert.deepEqual(repeated.articles.map(article => article.url), ['https://news.example/fixture']);
+  const repeated = await runNewsSearch(paid, ordinary, users[0], { freeOptions: { request: async () => { throw new Error('DeepSeek must not require the free index'); } }, deepseekFetch: fakeDeepseek }); assert.equal(repeated.cached, true); assert.equal(repeated.articles[0].publishedAt, '2026-01-02T00:00:00.000Z'); assert.equal(upstream, 1); assert.deepEqual(repeated.articles.map(article => article.url), ['https://news.example/fixture', 'https://other.example/blog']);
   const capped = { ...paid, query: `capped ${suffix}` }; track(capped, ordinary);
-  await assert.rejects(runNewsSearch(capped, ordinary, users[0], { ...options, deepseekFetch: fakeDeepseek }), (error: unknown) => (error as { status: number }).status === 429); assert.equal(upstream, 1);
-  const noNews = { ...paid, query: `no-news ${suffix}` }; track(noNews, ordinary);
-  const empty = await runNewsSearch(noNews, ordinary, users[0], { freeOptions: { searxngUrl: '', request: async () => ({ status: 200, headers: new Headers(), body: Buffer.from('<rss><channel><title>Empty</title></channel></rss>') }) }, deepseekFetch: fakeDeepseek });
-  assert.equal(empty.articles.length, 0); assert.equal(upstream, 1);
+  await assert.rejects(runNewsSearch(capped, ordinary, users[0], { freeOptions: { request: async () => { throw new Error('DeepSeek must not require the free index'); } }, deepseekFetch: fakeDeepseek }), (error: unknown) => (error as { status: number }).status === 429); assert.equal(upstream, 1);
+  assert.equal(await prisma.verificationCode.count({
+    where: { purpose: 'access_attempt', email: `access:news-paid-user:${privacyHmacHash(users[0])}` },
+  }), 1);
+  await prisma.userSettings.update({ where: { userId: users[1] }, data: { deepseekApiKeyEncrypted: 'unreadable' } });
+  assert.equal((await resolveNewsSearchAccess({ id: users[1], sessionVersion: 1 })).capabilities.deepseekSource, 'platform');
 
+  await prisma.userSettings.update({ where: { userId: users[1] }, data: { deepseekApiKeyEncrypted: encryptSecret('personal-fixture-key') } });
   track(paid, pro);
   await runNewsSearch(paid, pro, users[1], { ...options, deepseekFetch: async (_url, init) => { assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer personal-fixture-key'); return Response.json({ results: [] }); } });
   const failing = { ...paid, query: `failure ${suffix}` }; track(failing, pro);
@@ -114,7 +118,7 @@ try {
   console.log('news search smoke passed: settings/permissions/secrets/personal-platform/free-only/cache/concurrency/caps/usage/no-analysis-charges/failures');
 } finally {
   if (oldPaid === undefined) delete process.env.GUANYU_ALLOW_PAID_SEARCH; else process.env.GUANYU_ALLOW_PAID_SEARCH = oldPaid;
-  await prisma.appSetting.update({ where: { id: 'global' }, data: { newsSearchProvider: app.newsSearchProvider, newsSearchModelConfigId: app.newsSearchModelConfigId, newsSearchDailyLimit: app.newsSearchDailyLimit } }); await cacheDel(CACHE_KEYS.appSetting);
+  await prisma.appSetting.update({ where: { id: 'global' }, data: { newsSearchProvider: app.newsSearchProvider, newsSearchDeepseekKeyEncrypted: app.newsSearchDeepseekKeyEncrypted, newsSearchAiModelConfigId: app.newsSearchAiModelConfigId, newsSearchDailyLimit: app.newsSearchDailyLimit } }); await cacheDel(CACHE_KEYS.appSetting);
   await prisma.newsSearchCache.deleteMany({ where: { cacheKey: { in: [...keys] } } });
   await prisma.modelUsageEvent.deleteMany({ where: { userId: { in: users } } });
   await prisma.user.deleteMany({ where: { id: { in: users } } });

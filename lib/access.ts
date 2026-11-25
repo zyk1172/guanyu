@@ -29,13 +29,28 @@ export async function requireRecentAuth(user: CurrentUser, input: { password?: s
   if (await verifyStepUp(user.id, input)) return;
   throw new AccessError('请填写当前密码或当前邮箱验证码，确认是你本人操作。', 403);
 }
-export async function reserveAccessAttempt(scope: string, key: string, limit = 20, windowMs = 10 * 60_000) {
-  const bucket = `access:${scope}:${privacyHmacHash(key)}`;
+type AccessAttempt = { scope: string; key: string; limit: number; windowMs: number; exhaustedMessage?: string };
+
+export function reserveAccessAttempt(scope: string, key: string, limit = 20, windowMs = 10 * 60_000) {
+  return reserveAccessAttempts([{ scope, key, limit, windowMs }]);
+}
+
+export async function reserveAccessAttempts(attempts: AccessAttempt[]) {
+  const buckets = attempts.map((attempt) => ({ ...attempt, bucket: `access:${attempt.scope}:${privacyHmacHash(attempt.key)}` }));
   await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${bucket}))`;
-    const count = await tx.verificationCode.count({ where: { email: bucket, purpose: 'access_attempt', createdAt: { gte: new Date(Date.now() - windowMs) } } });
-    if (count >= limit) throw new AccessError('操作过于频繁，请稍后再试。', 429);
-    await tx.verificationCode.create({ data: { email: bucket, purpose: 'access_attempt', codeHash: '', expiresAt: new Date(Date.now() + windowMs) } });
+    for (const { bucket } of [...buckets].sort((a, b) => a.bucket.localeCompare(b.bucket))) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${bucket}))`;
+    }
+    const now = Date.now();
+    for (const { bucket, limit, windowMs, exhaustedMessage } of buckets) {
+      const count = await tx.verificationCode.count({
+        where: { email: bucket, purpose: 'access_attempt', createdAt: { gte: new Date(now - windowMs) } },
+      });
+      if (count >= limit) throw new AccessError(exhaustedMessage || '操作过于频繁，请稍后再试。', 429);
+      await tx.verificationCode.create({
+        data: { email: bucket, purpose: 'access_attempt', codeHash: '', expiresAt: new Date(now + windowMs) },
+      });
+    }
   });
 }
 export function accessError(error: unknown) {

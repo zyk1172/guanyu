@@ -1,3 +1,4 @@
+import { AppError } from './app-error';
 import { createHash } from 'node:crypto';
 import { prisma } from './prisma';
 import { resolveOperationModel } from './operation-model';
@@ -79,7 +80,10 @@ export async function createRelatedCoverage(userId: string, auditId: string, inp
   try {
     claimed = await beginServiceOperation({ userId, idempotencyKey, operation: 'followup', reservedCredits: model.costCents, transactionType: 'AI_RELATED_COVERAGE', description: `查找其他报道并追加对比分析，消耗 ${formatCredits(model.costCents)} 点`, auditId,
       modelSnapshot: model.snapshot ? { configId: model.snapshot.configId, displayName: model.snapshot.displayName, modelName: model.snapshot.modelId, multiplierBps: model.snapshot.multiplierBps, configVersion: model.snapshot.configVersion } : undefined });
-  } catch { throw new CoverageError('coverage_insufficient_credits', 402); }
+  } catch (error) {
+    if (error instanceof AppError && error.code === 'AUDIT_NOT_FOUND') throw new CoverageError('coverage_not_found', 404);
+    throw new CoverageError('coverage_insufficient_credits', 402);
+  }
   if (claimed.state !== 'claimed') return { state: claimed.state, job: state(claimed.operation), operation: claimed.operation };
   try {
     const operation = await prisma.serviceOperation.update({ where: { id: claimed.operation.id }, data: { resultId: auditId, resultJson: JSON.stringify({ query, sourceFingerprint, stage: 'search' }), expiresAt: new Date(Date.now() + 210000) } });

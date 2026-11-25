@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import type { Prisma, ServiceOperation } from '@/lib/generated/prisma/client';
+import { AppError } from '@/lib/app-error';
 import { prisma } from '@/lib/prisma';
 import { changeBalance, type BillingModelSnapshot } from '@/lib/billing';
 
@@ -23,14 +24,16 @@ async function refundServiceOperationCharge(
   attempt = operation.currentAttempt,
 ) {
   const idempotencyKey = serviceOperationRefundKey(operation.id, attempt);
-  const prior = await tx.pointTransaction.findFirst({
-    where: { userId: operation.userId, idempotencyKey },
+  const chargeKey = serviceOperationChargeKey(operation.id, attempt);
+  const entries = await tx.pointTransaction.findMany({
+    where: { userId: operation.userId, idempotencyKey: { in: [chargeKey, idempotencyKey] } },
   });
-  if (prior) return prior;
+  const charge = entries.find((entry) => entry.idempotencyKey === chargeKey);
+  if (!charge || entries.some((entry) => entry.idempotencyKey === idempotencyKey)) return;
   return changeBalance(tx, operation.userId, operation.reservedCredits, {
     transactionType: 'FAILED_TASK_REFUND',
     description: '操作失败，释放预扣点数',
-    auditId: operation.resultId || undefined,
+    auditId: charge.auditId || undefined,
     idempotencyKey,
   });
 }
@@ -48,6 +51,12 @@ export type BeginServiceOperationParams = {
 
 export async function beginServiceOperation(params: BeginServiceOperationParams) {
   return prisma.$transaction(async (tx) => {
+    if (params.auditId) {
+      const audits = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "Audit" WHERE "id" = ${params.auditId} FOR KEY SHARE
+      `;
+      if (!audits.length) throw new AppError('AUDIT_NOT_FOUND', '目标报告已删除或不存在。', 404);
+    }
     const lockKey = `guanyu-service-operation:${params.userId}:${params.idempotencyKey}`;
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
 
@@ -72,8 +81,17 @@ export async function beginServiceOperation(params: BeginServiceOperationParams)
       return { state: 'running' as const, operation: existing };
     }
 
-    if (existing?.status === 'RUNNING' && existing.reservedCredits > 0) {
-      await refundServiceOperationCharge(tx, existing, existing.currentAttempt);
+    if (existing?.status === 'RUNNING') {
+      const expired = await tx.serviceOperation.updateMany({
+        where: { id: existing.id, status: 'RUNNING', currentAttempt: existing.currentAttempt },
+        data: { status: 'FAILED', errorCode: 'operation_expired' },
+      });
+      if (!expired.count) {
+        const current = await tx.serviceOperation.findUniqueOrThrow({ where: { id: existing.id } });
+        if (current.status === 'COMPLETED') return { state: 'completed' as const, operation: current };
+      } else if (existing.reservedCredits > 0) {
+        await refundServiceOperationCharge(tx, existing);
+      }
     }
 
     const currentAttempt = existing ? existing.currentAttempt + 1 : 1;
@@ -82,7 +100,7 @@ export async function beginServiceOperation(params: BeginServiceOperationParams)
       operation: params.operation,
       currentAttempt,
       reservedCredits: params.reservedCredits,
-      resultId: null,
+      resultId: params.auditId ?? null,
       resultHash: null,
       resultJson: null,
       errorCode: null,
@@ -125,6 +143,7 @@ export async function completeServiceOperation(
         id: operationId,
         status: 'RUNNING',
         currentAttempt: expectedAttempt,
+        expiresAt: { gt: new Date() },
       },
       data: {
         status: 'COMPLETED',
@@ -152,14 +171,29 @@ export async function failServiceOperation(
     const operation = await tx.serviceOperation.findUnique({
       where: { id: operationId },
     });
-    if (!operation || operation.status !== 'RUNNING' || operation.currentAttempt !== expectedAttempt) return operation;
-    await tx.serviceOperation.update({
-      where: { id: operationId },
+    if (!operation || operation.status !== 'RUNNING' || operation.currentAttempt !== expectedAttempt) return null;
+    const failed = await tx.serviceOperation.updateMany({
+      where: { id: operationId, status: 'RUNNING', currentAttempt: expectedAttempt },
       data: { status: 'FAILED', errorCode },
     });
+    if (failed.count !== 1) return null;
     if (operation.reservedCredits > 0) {
       await refundServiceOperationCharge(tx, operation, expectedAttempt);
     }
     return operation;
   });
+}
+
+export async function recoverExpiredServiceOperations(limit = 100) {
+  const expired = await prisma.serviceOperation.findMany({
+    where: { status: 'RUNNING', expiresAt: { lte: new Date() } },
+    orderBy: { expiresAt: 'asc' },
+    take: limit,
+    select: { id: true, currentAttempt: true },
+  });
+  let recovered = 0;
+  for (const operation of expired) {
+    if (await failServiceOperation(operation.id, operation.currentAttempt, 'operation_expired')) recovered++;
+  }
+  return recovered;
 }

@@ -1,3 +1,4 @@
+import { AppError } from '@/lib/app-error';
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { getSuperAdminStatus } from '@/lib/admin';
@@ -54,6 +55,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  let claimedAttempt: { id: string; currentAttempt: number } | undefined;
   try {
     const originError = sameOriginResponse(request);
     if (originError) return originError;
@@ -73,6 +75,20 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: '未保存足够的新闻原文，无法进行 AI 补全。' }, { status: 400 });
     }
 
+    let report: unknown = {};
+    try {
+      report = JSON.parse(audit.auditResultJson);
+    } catch {
+      return NextResponse.json({ error: '审视报告数据异常，无法进行 AI 补全。' }, { status: 500 });
+    }
+
+    const prompt = buildAiCompletionPrompt({
+      title: audit.title,
+      source: audit.source,
+      originalContent: audit.originalContent,
+      report,
+      reportLanguage: audit.reportLanguage,
+    });
     const account = await prisma.user.findUnique({
       where: { id: user.id },
       select: { planType: true, isBanned: true, proAccessExpiresAt: true },
@@ -131,24 +147,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       if (claimed.state === 'running') {
         return NextResponse.json({ status: 'processing', message: 'AI 补全正在生成中，请稍后刷新查看。' }, { status: 202 });
       }
+      claimedAttempt = serviceOperation;
     } catch (error) {
+      if (error instanceof AppError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
       return NextResponse.json({ error: error instanceof Error ? error.message : '当前点数不足。' }, { status: 402 });
     }
 
-    let report: unknown = {};
-    try {
-      report = JSON.parse(audit.auditResultJson);
-    } catch {
-      return NextResponse.json({ error: '审视报告数据异常，无法进行 AI 补全。' }, { status: 500 });
-    }
-
-    const prompt = buildAiCompletionPrompt({
-      title: audit.title,
-      source: audit.source,
-      originalContent: audit.originalContent,
-      report,
-      reportLanguage: audit.reportLanguage,
-    });
     const startedAt = Date.now();
     const response = await invokeModel({
       provider: operationModel.provider,
@@ -205,6 +209,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       usage: usagePayload,
     });
   } catch (error) {
+    if (claimedAttempt) {
+      await failServiceOperation(claimedAttempt.id, claimedAttempt.currentAttempt).catch(() => {});
+    }
     console.error('AI completion failed:', error);
     return NextResponse.json({ error: 'AI 补全暂时无法完成，请稍后重试。' }, { status: 500 });
   }

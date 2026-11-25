@@ -1,4 +1,5 @@
 import type { WebSearchSource } from './search';
+import { newsDate } from './news-search-core';
 
 export const DEEPSEEK_SEARCH_ENDPOINT = 'https://api.deepseek.com/v1/tools/search';
 
@@ -16,7 +17,9 @@ export function normalizeDeepseekSearchResponse(payload: unknown): WebSearchSour
       if (seen.has(url.href)) return [];
       seen.add(url.href);
       const text = [row.summary, row.snippet].find((value) => typeof value === 'string' && value.trim());
-      return [{ title: typeof row.title === 'string' && row.title.trim() ? row.title.trim().slice(0, 300) : url.hostname, url: url.href, snippet: typeof text === 'string' ? text.trim().slice(0, 2000) : '', ...(typeof row.published_date === 'string' ? { publishedAt: row.published_date } : {}), provider: 'deepseek' }];
+      const publishedAt = newsDate(row.date) || newsDate(row.published_date);
+      const sourceName = typeof row.site_name === 'string' ? row.site_name.trim().slice(0, 120) : '';
+      return [{ title: typeof row.title === 'string' && row.title.trim() ? row.title.trim().slice(0, 300) : url.hostname, url: url.href, snippet: typeof text === 'string' ? text.trim().slice(0, 2000) : '', ...(publishedAt ? { publishedAt } : {}), ...(sourceName ? { sourceName } : {}), provider: 'deepseek' }];
     } catch { return []; }
   });
 }
