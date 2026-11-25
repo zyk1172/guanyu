@@ -225,7 +225,7 @@ export default function GuanyuCardButton({ auditId, title, reportLanguage }: { a
         </footer>
       </article>
       {error && <p role="alert" className="mt-2 text-sm text-[var(--color-danger)]">{error}</p>}
-      <div className="ui-dialog-actions">
+      <div className="ui-dialog-actions sticky bottom-0 border-t border-[var(--color-border)] bg-[var(--color-surface)] pt-3">
         <Button variant="secondary" onClick={download}><Download aria-hidden="true" />{copy.download}</Button>
         {supportsSystemShare && <Button variant="primary" onClick={() => void share()}><Share2 aria-hidden="true" />{copy.share}</Button>}
       </div>
