@@ -3,6 +3,7 @@ import type { AnyNode } from 'domhandler';
 import { extractPublishedDate, normalizeDate } from './publishedDate.mjs';
 import { assertPublicOutboundUrl, safeOutboundRequest } from './safe-outbound';
 import { ArticleInputError, assertArticleText } from './article-input';
+import { newsImageUrl } from './news-image-core.mjs';
 
 const MAX_RESPONSE_BYTES = 2_500_000;
 const MAX_REDIRECTS = 4;
@@ -15,6 +16,7 @@ export interface ParseResult {
   publishedAtSource: string;
   publishedAtConfidence: string;
   content: string;
+  imageUrl?: string;
   url: string;
 }
 
@@ -251,15 +253,22 @@ function decodeHtmlBuffer(buffer: ArrayBuffer | Uint8Array, contentType: string)
   }
 }
 
-async function fetchHtmlWithRedirects(initialUrl: string): Promise<FetchedHtml> {
-  let currentUrl = (await assertPublicHttpUrl(initialUrl)).toString();
+type ArticleFetchOptions = { userAgent: string; timeoutMs: number; permits: (url: URL) => boolean };
+
+async function fetchHtmlWithRedirects(initialUrl: string, options?: ArticleFetchOptions): Promise<FetchedHtml> {
+  let currentUrl = new URL(initialUrl);
+  const deadline = Date.now() + (options?.timeoutMs ?? 23_000);
 
   for (let i = 0; i <= MAX_REDIRECTS; i += 1) {
+    if (options && !options.permits(currentUrl)) throw new ArticleInputError('ARTICLE_ACCESS_BLOCKED');
+    await assertPublicHttpUrl(currentUrl.href);
+    const timeoutMs = Math.min(15_000, deadline - Date.now());
+    if (timeoutMs <= 0) throw new Error('网页读取超时。');
     const response = await safeOutboundRequest(currentUrl, {
-      timeoutMs: 15_000,
+      timeoutMs,
       maxBytes: MAX_RESPONSE_BYTES,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+        'User-Agent': options?.userAgent || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
         Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7,fr;q=0.6,de;q=0.6,es;q=0.6,it;q=0.6',
       },
@@ -268,7 +277,7 @@ async function fetchHtmlWithRedirects(initialUrl: string): Promise<FetchedHtml> 
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get('location');
       if (!location) throw new Error('目标网页跳转但没有返回 Location。');
-      currentUrl = (await assertPublicHttpUrl(new URL(location, currentUrl).toString())).toString();
+      currentUrl = new URL(location, currentUrl);
       continue;
     }
 
@@ -288,7 +297,7 @@ async function fetchHtmlWithRedirects(initialUrl: string): Promise<FetchedHtml> 
 
     return {
       html: decodeHtmlBuffer(response.body, contentType),
-      finalUrl: currentUrl,
+      finalUrl: currentUrl.href,
     };
   }
 
@@ -475,6 +484,9 @@ export function parseArticleHtml(html: string, url: string): ParseResult {
   const $ = cheerio.load(html);
   const metadata = extractStructuredMetadata($);
   const pageTitle = $('title').text().trim();
+  const imageUrl = ['og:image:secure_url', 'og:image', 'twitter:image'].map(key =>
+    newsImageUrl($(`meta[property="${key}"], meta[name="${key}"]`).first().attr('content'), url),
+  ).find(Boolean);
   const accessNotice = $('.paywall, .regwall, [data-testid*="paywall"], [data-testid*="regwall"]').filter((_, el) => !$(el).closest('[hidden], [aria-hidden="true"], [style*="display:none"], [style*="display: none"]').length).text().trim();
   if ($('#challenge-form, .anomaly-modal, #cf-challenge-running, form#captcha-form').length) {
     throw new ArticleInputError('ARTICLE_ACCESS_BLOCKED');
@@ -526,6 +538,7 @@ export function parseArticleHtml(html: string, url: string): ParseResult {
     publishedAtSource: published.publishedAtSource,
     publishedAtConfidence: published.publishedAtConfidence,
     content,
+    ...(imageUrl ? { imageUrl } : {}),
     url,
   };
 }
@@ -542,7 +555,7 @@ function extractText($el: cheerio.Cheerio<AnyNode>, $: cheerio.CheerioAPI): stri
   return normalizeExtractedText($clone.text());
 }
 
-export async function readNewsArticle(url: string): Promise<ParseResult> {
-  const { html, finalUrl } = await fetchHtmlWithRedirects(url);
+export async function readNewsArticle(url: string, options?: ArticleFetchOptions): Promise<ParseResult> {
+  const { html, finalUrl } = await fetchHtmlWithRedirects(url, options);
   return parseArticleHtml(html, finalUrl);
 }

@@ -47,8 +47,9 @@ import {
   hasUnexpectedReportProse,
 } from '../lib/report-language-core.mjs';
 import { createCaptchaText, isCaptchaTextSafe } from '../lib/captcha-core.mjs';
-import { getEmailProviderPlan } from '../lib/email-delivery-core.mjs';
-import { buildAiCompletionPrompt, validateCompletionMarkdown } from '../lib/ai-completion-core.mjs';
+import { reportFilename, encodedFilename } from '../lib/report-filename.mjs';
+import { directMailReceipt, getEmailProviderPlan, smtpDeliveryFailure } from '../lib/email-delivery-core.mjs';
+import { buildAiCompletionPrompt, completionArticleMarkdown, readCompletionArticle } from '../lib/ai-completion-core.mjs';
 import { buildGuanyuCardFallback, buildGuanyuCardPrompt, parseGuanyuCardContent } from '../lib/guanyu-card-core.mjs';
 import { applyManualVerification } from '../lib/manual-verification-core.mjs';
 import { shouldBootstrapRuntimeSchema } from '../lib/runtime-schema-core.mjs';
@@ -379,6 +380,22 @@ test('email delivery prefers SMTP but falls back to DirectMail and never marks n
   assert.deepEqual(getEmailProviderPlan({ smtpConfigured: false, aliyunConfigured: false }), []);
 });
 
+test('download filenames prioritize the original headline and encode native titles safely', () => {
+  assert.equal(reportFilename('新闻：完整标题', 'pdf'), '新闻：完整标题.pdf');
+  assert.equal(reportFilename('A/B? C', 'docx'), 'A B C.docx');
+  assert.equal(reportFilename('CON', 'md'), '_CON.md');
+  assert.ok(Buffer.byteLength(reportFilename('界'.repeat(120) + '🚀', 'md')) <= 203);
+  assert.equal(encodedFilename("It's news.md"), 'It%27s%20news.md');
+});
+
+test('mail receipts keep actionable authentication codes without storing raw SMTP text', () => {
+  const error = { responseCode: 550, response: '550-5.7.26 User example@gmail.com is not authenticated' };
+  assert.deepEqual(smtpDeliveryFailure(error), { status: 'failed', detail: 'SMTP 550 5.7.26' });
+  assert.equal(smtpDeliveryFailure({ code: 'ETIMEDOUT', command: 'DATA' }).status, 'unknown');
+  assert.deepEqual(directMailReceipt({ RequestId: 'fixture-1', EnvId: 42, Code: 'Throttling' }),
+    { requestId: 'fixture-1', messageId: '42', code: 'Throttling' });
+});
+
 test('registration captcha uses a longer non-ambiguous visual code', () => {
   const value = createCaptchaText(() => 0.4);
   assert.equal(value.length, 6);
@@ -386,23 +403,26 @@ test('registration captcha uses a longer non-ambiguous visual code', () => {
   assert.equal(isCaptchaTextSafe('O0I1L'), false);
 });
 
-test('AI completion prompt requires a professional article with localized uncertainty labels', () => {
+test('AI completion produces one news headline and continuous attributed prose', () => {
   const prompt = buildAiCompletionPrompt({
-    title: 'Example report',
-    source: 'Example source',
-    originalContent: 'Original news body.',
-    reportLanguage: 'en-US',
-    report: {
-      onlineVerification: { verifiedSources: [{ title: 'Verified source', url: 'https://example.com', note: 'Confirms the event.' }] },
-      keyFindings: [{ title: 'Key finding', content: 'Needs context.' }],
-    },
+    title: 'Example report', source: 'Example source', originalContent: 'Original news body.', reportLanguage: 'en-US',
+    report: { onlineVerification: { verifiedSources: [{ title: 'Verified source' }] }, keyFindings: [{ title: 'Key finding' }] },
   });
-
   assert.match(prompt.system, /inverted-pyramid/i);
-  assert.match(prompt.system, /\[Unverified\]/i);
-  assert.match(prompt.system, /Do not dump score cards/i);
-  assert.equal(validateCompletionMarkdown(`# Revised article\n\n${'A factual lead paragraph. '.repeat(8)}\n\n## What is known\n\n${'Known facts with attribution. '.repeat(8)}\n\n## Evidence and attributed accounts\n\n${'Evidence is described carefully. '.repeat(8)}\n\n## Unresolved questions\n\n${'[Unverified] A material claim remains unresolved. '.repeat(8)}\n\n## Context and implications\n\n${'Context for readers. '.repeat(8)}`), true);
-  assert.equal(validateCompletionMarkdown(''), false);
+  assert.match(prompt.system, /Attribute claims/i);
+  assert.match(prompt.user, /Verified source/);
+  const article = {
+    title: 'Library extends weekend opening',
+    paragraphs: [
+      'The city library will stay open later on weekends from June, according to an announcement by its director.',
+      'The city said it would review attendance after three months. It has not announced a budget for the trial.',
+    ],
+  };
+  const markdown = completionArticleMarkdown(JSON.stringify(article));
+  assert.equal(markdown, ['# ' + article.title, ...article.paragraphs].join('\n\n'));
+  assert.deepEqual(readCompletionArticle(markdown), article);
+  assert.equal(completionArticleMarkdown(JSON.stringify({ ...article, paragraphs: [...article.paragraphs, '## Verification notes'] })), null);
+  assert.equal(readCompletionArticle('# Headline\n\n## Internal score'), null);
 });
 
 test('payment catalogue fixes server-side Starter and Pro prices and benefits', () => {

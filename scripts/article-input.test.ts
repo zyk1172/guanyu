@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ArticleInputError, assertArticleText, assertModelArticleAssessment } from '../lib/article-input';
+import { crawlUrl, robotsAllows } from '../lib/article-crawl-policy';
 import { parseArticleHtml } from '../lib/article-extraction';
 import { buildPrompt, buildCompactFallbackPrompt } from '../lib/prompts';
 import { hasUnexpectedReportProse, buildReportLanguageJsonRepairPrompt } from '../lib/report-language-core.mjs';
@@ -20,6 +21,23 @@ test('visible Chinese and English news remains readable, with metadata and witho
   assert.equal(result.publishedAt, '2026-11-05');
   const english = 'The city library announced a three-month trial of extended opening hours on Friday evenings. Officials said reader feedback would be collected before the trial is evaluated. Staffing and budget details have not been disclosed.';
   assert.ok(parseArticleHtml(page(`<article><p>${english}</p></article>`, 'Library announces extended hours'), url).content.includes(english));
+});
+
+test('article capture resolves publisher image metadata and accepts only configured secure news hosts', () => {
+  const result = parseArticleHtml(page(`<article><p>${body}</p></article>`, '图书馆试行延长开放时间',
+    '<meta property="og:image" content="/photos/library.webp">'), url);
+  assert.equal(result.imageUrl, 'https://example.com/photos/library.webp');
+  const allowed = new Set(['example.com']);
+  assert.equal(crawlUrl('https://example.com/library#section', allowed)?.href, url);
+  assert.equal(crawlUrl('https://other.example/library', allowed), null);
+});
+
+test('the crawler honors publisher paths and its own robots group', () => {
+  const robot = 'User-agent: *\nDisallow: /members*\nAllow: /members/accessible$\n';
+  assert.equal(robotsAllows(robot, new URL('/members/invite', url)), false);
+  assert.equal(robotsAllows(robot, new URL('/members/accessible', url)), true);
+  assert.equal(robotsAllows(robot, new URL('/members/accessible?other=1', url)), false);
+  assert.equal(robotsAllows(robot + '\nUser-agent: GuanyuArticleCrawler\nDisallow: /\n', new URL(url)), false);
 });
 
 test('HTTP-200 error, challenge, sign-in and subscription pages cannot pass merely by being long', () => {

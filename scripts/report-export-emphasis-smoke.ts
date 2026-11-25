@@ -37,6 +37,8 @@ try {
   const variants = await Promise.all(concurrent.map(response => response.json()));
   assert.equal(variants.filter(item => item.charged).length, 1, 'concurrent variants are one purchase');
   assert.match(variants[1].downloadUrl, /original=1/);
+  assert.equal(variants[0].filename, audit.title + '.docx');
+  assert.equal(variants[1].filename, audit.title + ' - 含原文.docx');
   assert.equal((await get(request('WORD', 'GET', token, base.origin, true))).status, 200);
 
   for (const format of ['PDF', 'MARKDOWN']) {
@@ -58,6 +60,10 @@ try {
 
   for (const format of formats) {
     const row = await prisma.exportArtifact.findUniqueOrThrow({ where: { userId_reportId_reportVersion_exportFormat_includeOriginal: { userId: owner.id, reportId: audit.id, reportVersion: 1, exportFormat: format, includeOriginal: false } } });
+    await prisma.exportArtifact.update({ where: { id: row.id }, data: { downloadFilename: 'stale-name.bin' } });
+    const cachedResponse = await get(request(format, 'GET'));
+    const extension = { PDF: '.pdf', WORD: '.docx', MARKDOWN: '.md' }[format];
+    assert.equal(decodeURIComponent(cachedResponse.headers.get('Content-Disposition')!.split("UTF-8''")[1]), audit.title + extension);
     await prisma.exportArtifact.update({ where: { id: row.id }, data: { templateVersion: oldVersions[format] } });
     assert.equal((await get(request(format, 'GET'))).status, 404, 'stale template must be regenerated');
     const refreshed = await post(request(format));

@@ -6,7 +6,7 @@ import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { formatCredits } from '@/lib/billing';
 import { prisma } from '@/lib/prisma';
 import { beginServiceOperation, completeServiceOperation, failServiceOperation } from '@/lib/service-operation';
-import { buildAiCompletionPrompt, validateCompletionMarkdown } from '@/lib/ai-completion-core.mjs';
+import { buildAiCompletionPrompt, completionArticleMarkdown } from '@/lib/ai-completion-core.mjs';
 import { getAnalysisTimeoutMs } from '@/lib/reasoning-depth-core.mjs';
 import { reserveCompletionAttempt } from '@/lib/rate-limit';
 import { resolveOperationModel } from '@/lib/operation-model';
@@ -164,7 +164,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       userPrompt: prompt.user,
       timeoutMs: Math.min(getAnalysisTimeoutMs(process.env.GUANYU_LLM_TIMEOUT_MS), 220_000),
       maxTokens: 12_000,
-      jsonMode: false,
+      jsonMode: true,
       nativeSearch: false,
       allowPrivateAddress: operationModel.allowPrivateAddress,
     });
@@ -176,8 +176,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         : '所选平台模型调用失败，本次未扣除点数。请稍后重试或重新选择其他模型。';
       return NextResponse.json({ error: retryHint }, { status: 502 });
     }
-    const markdown = response.message.trim().replace(/^```(?:markdown|md)?\s*/i, '').replace(/\s*```$/, '');
-    if (!validateCompletionMarkdown(markdown)) {
+    const markdown = completionArticleMarkdown(response.message);
+    if (!markdown) {
       await recordModelUsage({ userId: user.id, auditId: audit.id, operation: 'completion', status: 'failed', source: operationModel.source, snapshot: operationModel.snapshot, usage: response.usage, durationMs: Date.now() - startedAt, errorCode: 'invalid_output' }).catch(() => {});
       await failServiceOperation(serviceOperation.id, serviceOperation.currentAttempt, 'invalid_output').catch(() => {});
       return NextResponse.json({ error: 'AI 补全返回格式不完整，请重新生成。' }, { status: 502 });

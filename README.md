@@ -253,3 +253,12 @@ docker compose up -d --build
 ghcr.io/zyk1172/guanyu:latest
 ghcr.io/zyk1172/guanyu:sha-<commit>
 ```
+
+
+### 小型新闻采集
+
+`GUANYU_ARTICLE_CRAWL_HOSTS` 填逗号分隔的已获许可的发布者主机名，例如 `news.example.org,www.example.net`，由站点管理的 RSS 提供候选。现有每小时首页预热在后台采集，单批最多 3 个站点，每站最多读取一个公开报道页面。采集遵守该站的 `robots.txt`，逐跳校验 HTTPS 与发布者主机，限制体积和超时。只缓存标题、来源、时间、可见正文和图片地址，缓存 24 小时供链接分析复用。首页快照仍只返回新闻预览。
+
+### Gmail 投递排查
+
+Gmail 投递可在 Vercel Runtime Logs 查询 `[email-delivery]`，再用「邮件投递记录」中的服务商追踪号对应 SMTP 或 DirectMail 的接收记录。日志只记录收件平台类别和诊断码。发件域名的 SPF、DKIM 和 DMARC 可按 Gmail 指引核对。 [Gmail 发件指南](https://support.google.com/a/answer/81126)

@@ -8,6 +8,8 @@ import { encryptSecret } from '../lib/secret';
 import { getDemoReport } from '../lib/demo-report';
 import { handleAnalyze } from '../lib/analyze-service';
 import { createAnalyzeJob, runAnalyzeJob } from '../lib/analyze-job';
+import { crawlRecentArticles, readCrawledArticle } from '../lib/article-crawl';
+import { POST as completeArticle } from '../app/api/audits/[id]/completion/route';
 import { readNewsArticle } from '../lib/article-extraction';
 import { POST as createJob } from '../app/api/analyze/jobs/route';
 import { POST as parseUrl } from '../app/api/parse-url/route';
@@ -23,6 +25,7 @@ async function main() {
   let calls=0;
   let rejectTools=false;
   let rejectCredentials=false;
+  let rewrite: unknown;
   let assessment: unknown = {status:'usable',evidence:originalContent.slice(0,50)};
   const server=createServer(async (request,response)=>{
     let body=''; for await(const chunk of request) body+=chunk;
@@ -32,7 +35,7 @@ async function main() {
       response.end(JSON.stringify({ error: { message: 'Fixture rejects this request' } }));
       return;
     }
-    const result={...outputReport,inputAssessment:assessment};
+    const result=rewrite ?? {...outputReport,inputAssessment:assessment};
     response.writeHead(200,{'content-type':'application/json'});
     response.end(JSON.stringify({choices:[{message:{content:JSON.stringify(result)}}],usage:{prompt_tokens:50,completion_tokens:50}}));
   });
@@ -127,6 +130,58 @@ async function main() {
     assert.equal(english.status,200,JSON.stringify(await english.json()));
     assert.equal(await balance(),9100);assert.equal(await audits(),3);
     assert.equal(await prisma.pointTransaction.count({where:{userId:user.id,transactionType:'NEWS_ANALYSIS'}}),3);
+    const rewriteRequest = (requestId: string) => new NextRequest('http://localhost/api/audits/' + data.auditId + '/completion', {
+      method: 'POST', headers: { origin: 'http://localhost', 'content-type': 'application/json', cookie: `next-auth.session-token=${token}` },
+      body: JSON.stringify({ requestId }),
+    });
+    const ctx = { params: Promise.resolve({ id: data.auditId as string }) };
+    const title = '市图书馆将试行延长周末开放时间';
+    const paragraphs = ['市图书馆宣布从下周起试行延长周末开放时间。馆方表示，将记录新增时段的到访人数，并在试点结束后公布评估。', '市图书馆尚未公布人手安排和额外费用。按照馆方目前公开的安排，试点期间原有服务和借阅规则继续执行。'];
+    rewrite = { title, paragraphs: [...paragraphs, '## 审视评分细则'] };
+    assert.equal((await completeArticle(rewriteRequest(crypto.randomUUID()), ctx)).status, 502);
+    assert.equal(await balance(), 9100);
+    rewrite = { title, paragraphs };
+    const result = await completeArticle(rewriteRequest(crypto.randomUUID()), ctx);
+    assert.equal(result.status, 200);
+    const published = ['# ' + title, ...paragraphs].join('\n\n');
+    assert.equal((await result.json()).markdown, published);
+    assert.equal((await prisma.audit.findUniqueOrThrow({ where: { id: data.auditId } })).completionMarkdown, published);
+
+    const originalHosts = process.env.GUANYU_ARTICLE_CRAWL_HOSTS;
+    const host = `news-${suffix}.example`;
+    const crawlAddress = `https://${host}/public-library`;
+    const slot = `article-crawl:slot:${Math.floor(Date.now() / 3600000)}`;
+    const cache = `article-crawl:${privacyHmacHash(crawlAddress)}`;
+    const date = new Date().toISOString();
+    const image = `https://${host}/library.jpg`;
+    let articles = 0;
+    try {
+      process.env.GUANYU_ARTICLE_CRAWL_HOSTS = host;
+      await crawlRecentArticles([
+        { id: 'fixture-blocked', url: `https://${host}/members-only`, title, publishedAt: date, publisher: host, sourceId: 'fixture', sourceName: 'Fixture', feedRank: 0 },
+        { id: 'fixture-open', url: crawlAddress, title, publishedAt: date, publisher: host, sourceId: 'fixture', sourceName: 'Fixture', feedRank: 1 },
+      ], {
+        request: async (target) => {
+          assert.equal(String(target), `https://${host}/robots.txt`);
+          return { status: 200, headers: new Headers(), body: Buffer.from('User-agent: *\nDisallow: /members-only') };
+        },
+        read: async (target, options) => {
+          articles++;
+          assert.equal(target, crawlAddress);
+          assert.equal(options?.permits(new URL(target)), true);
+          return { title, source: 'Fixture', content: paragraphs.join('\n'), imageUrl: image, url: target,
+            date: '', publishedAt: date, publishedAtSource: '', publishedAtConfidence: '' };
+        },
+      });
+      assert.equal(articles, 1);
+      assert.equal((await readCrawledArticle(crawlAddress))?.imageUrl, image);
+      await prisma.newsSearchCache.update({ where: { cacheKey: cache }, data: { expiresAt: new Date(0) } });
+      assert.equal(await readCrawledArticle(crawlAddress), null);
+    } finally {
+      if (originalHosts === undefined) delete process.env.GUANYU_ARTICLE_CRAWL_HOSTS;
+      else process.env.GUANYU_ARTICLE_CRAWL_HOSTS = originalHosts;
+      await prisma.newsSearchCache.deleteMany({ where: { cacheKey: { in: [cache, slot] } } });
+    }
     console.log('Article input smoke passed: auth/CSRF/SSRF, invalid text rejected before job/model usage, unavailable/non-news/mismatched/missing or invented assessments never save or charge, terminal job failure, and valid direct/job analysis with single billing.');
   } finally {
     await prisma.modelUsageEvent.deleteMany({where:{userId:user.id}});
