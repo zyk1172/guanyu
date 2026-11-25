@@ -1,10 +1,7 @@
-import { headers } from 'next/headers';
-import { NextRequest } from 'next/server';
-import { notFound, redirect } from 'next/navigation';
+import { requireAdminPage } from '@/lib/page-auth';
 import Header from '@/components/Header';
-import { ButtonLink, Panel } from '@/components/ui/controls';
-import { getCurrentUser } from '@/lib/auth';
-import { getSuperAdminStatus } from '@/lib/admin';
+import AdminBackLink from '@/components/AdminBackLink';
+import { Panel } from '@/components/ui/controls';
 import { prisma } from '@/lib/prisma';
 import { formatEmailCategory } from '@/lib/account-display';
 
@@ -20,10 +17,7 @@ const deliveryStatus: Record<string, string> = {
 };
 
 export default async function MailPage() {
-  const request = new NextRequest(process.env.NEXTAUTH_URL || 'http://localhost:3000', { headers: await headers() });
-  const user = await getCurrentUser(request);
-  if (!user) redirect('/login');
-  if (!await getSuperAdminStatus(user.id)) notFound();
+  await requireAdminPage();
   const deliveries = await prisma.emailDelivery.findMany({
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     take: 50,
@@ -38,7 +32,7 @@ export default async function MailPage() {
     <div id="main-content" tabIndex={-1} className="workspace-container workspace-content space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="ui-page-title">邮件投递记录</h1>
-        <ButtonLink href="/account">账户管理</ButtonLink>
+        <AdminBackLink />
       </div>
       {deliveries.length === 0 && <p>暂无邮件投递记录。</p>}
       {deliveries.map(item => <Panel key={item.id} className="space-y-1">

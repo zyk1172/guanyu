@@ -11,6 +11,7 @@ import { platformModelSnapshot } from './platform-models';
 import { applyNewsRanking, newsQueryVariants, planNewsSearch, rankNewsSearch } from './news-search-model';
 import { addResearchUsage } from './event-search';
 import type { invokeModel, RuntimeUsage } from './model-runtime';
+import { paidSearchAllowed } from './web-search-policy';
 import { shanghaiDate } from './traffic-core';
 import type { NewsSearchResult, NewsProvider, NewsPeriod } from './news-search-types';
 import type { resolveNewsSearchAccess } from './news-search-settings';
@@ -79,7 +80,7 @@ export async function runNewsSearch(input: NewsSearchInput, access: Access, user
         }
       };
       const originalSearch = Promise.allSettled([searchIndex(input.query)]);
-      if (userId && access.capabilities.paidAllowed && access.aiModelConfigId && configuredLimit > 0
+      if (userId && paidSearchAllowed() && access.aiModelConfigId && configuredLimit > 0
         && !/[<>@]|https?:|www\.|\b\d{9,}\b/i.test(input.query)) {
         model = await newsSearchModel(access.aiModelConfigId);
       }

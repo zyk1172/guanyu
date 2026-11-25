@@ -13,7 +13,9 @@ import { GET as capabilities, POST as searchRoute } from '../app/api/news/search
 import { GET as adminGet, PATCH as adminPatch } from '../app/api/admin/news-search/route';
 
 const suffix = crypto.randomUUID(), start = new Date(), base = process.env.NEXTAUTH_URL || 'http://localhost:3000';
-const app = await getOrCreateAppSetting(); const oldPaid = process.env.GUANYU_ALLOW_PAID_SEARCH;
+const app = await getOrCreateAppSetting();
+const oldPaid = process.env.GUANYU_ALLOW_PAID_SEARCH;
+const oldNewsSearch = process.env.GUANYU_ALLOW_DEEPSEEK_NEWS_SEARCH;
 const users: string[] = [], keys = new Set<string>(); let modelId: string | undefined;
 const input: NewsSearchInput = { query: `fixture ${suffix}`, provider: 'free', period: 'any', language: 'zh-CN' };
 const transport = async (url: string | URL) => String(url).includes('fixture.example')
@@ -33,7 +35,15 @@ try {
     const user = await prisma.user.create({ data: { email: `news-${users.length}-${suffix}@example.test`, password: '!passwordless', role, ...(pro ? { proAccessExpiresAt: new Date(Date.now() + 86400_000) } : {}), settings: { create: { deepseekApiKeyEncrypted: encryptSecret('personal-fixture-key') } } } }); users.push(user.id);
   }
   const model = await prisma.platformModelConfig.create({ data: { configKey: `news-${suffix}`, displayName: 'Search fixture', baseUrl: 'https://model.example', modelId: 'fixture', apiKeyEncrypted: encryptSecret('fixture-model-key'), deepseekApiKeyEncrypted: encryptSecret('platform-fixture-key') } }); modelId = model.id;
-  process.env.GUANYU_ALLOW_PAID_SEARCH = 'true';
+  process.env.GUANYU_ALLOW_PAID_SEARCH = 'false';
+  delete process.env.GUANYU_ALLOW_DEEPSEEK_NEWS_SEARCH;
+  await prisma.appSetting.update({ where: { id: app.id }, data: { newsSearchProvider: 'free', newsSearchDeepseekKeyEncrypted: null } });
+  await cacheDel(CACHE_KEYS.appSetting);
+  await prisma.userSettings.update({ where: { userId: users[2] }, data: { deepseekApiKeyEncrypted: null, defaultPlatformModelConfigId: model.id } });
+  const adminFallback = await resolveNewsSearchAccess({ id: users[2], sessionVersion: 1 });
+  assert.equal(adminFallback.encryptedKey, model.deepseekApiKeyEncrypted);
+  assert.equal(adminFallback.capabilities.defaultProvider, 'free');
+  assert.equal((await resolveNewsSearchAccess({ id: users[0], sessionVersion: 1 })).capabilities.deepseekAvailable, false);
   const patch = { provider: 'deepseek', aiModelConfigId: model.id, apiKey: 'platform-fixture-key', dailyLimit: 1 };
   assert.equal((await adminPatch(await request('/api/admin/news-search', users[0], 'PATCH', patch))).status, 403);
   assert.equal((await adminPatch(await request('/api/admin/news-search', users[2], 'PATCH', patch, 'https://evil.example'))).status, 403);
@@ -41,6 +51,7 @@ try {
   const pub = await capabilities(await request('/api/news/search')); const pubText = await pub.text(); assert.ok(!pubText.includes('fixture-key')); assert.equal(JSON.parse(pubText).deepseekAvailable, false);
   const ordinary = await resolveNewsSearchAccess({ id: users[0], sessionVersion: 1 }); const pro = await resolveNewsSearchAccess({ id: users[1], sessionVersion: 1 });
   assert.equal(ordinary.capabilities.deepseekSource, 'platform'); assert.equal(pro.capabilities.deepseekSource, 'personal');
+  process.env.GUANYU_ALLOW_PAID_SEARCH = 'true';
   const adminResponse = await adminGet(await request('/api/admin/news-search', users[2])); assert.equal(adminResponse.status, 200); assert.ok(!(await adminResponse.text()).includes('fixture-key'));
   assert.equal((await searchRoute(await request('/api/news/search', undefined, 'POST', { ...input, provider: 'deepseek' }))).status, 403);
   assert.equal((await searchRoute(await request('/api/news/search', undefined, 'POST', { ...input, query: 'a' }))).status, 400);
@@ -110,13 +121,14 @@ try {
   const failing = { ...paid, query: `failure ${suffix}` }; track(failing, pro);
   await assert.rejects(runNewsSearch(failing, pro, users[1], { ...options, deepseekFetch: async () => { throw new Error('fixture upstream failure'); } }), (error: unknown) => (error as { status: number }).status === 503);
   assert.equal(await prisma.newsSearchCache.count({ where: { cacheKey: [...keys].at(-1) } }), 0);
-  process.env.GUANYU_ALLOW_PAID_SEARCH = 'false';
+  process.env.GUANYU_ALLOW_DEEPSEEK_NEWS_SEARCH = 'false';
   const disabled = await resolveNewsSearchAccess({ id: users[1], sessionVersion: 1 }); assert.equal(disabled.capabilities.deepseekAvailable, false);
   await assert.rejects(runNewsSearch(paid, disabled, users[1], { deepseekFetch: fakeDeepseek }), (error: unknown) => (error as { status: number }).status === 403);
   assert.equal(await prisma.pointTransaction.count({ where: { userId: { in: users } } }), 0);
   assert.ok(await prisma.modelUsageEvent.count({ where: { userId: { in: users }, operation: 'news_search', searchRequestCount: { gt: 0 } } }));
   console.log('news search smoke passed: settings/permissions/secrets/personal-platform/free-only/cache/concurrency/caps/usage/no-analysis-charges/failures');
 } finally {
+  if (oldNewsSearch === undefined) delete process.env.GUANYU_ALLOW_DEEPSEEK_NEWS_SEARCH; else process.env.GUANYU_ALLOW_DEEPSEEK_NEWS_SEARCH = oldNewsSearch;
   if (oldPaid === undefined) delete process.env.GUANYU_ALLOW_PAID_SEARCH; else process.env.GUANYU_ALLOW_PAID_SEARCH = oldPaid;
   await prisma.appSetting.update({ where: { id: 'global' }, data: { newsSearchProvider: app.newsSearchProvider, newsSearchDeepseekKeyEncrypted: app.newsSearchDeepseekKeyEncrypted, newsSearchAiModelConfigId: app.newsSearchAiModelConfigId, newsSearchDailyLimit: app.newsSearchDailyLimit } }); await cacheDel(CACHE_KEYS.appSetting);
   await prisma.newsSearchCache.deleteMany({ where: { cacheKey: { in: [...keys] } } });

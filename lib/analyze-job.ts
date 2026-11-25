@@ -213,7 +213,10 @@ export async function runAnalyzeJob(jobId: string) {
     }
     await dispatchQueuedEmails().catch(() => console.error('[analyze-job] mail dispatch failed', jobId));
   } catch (error: any) {
-    const retryable = error?.status !== 422 && job.attemptCount < JOB_MAX_ATTEMPTS;
+    const upstreamStatus = error instanceof AppError ? Number(error.code.match(/^upstream_(\d{3})$/)?.[1]) : NaN;
+    const permanentUpstreamFailure = upstreamStatus >= 400 && upstreamStatus < 500 && ![408, 429].includes(upstreamStatus);
+    const transientFailure = !(error instanceof AppError) || error.status === 429 || (error.status >= 500 && !permanentUpstreamFailure);
+    const retryable = transientFailure && job.attemptCount < JOB_MAX_ATTEMPTS;
     const failed = await prisma.auditJob.updateMany({
       where: { ...ownership, leaseExpiresAt: { gt: new Date() } },
       data: {

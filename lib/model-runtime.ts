@@ -272,26 +272,54 @@ function chatText(content: unknown): string {
 }
 
 async function invokeOpenAiCompatible(params: InvokeModelParams): Promise<ModelInvocationResult> {
-  const response = await safeOutboundRequest(`${normalizeModelBaseUrl(params.baseUrl)}/chat/completions`, {
+  const deadline = Date.now() + params.timeoutMs;
+  const model = {
+    model: params.modelId,
+    messages: [
+      { role: 'system', content: params.system },
+      { role: 'user', content: params.userPrompt },
+    ],
+  };
+  const send = (options: Record<string, unknown>) => safeOutboundRequest(`${normalizeModelBaseUrl(params.baseUrl)}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${params.apiKey}` },
-    body: JSON.stringify({
-      model: params.modelId,
-      messages: [
-        { role: 'system', content: params.system },
-        { role: 'user', content: params.userPrompt },
-      ],
-      temperature: 0.1,
-      ...(params.jsonMode ? { response_format: { type: 'json_object' } } : {}),
-      ...(params.maxTokens ? { max_tokens: params.maxTokens } : {}),
-    }),
-    timeoutMs: params.timeoutMs,
+    body: JSON.stringify({ ...model, ...options }),
+    timeoutMs: Math.max(1, deadline - Date.now()),
     maxBytes: 8 * 1024 * 1024,
     requireHttps: process.env.NODE_ENV === 'production' && !params.allowPrivateAddress,
     allowPrivateAddress: params.allowPrivateAddress,
   });
-  const payload = parseUpstreamJson(response.body);
-  const usage = payload?.usage || {};
+  let response = await send({
+    temperature: 0.1,
+    ...(params.jsonMode ? { response_format: { type: 'json_object' } } : {}),
+    ...(params.maxTokens ? { max_tokens: params.maxTokens } : {}),
+  });
+  let payload = parseUpstreamJson(response.body);
+  const usage = chatUsage(payload);
+  let tokenField = 'max_tokens';
+  let budget = params.maxTokens;
+  let optionalFields = true;
+  for (let retry = 0; retry < 2 && [400, 422].includes(response.status) && deadline - Date.now() > 2_000; retry += 1) {
+    const detail = [payload?.error?.param, payload?.error?.message, payload?.message, typeof payload?.error === 'string' && payload.error]
+      .filter(value => typeof value === 'string').join(' ').slice(0, 2_000);
+    const unsupportedOption = optionalFields && /response_format|\btemperature\b/i.test(detail);
+    const useCompletionTokens = budget && tokenField === 'max_tokens' && /\bmax_completion_tokens\b/i.test(detail) && /\bmax_tokens\b/i.test(detail);
+    const limit = /\bmax_(?:completion_)?tokens\b/i.test(detail)
+      ? Number(detail.match(/(?:between\s+\d+\s+and\s+|(?:less than or equal to|at most|maximum(?: value)?(?: is| of)?|<=)\s*)(\d{2,6})\b/i)?.[1])
+      : 0;
+    const reducedBudget = budget && limit > 0 && limit < budget ? limit : undefined;
+    if (!unsupportedOption && !useCompletionTokens && !reducedBudget) break;
+    // The report prompt already requires JSON. Preserve the output cap and deadline.
+    budget = reducedBudget ?? budget;
+    if (useCompletionTokens) tokenField = 'max_completion_tokens';
+    optionalFields = false;
+    response = await send(budget ? { [tokenField]: budget } : {});
+    payload = parseUpstreamJson(response.body);
+    const retryUsage = chatUsage(payload);
+    usage.inputTokens += retryUsage.inputTokens;
+    usage.outputTokens += retryUsage.outputTokens;
+    usage.cacheReadTokens += retryUsage.cacheReadTokens;
+  }
   return {
     ok: response.status >= 200 && response.status < 300,
     status: response.status,
@@ -299,12 +327,7 @@ async function invokeOpenAiCompatible(params: InvokeModelParams): Promise<ModelI
     errorCode: response.status >= 400 ? `upstream_${response.status}` : undefined,
     usedTokenBudget: Boolean(params.maxTokens),
     sources: [],
-    usage: {
-      inputTokens: int(usage.prompt_tokens),
-      outputTokens: int(usage.completion_tokens),
-      cacheReadTokens: int(usage.prompt_tokens_details?.cached_tokens),
-      nativeSearchRequests: 0,
-    },
+    usage,
   };
 }
 
@@ -780,24 +803,31 @@ export async function testModelConnection(params: Omit<InvokeModelParams, 'syste
       ? 'You are a web-research connectivity test. Call web_search, then read_webpage on a search result. Include GUANYU_MODEL_OK and the URL only after a successful page read.'
       : params.nativeSearch
       ? 'You are a connectivity and native web-search test. Use the configured web-search tool once, then include GUANYU_MODEL_OK in the final answer.'
-      : 'You are a connectivity test. Do not use tools.',
+      : 'Return a JSON object exactly matching {"status":"GUANYU_MODEL_OK"}. Do not use tools.',
     userPrompt: params.webResearch
       ? 'Search for Mozilla Readability on its official GitHub repository and read its README. Reply with GUANYU_MODEL_OK and the inspected source URL.'
       : params.nativeSearch
       ? 'Search the web for the official homepage of the configured model provider. Reply with GUANYU_MODEL_OK and one source URL.'
-      : 'Reply with exactly GUANYU_MODEL_OK',
+      : 'Return the requested JSON object.',
     timeoutMs: 90_000,
-    maxTokens: 512,
-    jsonMode: false,
+    maxTokens: 2_048,
+    jsonMode: !params.nativeSearch && !params.webResearch,
     nativeSearch: Boolean(params.nativeSearch),
   });
   const nativeSearchPassed = !params.nativeSearch || result.usage.nativeSearchRequests > 0 || result.sources.length > 0;
   const webResearchPassed = !params.webResearch || (params.webResearch.searchRequests > 0 && result.sources.some((source) => source.provider === 'webpage'));
+  let responsePassed = /GUANYU_MODEL_OK/i.test(result.message);
+  if (!params.nativeSearch && !params.webResearch) {
+    const start = result.message.indexOf('{');
+    const end = result.message.lastIndexOf('}');
+    responsePassed = start >= 0 && end > start
+      && parseUpstreamJson(Buffer.from(result.message.slice(start, end + 1)))?.status === 'GUANYU_MODEL_OK';
+  }
   return {
     ...result,
     durationMs: Date.now() - startedAt,
     nativeSearchPassed,
     webResearchPassed,
-    passed: result.ok && /GUANYU_MODEL_OK/i.test(result.message) && nativeSearchPassed && webResearchPassed,
+    passed: result.ok && responsePassed && nativeSearchPassed && webResearchPassed,
   };
 }

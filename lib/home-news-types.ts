@@ -18,6 +18,7 @@ export type HomeNewsStory = {
 export type HomeNewsPayload = {
   sources: Pick<RssSource, 'id' | 'name' | 'nameZh'>[];
   stories: HomeNewsStory[];
+  sourceHeadlines?: Record<string, HomeHeadline[]>;
   hotCount: number;
   fetchedAt: string;
   stale?: boolean;

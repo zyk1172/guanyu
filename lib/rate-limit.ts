@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { AppError } from '@/lib/app-error';
 import { prisma } from '@/lib/prisma';
 import { privacyHmacHash } from '@/lib/privacy-hash';
 
@@ -206,7 +207,7 @@ export async function reservePublicUrlParseAttempt(ip: string) {
       where: { email: key, purpose: 'parse_url_attempt', createdAt: { gte: windowStart } },
     });
     if (count >= URL_PARSE_WINDOW_LIMIT) {
-      throw new Error('网页解析请求过于频繁，请 5 分钟后再试。');
+      throw new AppError('RATE_LIMITED', '正文读取达到每 5 分钟 10 次的上限，请稍后重试。', 429);
     }
     await tx.verificationCode.create({
       data: {

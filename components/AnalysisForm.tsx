@@ -32,7 +32,7 @@ interface AnalysisFormProps {
   articleUrl?: { url: string; selectedAt: number };
 }
 
-type ParseFailure = { code: string; message: string; article?: NewsArticle };
+type ParseFailure = { code: string; message: string; article?: NewsArticle; confirmedQuote?: AnalysisQuote };
 
 function explainParseFailure(code: string) {
   switch (code) {
@@ -41,7 +41,7 @@ function explainParseFailure(code: string) {
       return { reasonKey: 'parse.invalidUrlReason', explanationKey: 'parse.invalidUrlExplanation' };
     case 'URL_PRIVATE_ADDRESS':
       return { reasonKey: 'parse.securityReason', explanationKey: 'parse.securityExplanation' };
-    case 'RATE_LIMITED':
+    case 'UPSTREAM_RATE_LIMITED':
     case 'UPSTREAM_FORBIDDEN':
       return { reasonKey: 'parse.accessReason', explanationKey: 'parse.accessExplanation' };
     case 'UPSTREAM_NOT_FOUND':
@@ -156,12 +156,12 @@ export default function AnalysisForm({ onSubmit, isLoading, quoteRefresh = 0, ar
 
       if (!res.ok) {
         setSelectedNews(null);
-        setParseFailure({ code: String(data.code || 'PARSE_FAILED'), message: data.error || '解析失败', article: selectedArticle });
+        setParseFailure({ code: String(data.code || 'PARSE_FAILED'), message: data.error || '解析失败', article: selectedArticle, confirmedQuote });
         return;
       }
 
       if (typeof data.content !== 'string' || data.content.trim().length < 50) {
-        setParseFailure({ code: 'ARTICLE_BODY_MISSING', message: '', article: selectedArticle });
+        setParseFailure({ code: 'ARTICLE_BODY_MISSING', message: '', article: selectedArticle, confirmedQuote });
         return;
       }
 
@@ -183,7 +183,7 @@ export default function AnalysisForm({ onSubmit, isLoading, quoteRefresh = 0, ar
     } catch {
       if (controller.signal.aborted || current !== parseNumber.current) return;
       setSelectedNews(null);
-      setParseFailure({ code: 'NETWORK_ERROR', message: '网络错误，请重试', article: selectedArticle });
+      setParseFailure({ code: 'NETWORK_ERROR', message: '网络错误，请重试', article: selectedArticle, confirmedQuote });
     } finally {
       if (current === parseNumber.current) { setIsParsing(false); parseController.current = null; }
     }
@@ -226,6 +226,9 @@ export default function AnalysisForm({ onSubmit, isLoading, quoteRefresh = 0, ar
 
   const isFormValid = content.trim().length >= 50;
   const parseFailureInfo = parseFailure ? explainParseFailure(parseFailure.code) : null;
+  const parseFailureDescription = parseFailure?.code === 'RATE_LIMITED'
+    ? (language.startsWith('zh') ? '已达到每 5 分钟读取 10 次正文的上限，请稍后重试。' : 'Article reading is limited to 10 attempts per 5 minutes. Try again shortly.')
+    : parseFailureInfo && `${t('parse.reasonLabel', undefined, { reason: t(parseFailureInfo.reasonKey) })} ${t(parseFailureInfo.explanationKey)}`;
 
   const focusManualContent = () => {
     setParseFailure(null);setManualOpen(true);
@@ -272,10 +275,10 @@ export default function AnalysisForm({ onSubmit, isLoading, quoteRefresh = 0, ar
 
     </div>
     </details>
-      {parseFailure && parseFailureInfo && <Dialog open onClose={() => setParseFailure(null)} title={t('parse.modalTitle')} closeLabel={t('common.close')} role="alertdialog" returnFocus={parseTrigger} description={`${t('parse.reasonLabel', undefined, { reason: t(parseFailureInfo.reasonKey) })} ${t(parseFailureInfo.explanationKey)}`}>
+      {parseFailure && parseFailureDescription && <Dialog open onClose={() => setParseFailure(null)} title={t('parse.modalTitle')} closeLabel={t('common.close')} role="alertdialog" returnFocus={parseTrigger} description={parseFailureDescription}>
         <p className="rounded-lg bg-[var(--color-surface-muted)] p-4 text-sm leading-relaxed text-[var(--color-text-muted)]">{t('parse.noReportNotice')} {t('parse.modalInstructions')}</p>
         <div className="ui-dialog-actions">
-          <Button onClick={() => void handleParseUrl(parseFailure.article?.url, parseFailure.article)} disabled={isParsing}>{t('common.retry')}</Button>
+          <Button onClick={() => void handleParseUrl(parseFailure.article?.url, parseFailure.article, parseFailure.confirmedQuote)} disabled={isParsing}>{t('common.retry')}</Button>
           <Button variant="primary" onClick={focusManualContent}>{t('parse.manualPaste')}</Button>
         </div>
       </Dialog>}

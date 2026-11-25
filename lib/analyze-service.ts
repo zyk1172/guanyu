@@ -19,7 +19,7 @@ import { formatUnconfirmedItem } from '@/lib/report-display-core.mjs';
 import { applyModelSourceCleanup } from '@/lib/source-content-cleanup.mjs';
 import { operationCostCents } from '@/lib/platform-model-core.mjs';
 import { decodePlatformModelSnapshot, platformModelSnapshot, resolvePlatformModel, resolvePlatformModelApiKey, type PlatformModelSnapshot } from '@/lib/platform-models';
-import { invokeModel, type RuntimeUsage } from '@/lib/model-runtime';
+import { invokeModel, type ModelInvocationResult, type RuntimeUsage } from '@/lib/model-runtime';
 import { recordModelUsage } from '@/lib/model-usage';
 import { normalizeEvidenceReferences } from '@/lib/report-evidence';
 import { normalizeEmphasisPhrases } from '@/lib/report-emphasis';
@@ -36,7 +36,7 @@ import type {
   ReportLanguage,
   ReadingUtilityFactors,
 } from '@/lib/types';
-import { toClientError } from '@/lib/app-error';
+import { AppError, toClientError } from '@/lib/app-error';
 import { checkAnalysisOutput } from '@/lib/analysis-output';
 import { assertArticleText } from '@/lib/article-input';
 
@@ -504,14 +504,18 @@ async function buildDeepSearchGroups(base: { title?: string; source?: string; co
   return Promise.all(queries.map(async (query) => searchWeb(query.slice(0, 260), 3, searchOptions)));
 }
 
-function modelErrorMessage(status: number, usageSource: UsageSource) {
+function modelErrorMessage({ status, errorCode }: ModelInvocationResult, usageSource: UsageSource) {
   const scope = usageSource === 'custom' ? '你的个人模型配置' : '本次选择的平台模型配置';
+  if (errorCode === 'timeout' || status === 408 || status === 504) return `${scope}响应超时。可以降低推理深度或换用响应更快的模型。`;
+  if (errorCode === 'network_error') return `无法连接${scope}的服务，请检查 Base URL 和服务状态。`;
+  if (status === 400 || status === 413 || status === 422) return `${scope}拒绝了分析请求。请检查模型是否支持结构化报告、上下文长度和联网模式，或换用其他模型。`;
   if (status === 401 || status === 403) {
     return `${scope}的 API Key 无效、未生效或没有调用权限，请检查密钥是否完整、是否填入了正确账号，以及模型服务商是否已启用该 Key。`;
   }
   if (status === 404) {
     return `${scope}中的模型名称或接口地址不可用，请检查模型名和 Base URL。`;
   }
+  if (status === 402) return `${scope}的服务商余额不足，请检查上游账户额度。`;
   if (status === 429) {
     return `${scope}触发了上游限流或额度不足，请稍后重试或更换可用额度。`;
   }
@@ -712,7 +716,7 @@ export async function handleAnalyze(userId: string, body: any, executionContext:
         userPrompt: invocationPrompt,
         timeoutMs: Math.max(1, Math.min(options.timeoutMs, modelDeadline - Date.now())),
         maxTokens: options.compact ? Math.min(8_000, outputTokenBudget) : outputTokenBudget,
-        jsonMode: true,
+        jsonMode: !options.compact,
         nativeSearch: options.nativeSearch || false,
         webResearch: options.allowResearch === false ? undefined : webResearch,
         allowPrivateAddress: allowPrivateAdminEndpoint,
@@ -742,14 +746,15 @@ export async function handleAnalyze(userId: string, body: any, executionContext:
     const primaryTimeout = Math.min(getAnalysisTimeoutMs(process.env.GUANYU_LLM_TIMEOUT_MS), modelDeadline - Date.now() - 35_000);
     let llmResult = await invoke(system, userPrompt, { timeoutMs: primaryTimeout, nativeSearch: nativeSearchEnabled });
     let validation = checkAnalysisOutput(llmResult, truncatedContent);
-    if (!validation.ok && validation.retry && modelDeadline - Date.now() > 2_000) {
+    const researchRejected = (nativeSearchEnabled || agentSearchEnabled) && [400, 413, 422].includes(llmResult.status);
+    const oversized = [400, 413, 422].includes(llmResult.status) && outputTokenBudget > 8_000;
+    if (!validation.ok && (validation.retry || researchRejected || oversized) && modelDeadline - Date.now() > 2_000) {
       console.info('[analysis] Retrying model output', { code: validation.code });
       usedFallbackPrompt = true;
       const fallback = buildCompactFallbackPrompt(promptInput);
       llmResult = await invoke(fallback.system, fallback.user, {
         timeoutMs: 75_000, compact: true,
-        nativeSearch: nativeSearchEnabled && allSearchSources.length === 0,
-        allowResearch: allSearchSources.length === 0,
+        allowResearch: false,
       });
       validation = checkAnalysisOutput(llmResult, truncatedContent);
     }
@@ -762,9 +767,9 @@ export async function handleAnalyze(userId: string, body: any, executionContext:
         return NextResponse.json({ error: message, code }, { status });
       }
       const error = !llmResult.ok
-        ? modelErrorMessage(llmResult.status, usagePlan.source)
+        ? modelErrorMessage(llmResult, usagePlan.source)
         : '模型返回的报告不完整或格式无效，未生成报告、未扣分析点数。请重试。';
-      return NextResponse.json({ error, code: validation.code }, { status: 502 });
+      return NextResponse.json({ error, code: validation.code }, { status: llmResult.status === 429 ? 429 : 502 });
     }
 
     let parsedJSON = validation.report;
@@ -812,7 +817,8 @@ export async function handleAnalyze(userId: string, body: any, executionContext:
     normalizedResult.generationMeta = {
       usedCompactFallback: usedFallbackPrompt,
       hasWebSearchContext: Boolean(webSearchContext),
-      searchProvider: agentSearchEnabled ? 'agent'
+      searchProvider: usedFallbackPrompt && (agentSearchEnabled || nativeSearchEnabled) && !allSearchSources.length
+        ? 'none' : agentSearchEnabled ? 'agent'
         : usagePlan.source === 'platform' && configuredSearchMode === 'native'
         ? `${selectedPlatformSnapshot?.provider || 'model'}-native`
         : searchOptions.provider || 'none',
@@ -931,9 +937,7 @@ export async function analyzeForUser(params: {
   );
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(data.error || `审视生成失败 (${response.status})`);
-    (error as any).status = response.status;
-    throw error;
+    throw new AppError(data.code || 'ANALYSIS_FAILED', data.error || `审视生成失败 (${response.status})`, response.status);
   }
   return data as { auditId: string; result: AnalysisResult };
 }

@@ -61,7 +61,6 @@ export default function Home() {
   useEffect(() => {
     if (!error) return;
     errorPanel.current?.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
-    errorPanel.current?.focus({ preventScroll: true });
   }, [error]);
 
   const storeActiveJob = useCallback((jobId: string) => {
@@ -218,7 +217,7 @@ export default function Home() {
             <AnalysisForm onSubmit={handleAnalyze} isLoading={isLoading} quoteRefresh={quoteRefresh} />
             {isLoading && <div ref={progressPanel} className="scroll-mt-24">{lastSubmittedData?.title&&<p className="mb-3 text-base font-semibold">{lastSubmittedData.title}</p>}<LoadingState /></div>}
             {activeJobId && !isLoading && <p role="status" className="text-sm text-[var(--color-text-muted)]">{t('home.backgroundJob')}</p>}
-            {error && <div ref={errorPanel} tabIndex={-1} className="scroll-mt-24"><ErrorMessage message={error} onRetry={activeJobId || lastSubmittedData ? handleRetry : undefined} /></div>}
+            {error && <div ref={errorPanel} className="scroll-mt-24"><ErrorMessage message={error} onRetry={activeJobId || lastSubmittedData ? handleRetry : undefined} /></div>}
         </div>
         <p className="news-public-link"><Link href="/audits">{language.startsWith('zh')?'公开审读 · 浏览报告':'Public reviews · Browse reports'}<ArrowRight size={18} strokeWidth={1.75} aria-hidden="true"/></Link></p>
       </div>

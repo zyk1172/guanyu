@@ -1,15 +1,8 @@
-import { headers } from 'next/headers';
-import { NextRequest } from 'next/server';
-import { notFound, redirect } from 'next/navigation';
+import { requireAdminPage } from '@/lib/page-auth';
 import AuditManagementList from '@/components/AuditManagementList';
-import { getCurrentUser } from '@/lib/auth';
-import { getSuperAdminStatus } from '@/lib/admin';
 
 export default async function SiteAuditsPage({ searchParams }: { searchParams: Promise<{ search?: string }> }) {
-  const request = new NextRequest(process.env.NEXTAUTH_URL || 'http://localhost:3000', { headers: await headers() });
-  const user = await getCurrentUser(request);
-  if (!user) redirect('/login');
-  if (!await getSuperAdminStatus(user.id)) notFound();
+  await requireAdminPage();
   const { search } = await searchParams;
   return <AuditManagementList scope="site" initialSearch={typeof search === 'string' ? search : ''} />;
 }

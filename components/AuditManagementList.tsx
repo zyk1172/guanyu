@@ -2,6 +2,7 @@
 
 import { useConfirmation } from '@/components/ui/ConfirmationProvider';
 
+import AdminBackLink from '@/components/AdminBackLink';
 import Header from '@/components/Header';
 import { useUiLanguage } from '@/components/LanguageProvider';
 import { Button, ButtonLink, Input, Panel, Select } from '@/components/ui/controls';
@@ -119,6 +120,7 @@ export default function AuditManagementList({ scope, initialSearch }: { scope: '
       <Header />
 
       <div id="main-content" tabIndex={-1} className="workspace-container workspace-content space-y-6">
+        {scope === 'site' && <AdminBackLink />}
         <p className="text-sm text-[var(--color-text-muted)]">{relatedCoverageCopy(language).listHint}</p>
         <div>
           <h1 className="ui-page-title">{scope === 'own' ? t('myAudits.title') : zh ? '全站报告管理' : 'Site reports'}</h1>
