@@ -68,6 +68,19 @@ export default function NewsSearch({ onSelect, busy, canAnalyze, analysisQuote, 
     return () => abort.abort();
   }, [status, configRetry]);
 
+  useEffect(() => {
+    const refresh = () => setConfigRetry(previous => previous + 1);
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, []);
+
+  const deepseekUnavailable = {
+    deployment_disabled: text('部署已关闭首页 DeepSeek 搜索。', 'Homepage DeepSeek search is disabled for this deployment.'),
+    sign_in_required: text('登录后可使用已配置的 DeepSeek 搜索。', 'Sign in to use a configured DeepSeek search key.'),
+    missing_credential: text('请在系统管理的「搜索设置」保存平台搜索密钥，或在账户设置保存有权限使用的个人搜索密钥。', 'Add a platform search key in System → Search settings or an eligible personal search key in Account settings.'),
+    credential_unreadable: text('已保存的搜索密钥无法读取，请重新保存。', 'The saved search key could not be read. Save it again.'),
+  };
+
   function persist(draft: NewsSearchDraft) {
     try { sessionStorage.setItem(NEWS_SEARCH_DRAFT_KEY, encodeNewsSearchDraft(draft)); return true; }
     catch { return false; }
@@ -119,7 +132,8 @@ export default function NewsSearch({ onSelect, busy, canAnalyze, analysisQuote, 
         <label className="ui-label">{text('搜索来源', 'Search source')}<Select aria-label={text('搜索来源', 'Search source')} className="mt-2" value={provider} disabled={!capabilities} onChange={event => { changed.current = true; setProvider(event.target.value as NewsProvider); if (event.target.value === 'deepseek') setPeriod('any'); }}><option value="free">{text('免费新闻搜索', 'Free news search')}</option><option value="deepseek" disabled={!capabilities?.deepseekAvailable}>DeepSeek API{!capabilities?.deepseekAvailable ? text('（未开放）', ' (unavailable)') : capabilities.deepseekSource === 'personal' ? text('（个人密钥）', ' (your key)') : text('（平台提供）', ' (platform)')}</option></Select></label>
         <label className="ui-label">{text('报道时间', 'Time range')}<Select aria-label={text('报道时间', 'Time range')} className="mt-2" value={period} disabled={provider === 'deepseek'} onChange={event => setPeriod(event.target.value as NewsPeriod)}>{[['any', text('不限时间', 'Any time')], ['day', text('近一天', 'Past day')], ['week', text('近一周', 'Past week')], ['month', text('近一月', 'Past month')]].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select></label>
       </div>
-      <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">{provider === 'free' ? text('搜索会自动提取关键词，不扣分析点数。选择报道后获取正文，再确认分析费用。', 'Search can extract keywords automatically and uses no analysis credits. Choose a report to review the analysis cost.') : capabilities?.deepseekSource === 'personal' ? text('使用你的 DeepSeek 密钥，仅展示新闻索引中确认的报道，结果可能较少；搜索费用由服务商收取。暂不支持时间筛选。', 'Uses your DeepSeek key. Only matches confirmed by a news index are shown, so results may be limited. Provider fees apply; time filtering is unavailable.') : text('使用平台 DeepSeek API，仅展示新闻索引中确认的报道，结果可能较少；受平台每日限额约束。', 'Uses the platform DeepSeek API. Only matches confirmed by a news index are shown, so results may be limited; daily limits apply.')}</p>
+      {capabilities?.unavailableReason && <p className="mb-2 text-xs text-[var(--color-text-muted)]">{deepseekUnavailable[capabilities.unavailableReason]}</p>}
+      <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">{provider === 'free' ? text('搜索会自动提取关键词，不扣分析点数。选择报道后获取正文，再确认分析费用。', 'Search can extract keywords automatically and uses no analysis credits. Choose a report to review the analysis cost.') : capabilities?.deepseekSource === 'personal' ? text('使用你的 DeepSeek 密钥，结果由 DeepSeek 返回，搜索费用由服务商收取。暂不支持时间筛选。', 'Uses your DeepSeek key. Results come from DeepSeek. Provider fees apply; time filtering is unavailable.') : text('使用平台 DeepSeek API，结果由 DeepSeek 返回，受平台每日限额约束。', 'Uses the platform DeepSeek API. Results come from DeepSeek. Daily limits apply.')}</p>
       {status === 'unauthenticated' && <p className="text-xs text-[var(--color-text-muted)]">{text('无需登录即可搜索。生成分析时登录，关键词和所选报道会为你保留。', 'Search without an account. Sign in when you want analysis; your search and selection will be restored.')}</p>}
       </div>
       {provider==='deepseek'&&!optionsOpen&&<p className="text-xs leading-relaxed text-[var(--color-text-muted)]">{capabilities?.deepseekSource==='personal'?text('当前使用个人 DeepSeek 密钥搜索，服务商将收取调用费用。','Search uses your DeepSeek key; provider fees apply.'):text('当前使用平台 DeepSeek API 搜索，受平台每日限额约束。','Search uses the platform DeepSeek API; daily limits apply.')}</p>}

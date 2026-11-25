@@ -60,6 +60,21 @@ async function main(){
   assert.equal((await refresh(new Request('http://localhost/api/news/home', {
     method: 'POST', headers: { Origin: 'https://other.example' },
   }))).status, 403);
+  const custom = snapshot.headlines[0];
+  const crowded = Array.from({ length: 90 }, (_, i) => ({
+    ...custom, id: `dw-${i}`, sourceId: 'dw-news', title: `Fictional headline ${String(i).padStart(3, '0')}`,
+    publisher: 'dw', url: `https://dw.example/${i}`, feedRank: i, publishedAt: new Date(now - i * 60_000).toISOString(),
+  }));
+  const fromCustom = Array.from({ length: 8 }, (_, i) => ({
+    ...custom, title: `Fictional custom headline ${i}`, url: `https://news.example/custom/${i}`,
+    feedRank: i, publishedAt: new Date(now - (100 + i) * 60_000).toISOString(),
+  }));
+  const payload = homeNewsPayload({ ...snapshot, headlines: [...crowded, ...fromCustom] }, contexts[0].sources, 'zh-CN');
+  const publicCustomId = payload.sources.find(source => source.id !== 'dw-news')!.id;
+  assert.equal(payload.stories.length, 80);
+  assert.ok(payload.stories.every(story => story.headline.sourceId !== publicCustomId));
+  assert.equal(payload.sourceHeadlines?.[publicCustomId].length, 8, 'per-source results survive the global ranking cap');
+  assert.ok(payload.sourceHeadlines?.[publicCustomId].every(headline => headline.sourceId === publicCustomId));
   const future={...snapshot,headlines:snapshot.headlines.map(item=>({...item,publishedAt:new Date(now+86400000).toISOString()}))};
   assert.equal(homeNewsPayload(future,contexts[0].sources,'zh-CN').stories[0].headline.publishedAt,'');
   assert.equal((await image(new Request('http://localhost/api/news/image?ticket=bad'))).status,400);

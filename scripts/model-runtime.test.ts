@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import test from 'node:test';
 import { historicalAuditModelName, withHistoricalAuditModelName } from '../lib/audit-model-display';
-import { invokeModel } from '../lib/model-runtime';
+import { invokeModel, testModelConnection } from '../lib/model-runtime';
 import { decodePlatformModelSnapshot, encodePlatformModelSnapshot, platformModelSnapshot } from '../lib/platform-models';
 
 type CapturedRequest = { path: string; body: any };
@@ -15,6 +15,16 @@ async function withModelServer(run: (baseUrl: string, captured: CapturedRequest[
     request.on('end', () => {
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
       captured.push({ path: request.url || '', body });
+      if (request.url?.includes('/compat/')) {
+        response.setHeader('content-type', 'application/json');
+        if (body.response_format || body.temperature !== undefined || body.max_tokens > 4096) {
+          response.statusCode = 400;
+          response.end(JSON.stringify({ error: { message: 'Unsupported response_format; max_tokens must be between 1 and 4096' } }));
+        } else {
+          response.end(JSON.stringify({ choices: [{ message: { content: '{"status":"GUANYU_MODEL_OK"}' } }] }));
+        }
+        return;
+      }
       if (request.url?.includes('/malformed/')) {
         response.statusCode = 429;
         response.setHeader('content-type', 'text/plain');
@@ -134,6 +144,21 @@ test('Chinese provider adapters use provider-native thinking and web search cont
     assert.equal(captured[3].body.max_tokens, undefined);
     assert.equal(captured[3].body.tools[0].function.name, '$web_search');
     assert.equal(captured[4].body.messages.at(-1).role, 'tool');
+  });
+});
+
+test('compatible gateways fall back to prompt JSON and respect their declared output limit', async () => {
+  await withModelServer(async (baseUrl, captured) => {
+    const config = { ...BASE, provider: 'openai_compatible' as const, modelId: 'fixture', baseUrl: `${baseUrl}/compat/v1` };
+    assert.equal((await testModelConnection(config)).passed, true);
+    assert.equal((await invokeModel({ ...config, maxTokens: 14_000, jsonMode: true })).ok, true);
+    assert.equal(captured.length, 4);
+    assert.equal(captured[0].body.response_format.type, 'json_object');
+    assert.equal(captured[1].body.max_tokens, 2048);
+    assert.equal(captured[2].body.max_tokens, 14_000);
+    assert.equal(captured[3].body.max_tokens, 4096);
+    assert.equal(captured[3].body.response_format, undefined);
+    assert.equal(captured[3].body.temperature, undefined);
   });
 });
 

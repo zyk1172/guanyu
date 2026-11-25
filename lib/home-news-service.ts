@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { prisma } from './prisma';
 import { privacyHmacHash } from './privacy-hash';
 import { fetchFeedXml, getCachedFeedXml, loadRssSources, type RssSource } from './rss-service';
-import { parseHeadlineIndex, publisherKey, rankHomeNews } from './home-news-core';
+import { parseHeadlineIndex, publisherKey, rankHomeNews, storyUrl } from './home-news-core';
 import { newsImageHref } from './news-media';
 import type { RssHeadline } from './rss-core.mjs';
 import { HOME_NEWS_REFRESH_MS, HOME_NEWS_RETENTION_MS, type HomeHeadline, type HomeNewsPayload, type NewsHeadlineIndex } from './home-news-types';
@@ -27,14 +27,39 @@ export function homeNewsPayload(snapshot: Snapshot, sources: RssSource[], langua
     const sourceId = customIds.get(headline.sourceId);
     return sourceId ? { ...headline, id: `${sourceId}:${headline.url}`, sourceId } : headline;
   });
-  const stories = rankHomeNews(headlines, snapshot.index, { language }).map(story => {
-    const reports=story.reports.map(report=>({...report,publishedAt:Number.isFinite(Date.parse(report.publishedAt))&&Date.parse(report.publishedAt)<=Date.now()+300000?report.publishedAt:'',imageHref:newsImageHref(report.url,report.imageUrl)}));
-    const headline=reports.find(report=>report.id===story.headline.id)||{...story.headline,imageHref:newsImageHref(story.headline.url,story.headline.imageUrl)};
-    return {...story,headline,reports,imageHref:headline.imageHref};
+  const now = Date.now();
+  const sourceHeadlines: Record<string, HomeHeadline[]> = Object.fromEntries(
+    sources.map(({ id }) => [customIds.get(id) ?? id, []]),
+  );
+  const seen = new Set<string>();
+  const stories = rankHomeNews(headlines, snapshot.index, { language, now }).map(story => {
+    const reports = story.reports.map(withMedia);
+    const headline = reports.find(report => report.id === story.headline.id) || withMedia(story.headline);
+    return { ...story, headline, reports, imageHref: headline.imageHref };
   });
+
+  function withMedia(headline: HomeHeadline): HomeHeadline {
+    const published = Date.parse(headline.publishedAt);
+    return {
+      ...headline,
+      publishedAt: Number.isFinite(published) && published <= now + 300_000 ? headline.publishedAt : '',
+      imageHref: newsImageHref(headline.url, headline.imageUrl),
+    };
+  }
+
+  for (const headline of headlines) {
+    if (!Object.hasOwn(sourceHeadlines, headline.sourceId)) continue;
+    const key = JSON.stringify([headline.sourceId, storyUrl(headline.url)]);
+    const publishedAt = Date.parse(headline.publishedAt);
+    if (seen.has(key) || (publishedAt && now - publishedAt > HOME_NEWS_RETENTION_MS)) continue;
+    seen.add(key);
+    sourceHeadlines[headline.sourceId].push(withMedia(headline));
+  }
+
   return {
     sources: sources.map(({ id, name, nameZh }) => ({ id: customIds.get(id) ?? id, name, nameZh })),
     stories,
+    sourceHeadlines,
     hotCount: stories.filter(story => story.isHot).length,
     fetchedAt: snapshot.fetchedAt,
     sourceErrors: snapshot.sourceErrors.map(error => ({ ...error, sourceId: customIds.get(error.sourceId) ?? error.sourceId })),

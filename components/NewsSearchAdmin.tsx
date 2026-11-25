@@ -70,7 +70,7 @@ export default function NewsSearchAdmin() {
           {settings.models.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}
         </Select>
       </label>
-      {!settings.paidAllowed && <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">{text('当前部署关闭付费搜索，DeepSeek 暂不可选。需要时由部署者设置 GUANYU_ALLOW_PAID_SEARCH=true；免费搜索不受影响。', 'Paid search is disabled. Set GUANYU_ALLOW_PAID_SEARCH=true in deployment settings to enable DeepSeek. Free search remains available.')}</p>}
+      {!settings.paidAllowed && <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">{text('当前部署通过 GUANYU_ALLOW_DEEPSEEK_NEWS_SEARCH 关闭了首页 DeepSeek 搜索。', 'Homepage DeepSeek search is disabled by GUANYU_ALLOW_DEEPSEEK_NEWS_SEARCH.')}</p>}
       <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">{text('平台限额按北京时间统计上游调用尝试，命中缓存不占额度。DeepSeek 服务费用由平台承担，不额外扣用户搜索点数；报告分析按原规则计费。个人密钥仅向有权限的账号开放。', 'The platform cap counts upstream attempts per Shanghai calendar day; cache hits do not count. The platform pays provider fees. Reports keep their existing pricing. Personal keys require an eligible account.')}</p>
       <Button variant="primary" type="submit" disabled={saving}>{saving ? text('保存中…', 'Saving…') : text('保存新闻搜索设置', 'Save news search settings')}</Button>
     </form>}

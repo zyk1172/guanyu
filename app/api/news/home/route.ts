@@ -36,7 +36,7 @@ function newsResponse(
   if (request.method === 'GET') {
     // Image tickets are renewed on the same hourly boundary as snapshot freshness.
     const hour = Math.floor(Date.now() / HOME_NEWS_REFRESH_MS);
-    const etag = `"${cacheKey}-${language}-${options.sharedVersion}-${hour}"`;
+    const etag = `"rss-v2-${cacheKey}-${language}-${options.sharedVersion}-${hour}"`;
     headers.set('ETag', etag);
     if (!options.stale && request.headers.get('if-none-match') === etag) {
       return new Response(null, { status: 304, headers });

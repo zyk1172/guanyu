@@ -59,7 +59,7 @@ export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET,
 };
 
-export async function getCurrentUser(request: Request): Promise<CurrentUser | null> {
+export async function getCurrentUser(request: Request): Promise<(CurrentUser & { role: string }) | null> {
   let token;
   try {
     token = await getToken({
@@ -76,7 +76,7 @@ export async function getCurrentUser(request: Request): Promise<CurrentUser | nu
 
   const account = await prisma.user.findUnique({
     where: { id: String(token.id) },
-    select: { id: true, email: true, isBanned: true, sessionVersion: true },
+    select: { id: true, email: true, role: true, isBanned: true, sessionVersion: true },
   });
   if (!account || account.isBanned) return null;
   const tokenSessionVersion = Number(token.sessionVersion || 1);
@@ -85,6 +85,7 @@ export async function getCurrentUser(request: Request): Promise<CurrentUser | nu
   return {
     id: account.id,
     email: account.email,
+    role: account.role,
     sessionVersion: account.sessionVersion,
     authTime: typeof token.authTime === 'number' ? token.authTime : undefined,
   };

@@ -40,7 +40,7 @@
 
 免费工具查询配置的 SearXNG `categories=news`，并使用 Bing News RSS；两个来源有结果时交错展示、按原文链接去重。没有其他可用结果且 Bing RSS 不可用时尝试 Bing News 网页，新闻来源都不可用时提示失败，不再把普通网页结果当作新闻。RSS 中的媒体、原文链接和明确发布时间会进入结果列表。时间范围同时传给上游，并根据明确的发布时间再次筛选；没有可确认日期或不在范围内的报道不会出现在有时间限制的结果中。新闻索引仍可能漏报，也无法保证所有报道都适合自动提取全文。
 
-DeepSeek API 仍受部署级 `GUANYU_ALLOW_PAID_SEARCH=true` 开关控制。访客只能使用免费来源。登录用户如有有效 Pro（含兼容永久 BYOK）或管理员权限，并保存了个人 DeepSeek 搜索密钥，优先使用其个人密钥；否则使用管理员开放的平台配置。无权限的个人密钥不参与解析。首页始终标明密钥由个人还是平台提供。
+首页 DeepSeek 搜索在有可用搜索密钥时开放。`GUANYU_ALLOW_DEEPSEEK_NEWS_SEARCH=false` 可在部署级关闭此入口。访客只能使用免费来源。登录用户如有有效 Pro（含兼容永久 BYOK）或管理员权限，并保存了个人 DeepSeek 搜索密钥，优先使用其个人密钥；否则使用管理员开放的平台配置。无权限的个人密钥不参与解析。管理员没有独立首页密钥时，还可以手动选择使用启用的、配置了 DeepSeek 搜索密钥的平台模型。首页始终标明密钥由个人还是平台提供。
 
 DeepSeek 的搜索接口面向普通网页：首页先查询免费新闻索引，再只展示同时出现在该索引和 DeepSeek 结果中的原文链接，因此结果可能较少；没有新闻候选时不调用付费接口。DeepSeek 当前接口未提供项目可依赖的时间筛选，因此选择该来源时仅允许“不限时间”。失败时提供显式免费搜索按钮；免费搜索不会自动调用收费 API。
 
@@ -63,7 +63,7 @@ DeepSeek 的搜索接口面向普通网页：首页先查询免费新闻索引�
 ```dotenv
 WEB_RESEARCH_SEARXNG_URL=https://your-searxng.example
 WEB_RESEARCH_ALLOW_PRIVATE_SEARXNG=false
-GUANYU_ALLOW_PAID_SEARCH=false
+GUANYU_ALLOW_DEEPSEEK_NEWS_SEARCH=false
 ```
 
 只有部署者控制的内网 SearXNG 才应启用私网访问。保留现有 SSRF、重定向、响应体和超时限制，正常抓取不放开私网。生产公开请求依赖可信代理限流（Vercel 自动识别；自托管沿用 TRUST_PROXY_HEADERS 配置）。

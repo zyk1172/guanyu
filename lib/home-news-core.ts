@@ -57,7 +57,7 @@ function timestamp(value: string, now: number) {
   const time = Date.parse(value);
   return Number.isFinite(time) && time <= now + 5 * 60_000 ? time : 0;
 }
-function storyUrl(value: string) {
+export function storyUrl(value: string) {
   try {
     const url = new URL(value);url.hash = '';
     for (const key of [...url.searchParams.keys()]) if (/^(?:utm_|at_|fbclid$|gclid$|maca$)/i.test(key)) url.searchParams.delete(key);
@@ -96,7 +96,7 @@ export function rankHomeNews(headlines: HomeHeadline[], index: NewsHeadlineIndex
     return value;
   };
   const seen = new Set<string>();
-  const items = headlines.filter(item => {
+  const items = [...headlines].sort((a, b) => a.feedRank - b.feedRank).filter(item => {
     const key = storyUrl(item.url), time = timestamp(item.publishedAt, now);
     if (seen.has(key) || (time && now - time > 7 * 24 * HOUR)) return false;
     seen.add(key);return true;

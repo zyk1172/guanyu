@@ -218,15 +218,18 @@ export async function PATCH(request: Request) {
         reasoningDepth: existing.reasoningDepth,
         nativeSearch: searchMode === 'native',
         webResearch: searchMode === 'agent' ? new WebResearchSession({ searchOptions: await platformDeepseekSearchOptions(platformModelSnapshot(existing)) || undefined }) : undefined,
-        allowPrivateAddress: process.env.NODE_ENV !== 'production',
+        allowPrivateAddress: process.env.ALLOW_PRIVATE_ADMIN_LLM === 'true'
+          && existing.baseUrl.replace(/\/$/, '') === process.env.OPENAI_BASE_URL?.replace(/\/$/, ''),
       });
       const testMessage = result.passed
-        ? `连接成功 · ${result.durationMs}ms${searchMode === 'agent' ? ' · 自主搜索和网页读取可用' : searchMode === 'native' ? ' · 原生联网可用' : ''} · 输入 ${result.usage.inputTokens} / 输出 ${result.usage.outputTokens} Token`
+        ? `连接成功 · ${result.durationMs}ms${searchMode === 'agent' ? ' · 自主搜索和网页读取可用' : searchMode === 'native' ? ' · 原生联网可用' : ' · 结构化响应可用'} · 输入 ${result.usage.inputTokens} / 输出 ${result.usage.outputTokens} Token`
         : searchMode === 'agent' && result.ok && !result.webResearchPassed
           ? `模型连接成功，但未完成自主搜索和网页读取（${result.durationMs}ms）。请检查搜索服务和模型工具调用能力。`
           : searchMode === 'native' && result.ok && !result.nativeSearchPassed
           ? `模型连接成功，但未检测到原生联网结果（${result.durationMs}ms）。请确认模型型号支持联网且已开通搜索服务。`
-          : `连接失败（${result.errorCode || result.status}，${result.durationMs}ms）。`;
+          : result.ok
+            ? `模型有响应，但未返回预期的测试结果（${result.durationMs}ms）。`
+            : `连接失败（${result.errorCode || result.status}，${result.durationMs}ms）。`;
       const tested = await prisma.platformModelConfig.update({
         where: { id },
         data: {

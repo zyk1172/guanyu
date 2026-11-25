@@ -19,10 +19,17 @@ async function main() {
   const {report,originalContent}=getDemoReport('zh-CN');
   let outputReport=report;
   let calls=0;
+  let rejectTools=false;
+  let rejectCredentials=false;
   let assessment: unknown = {status:'usable',evidence:originalContent.slice(0,50)};
   const server=createServer(async (request,response)=>{
     let body=''; for await(const chunk of request) body+=chunk;
-    JSON.parse(body); calls++;
+    const requestBody = JSON.parse(body); calls++;
+    if (rejectCredentials || (rejectTools && requestBody.tools?.length)) {
+      response.writeHead(rejectCredentials ? 401 : 400, {'content-type':'application/json'});
+      response.end(JSON.stringify({ error: { message: 'Fixture rejects this request' } }));
+      return;
+    }
     const result={...outputReport,inputAssessment:assessment};
     response.writeHead(200,{'content-type':'application/json'});
     response.end(JSON.stringify({choices:[{message:{content:JSON.stringify(result)}}],usage:{prompt_tokens:50,completion_tokens:50}}));
@@ -77,9 +84,23 @@ async function main() {
     assessment={status:'usable',evidence:originalContent.slice(0,50)};
     const success=await handleAnalyze(user.id,input),data=await success.json();
     assert.equal(success.status,200,JSON.stringify(data));assert.ok(data.auditId && data.result);assert.equal(await audits(),1);assert.equal(await balance(),9700);
+    await prisma.platformModelConfig.update({ where: { id: model.id }, data: { searchMode: 'agent' } });
+    rejectTools = true;
+    const beforeFallback = calls;
     const validJob=await createAnalyzeJob(user.id,input);await runAnalyzeJob(validJob.id);
+    assert.equal(calls - beforeFallback, 2, 'tool rejection falls back to a plain report in the same job');
+    await prisma.platformModelConfig.update({ where: { id: model.id }, data: { searchMode: 'none' } });
     const complete=await prisma.auditJob.findUniqueOrThrow({where:{id:validJob.id}});assert.equal(complete.status,'completed');assert.ok(complete.auditId);
     const completedCalls=calls;await runAnalyzeJob(validJob.id);assert.equal(calls,completedCalls);assert.equal(await balance(),9400);assert.equal(await audits(),2);
+    rejectCredentials = true;
+    const unauthorized = await createAnalyzeJob(user.id,input);
+    await runAnalyzeJob(unauthorized.id);
+    const unauthorizedJob = await prisma.auditJob.findUniqueOrThrow({ where: { id: unauthorized.id } });
+    assert.equal(unauthorizedJob.status, 'failed');
+    assert.equal(unauthorizedJob.attemptCount, 1);
+    assert.match(unauthorizedJob.error || '', /API Key/);
+    assert.equal(await balance(), 9400);
+    rejectCredentials = false;
     outputReport=getDemoReport('en-US').report;
     const english=await handleAnalyze(user.id,{...input,reportLanguage:'en-US'});
     assert.equal(english.status,200,JSON.stringify(await english.json()));

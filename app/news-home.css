@@ -25,7 +25,6 @@
 .news-card-photo { display: block; width: calc(100% - 24px); height: calc(100% - 12px); min-height: 0; object-fit: cover; border-radius: var(--ui-control-radius); margin: 12px 12px 0; }
 .news-card-trigger { min-width: 0; min-height: 64px; align-self: center; }
 .news-card-trigger::after { position: absolute; inset: 0; border-radius: var(--ui-panel-radius); content: ""; }
-.news-card-trigger:focus-visible::after { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .news-card-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; text-align: start; }
 .news-detail-meta, .news-detail-evidence { color: var(--color-text-muted); }
 .news-detail-evidence a { color: var(--color-link); text-decoration: underline; overflow-wrap: anywhere; }

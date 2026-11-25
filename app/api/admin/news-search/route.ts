@@ -5,7 +5,7 @@ import { getOrCreateAppSetting } from '@/lib/billing';
 import { prisma } from '@/lib/prisma';
 import { cacheDel, CACHE_KEYS } from '@/lib/cache';
 import { decryptSecret, encryptSecret } from '@/lib/secret';
-import { paidSearchAllowed } from '@/lib/web-search-policy';
+import { deepseekNewsSearchAllowed } from '@/lib/web-search-policy';
 import { accessError, AccessError, guardAccountRequest, readAccessJson, requireAccount } from '@/lib/access';
 
 async function requireAdmin(request: Request) {
@@ -29,7 +29,7 @@ export async function GET(request: Request) {
       aiModelConfigId: app.newsSearchAiModelConfigId || '',
       hasKey: Boolean(decryptSecret(app.newsSearchDeepseekKeyEncrypted)),
       dailyLimit: app.newsSearchDailyLimit,
-      paidAllowed: paidSearchAllowed(),
+      paidAllowed: deepseekNewsSearchAllowed(),
       models: models.map(model => ({ id: model.id, name: model.displayName })),
     }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) { return accessError(error); }
@@ -50,7 +50,7 @@ export async function PATCH(request: Request) {
     const input = updateSchema.parse(await readAccessJson(request));
     const app = await getOrCreateAppSetting();
     if (input.provider === 'deepseek') {
-      if (!paidSearchAllowed()) throw new AccessError('当前部署未启用付费搜索。');
+      if (!deepseekNewsSearchAllowed()) throw new AccessError('当前部署已关闭首页 DeepSeek 搜索。');
       if (input.clearKey || (!input.apiKey && !decryptSecret(app.newsSearchDeepseekKeyEncrypted))) {
         throw new AccessError('请填写独立的 DeepSeek 搜索 API Key。');
       }
