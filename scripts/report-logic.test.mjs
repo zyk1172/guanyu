@@ -765,16 +765,29 @@ test('manual verification recalculates scores from the immutable report baseline
   assert.match(changed.report.evidenceVerificationSummary.unableToVerifyClaims[0], /暂未找到可核验材料/);
 });
 
-test('RSS catalog provides five international and three Chinese official headline feeds', () => {
-  const international = RSS_SOURCE_CATALOG.filter((source) => source.region === 'international');
-  const china = RSS_SOURCE_CATALOG.filter((source) => source.region !== 'international');
+test('recommended RSS balances in-depth feeds with existing coverage and retains manual choices', () => {
+  const deep = ['dialogue-earth', 'the-conversation', 'carbon-brief'];
+  assert.deepEqual(DEFAULT_RSS_FEED_IDS, [...deep, 'dw-news', 'the-guardian', 'people-daily']);
+  assert.ok(RSS_SOURCE_CATALOG.every(source => source.feedUrl.startsWith('https://')));
+  for (const id of deep) {
+    assert.equal(RSS_SOURCE_CATALOG.find(source => source.id === id)?.headlineOnly, true);
+  }
+  const explicit = { catalogIds: ['npr-news', 'new-york-times', 'china-news-service', 'rthk-news'], customFeeds: [] };
+  assert.deepEqual(getEffectiveRssSourceConfig({ canUseOwnApi: false, adminConfig: explicit }), explicit);
+  assert.deepEqual(getEffectiveRssSourceConfig({ canUseOwnApi: false, adminConfig: '[]' }).catalogIds, DEFAULT_RSS_FEED_IDS);
+});
 
-  assert.equal(international.length, 5);
-  assert.equal(china.length, 3);
-  assert.equal(DEFAULT_RSS_FEED_IDS.length, 8);
-  assert.equal(international.every((source) => source.feedUrl.startsWith('https://')), true);
-  assert.equal(china.every((source) => source.feedUrl.startsWith('https://')), true);
-  assert.deepEqual(china.map((source) => source.id), ['china-news-service', 'people-daily', 'rthk-news']);
+test('headline-only RSS omits supplied descriptions, article HTML and media', () => {
+  const source = RSS_SOURCE_CATALOG.find(source => source.id === 'dialogue-earth');
+  const [entry] = parseRssXml(`<rss><channel><item>
+    <title>Test headline</title><link>https://dialogue.earth/zh/sample</link><pubDate>Wed, 25 Nov 2026 03:00:00 GMT</pubDate>
+    <description>Publisher excerpt</description><content:encoded>Publisher body</content:encoded>
+    <media:content url="https://dialogue.earth/photo.jpg" medium="image" width="800" />
+  </item></channel></rss>`, source);
+  assert.deepEqual(entry, {
+    id: 'dialogue-earth:https://dialogue.earth/zh/sample', sourceId: 'dialogue-earth', sourceName: 'Dialogue Earth',
+    title: 'Test headline', url: 'https://dialogue.earth/zh/sample', publishedAt: '2026-11-25T03:00:00.000Z',
+  });
 });
 
 test('RSS parser normalizes RSS, RDF and Atom headlines with bounded excerpts, without an analysis body', () => {

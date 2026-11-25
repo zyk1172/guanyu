@@ -7,6 +7,8 @@ export interface RssSource {
   region: RssRegion;
   country: string;
   feedUrl: string;
+  feedUrlZh?: string;
+  headlineOnly?: boolean;
   websiteUrl: string;
   feedFormat?: 'rss' | 'html';
   rssAvailability: 'official_public' | 'official_with_terms' | 'official_headline_fallback' | 'user_configured';
@@ -39,7 +41,7 @@ export interface RssHeadline {
 
 export const RSS_SOURCE_CATALOG: RssSource[];
 export const DEFAULT_RSS_FEED_IDS: string[];
-export function parseRssXml(xml: string, source: Pick<RssSource, 'id' | 'name' | 'feedUrl' | 'feedFormat'>): RssHeadline[];
+export function parseRssXml(xml: string, source: Pick<RssSource, 'id' | 'name' | 'feedUrl' | 'feedFormat' | 'headlineOnly'>): RssHeadline[];
 export function isPrivateIpAddress(value: string): boolean;
 export function validateCustomRssUrl(value: unknown): string;
 export function normalizeRssSourceConfig(input: unknown): RssSourceConfig;

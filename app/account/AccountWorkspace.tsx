@@ -113,6 +113,7 @@ type RssSourceOption = {
   rssAvailability: string;
   termsNote: string;
   termsNoteZh?: string;
+  recommended?: boolean;
 };
 
 export default function AccountWorkspace({ account, isSuperAdmin, view = 'account' }: {
@@ -776,7 +777,7 @@ export default function AccountWorkspace({ account, isSuperAdmin, view = 'accoun
 
         {/* 1. 基本信息面板 */}
         {(activeTab === 'info' || activeTab === 'system') && (
-          <div className={`grid gap-4 ${activeTab === 'system' ? 'xl:grid-cols-[minmax(0,1.55fr)_minmax(340px,0.65fr)]' : 'lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)]'}`}>
+          <div className={`grid items-start ${activeTab === 'system' ? 'gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(340px,0.65fr)]' : 'gap-6 lg:grid-cols-2'}`}>
           {activeTab === 'system' && (
             <Panel className="col-span-full overflow-hidden">
               <div className="flex flex-col gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -825,36 +826,22 @@ export default function AccountWorkspace({ account, isSuperAdmin, view = 'accoun
           <Panel as="div" className="system flex min-w-0 flex-col gap-4 space-y-4">
             {activeTab === 'info' && (
               <>
-            <h3 className="ui-panel-title text-[var(--color-text)] border-b border-[var(--color-border)] pb-2 flex items-center gap-1.5">
-              <span>{t('account.infoTab')}</span>
-            </h3>
-            <div className="space-y-3.5 text-xs">
-              <div className="flex justify-between items-center bg-[var(--color-surface-muted)] p-2.5 rounded">
-                <span className="text-[var(--color-text-muted)] font-semibold">{t('account.email')}</span>
-                <span className="font-bold text-[var(--color-text)]">{account.email}</span>
-              </div>
-              <div className="flex justify-between items-center bg-[var(--color-surface-muted)] p-2.5 rounded">
-                <span className="text-[var(--color-text-muted)] font-semibold">{t('account.userId')}</span>
-                <span className="font-mono text-[var(--color-text-muted)]">{account.id}</span>
-              </div>
-              <div className="flex justify-between items-center bg-[var(--color-surface-muted)] p-2.5 rounded">
-                <span className="text-[var(--color-text-muted)] font-semibold">{t('account.joined')}</span>
-                <span className="font-bold text-[var(--color-text)]">{accountCreatedAt ? new Date(accountCreatedAt).toLocaleString(language) : t('common.unknown')}</span>
-              </div>
-              <div className="flex justify-between items-center bg-[var(--color-surface-muted)] p-2.5 rounded">
-                <span className="text-[var(--color-text-muted)] font-semibold">{t('account.status')}</span>
-                <span className="font-bold text-[var(--color-success)] flex items-center gap-1">🟢 {t('account.online')}</span>
-              </div>
-              <div className="flex justify-between items-center bg-[var(--color-surface-muted)] p-2.5 rounded">
-                <span className="text-[var(--color-text-muted)] font-semibold">{t('account.role')}</span>
-                <span className={isSuperAdmin ? 'font-bold text-[var(--color-warning)] ' : 'font-bold text-[var(--color-text-muted)] '}>
-                  {isSuperAdmin ? t('account.superAdmin') : t('account.user')}
-                </span>
-              </div>
-            </div>
-            <form onSubmit={handleChangePassword} className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
+            <h2 className="ui-panel-title">{t('account.infoTab')}</h2>
+            <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-3 text-sm">
+              <dt className="text-[var(--color-text-muted)]">{t('account.email')}</dt>
+              <dd className="[overflow-wrap:anywhere]">{account.email}</dd>
+              <dt className="text-[var(--color-text-muted)]">{t('account.userId')}</dt>
+              <dd className="font-mono [overflow-wrap:anywhere]">{account.id}</dd>
+              <dt className="text-[var(--color-text-muted)]">{t('account.joined')}</dt>
+              <dd>{accountCreatedAt ? new Date(accountCreatedAt).toLocaleString(language) : t('common.unknown')}</dd>
+              <dt className="text-[var(--color-text-muted)]">{t('account.status')}</dt>
+              <dd className="text-[var(--color-success)]">{t('account.online')}</dd>
+              <dt className="text-[var(--color-text-muted)]">{t('account.role')}</dt>
+              <dd>{isSuperAdmin ? t('account.superAdmin') : t('account.user')}</dd>
+            </dl>
+            <form onSubmit={handleChangePassword} className="border-t border-[var(--color-border)] pt-4">
               <div>
-                <h4 className="text-sm font-bold text-[var(--color-text)]">{t('account.passwordTitle')}</h4>
+                <h3 className="text-sm font-semibold">{t('account.passwordTitle')}</h3>
                 <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('account.passwordDescription')}</p>
               </div>
               <div className="mt-3 grid gap-2">
@@ -891,8 +878,8 @@ export default function AccountWorkspace({ account, isSuperAdmin, view = 'accoun
               </div>
               {passwordMessage && <p className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-2 text-xs font-semibold text-[var(--color-text)]" role="status">{passwordMessage}</p>}
             </form>
-            <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
-              <h4 className="text-sm font-bold text-[var(--color-text)]">{t('account.privacyTitle', '账号数据')}</h4>
+            <section className="border-t border-[var(--color-border)] pt-4">
+              <h3 className="text-sm font-semibold">{t('account.privacyTitle', '账号数据')}</h3>
               <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('account.deleteAccountHint')}</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <ButtonLink variant="secondary" href="/saved-articles">
@@ -906,11 +893,9 @@ export default function AccountWorkspace({ account, isSuperAdmin, view = 'accoun
                 </Button>
               </div>
               {privacyMessage && <p className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-2 text-xs font-semibold text-[var(--color-text)]" role="status">{privacyMessage}</p>}
-            </div>
+            </section>
               </>
             )}
-            {activeTab === 'info' && <OrderHistory refreshKey={billing?.recentOrders?.[0]?.id || ''} />}
-
             {activeTab === 'system' && isSuperAdmin && adminBilling && (
               <Panel className="order-2">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -1090,84 +1075,28 @@ export default function AccountWorkspace({ account, isSuperAdmin, view = 'accoun
           </Panel>
           <div className="space-y-4">
             {activeTab === 'info' && (
-              <>
-            <form onSubmit={handleSubmitFeedback} className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 shadow-[var(--shadow-card)]">
-              <div className="flex items-start justify-between gap-3 border-b border-[var(--color-border)] pb-3">
-                <div>
-                  <h3 className="ui-panel-title text-[var(--color-text)]">{t('account.feedbackTitle')}</h3>
-                  <p className="mt-1 text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('account.feedbackDescription')}</p>
-                </div>
-                <span className="ui-badge shrink-0 border border-[var(--color-border)] bg-[var(--color-surface-muted)] text-[var(--color-text-muted)]">{t('account.feedbackEmailBadge')}</span>
-              </div>
-              <div className="mt-3 grid gap-2.5">
-                <label className="ui-label grid gap-2 text-[var(--color-text-muted)]">
-                  {t('account.feedbackType')}
-                  <Select
-                    value={feedbackType}
-                    onChange={(event) => setFeedbackType(event.target.value)}
-                 >
-                    <option value="bug">{t('account.feedbackTypeBug')}</option>
-                    <option value="feature">{t('account.feedbackTypeFeature')}</option>
-                    <option value="report">{t('account.feedbackTypeReport')}</option>
-                    <option value="billing">{t('account.feedbackTypeBilling')}</option>
-                    <option value="other">{t('account.feedbackTypeOther')}</option>
-                  </Select>
-                </label>
-                <label className="ui-label grid gap-2 text-[var(--color-text-muted)]">
-                  {t('account.feedbackContent')}
-                  <Textarea
-                    value={feedbackMessage}
-                    onChange={(event) => setFeedbackMessage(event.target.value)}
-                    rows={4}
-                    maxLength={4000}
-                    placeholder={t('account.feedbackPlaceholder')}
-                 />
-                  <span className="text-right font-medium text-[var(--color-text-subtle)]">{feedbackMessage.length}/4000</span>
-                </label>
-              </div>
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-                <p className="max-w-[32rem] text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('account.feedbackHint')}</p>
-                <Button variant="primary"
-                  type="submit"
-                  disabled={isSubmittingFeedback}
-               >
-                  {isSubmittingFeedback ? t('account.feedbackSubmitting') : t('account.feedbackSubmit')}
-                </Button>
-              </div>
-              {feedbackStatus && (
-                <p className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs font-semibold text-[var(--color-text)]" role="status">
-                  {feedbackStatus}
-                </p>
-              )}
-            </form>
             <Panel as="div" className="space-y-4">
-              <h3 className="ui-panel-title text-[var(--color-text)] border-b border-[var(--color-border)] pb-2">
-                {t('account.billing')}
-              </h3>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="min-w-0 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
-                  <div className="truncate text-sm font-bold text-[var(--color-text)]">{billing?.pro?.active ? 'Pro 专业权益' : t('billing.platformModel')}</div>
-                  <div className="mt-1 text-xxs font-semibold text-[var(--color-text-muted)]">{t('account.plan')}</div>
+              <h2 className="ui-panel-title">{t('account.billing')}</h2>
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                <div className="min-w-0">
+                  <dt className="text-[var(--color-text-muted)]">{t('account.plan')}</dt>
+                  <dd>{billing?.pro?.active ? (language.startsWith('zh') ? 'Pro 专业权益' : 'Pro') : t('billing.platformModel')}</dd>
                 </div>
-                <div className="min-w-0 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
-                  <div className="truncate text-sm font-bold text-[var(--color-primary)]">
-                    {billing?.pro?.active ? t('billing.proActive') : t('billing.proInactive')}
-                  </div>
-                  <div className="mt-1 text-xxs font-semibold text-[var(--color-text-muted)]">
-                    {billing?.pro?.active && billing?.pro?.expiresAt
-                      ? `${t('billing.proExpiresAt')} ${new Date(billing.pro.expiresAt).toLocaleDateString(language)}`
-                      : t('billing.proStartsImmediately')}
-                  </div>
+                <div className="min-w-0">
+                  <dt className="text-[var(--color-text-muted)]">{t('account.credits')}</dt>
+                  <dd className="font-semibold tabular-nums">{formatCredits(billing?.creditBalance)}</dd>
                 </div>
-                <div className="min-w-0 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
-                  <div className="truncate text-sm font-bold text-[var(--color-text)]">{billing?.modelSource === 'custom' ? t('billing.customApis') : t('billing.platformModel')}</div>
-                  <div className="mt-1 text-xxs font-semibold text-[var(--color-text-muted)]">{t('billing.modelSource')}</div>
+                <div className="min-w-0">
+                  <dt className="text-[var(--color-text-muted)]">{t('billing.modelSource')}</dt>
+                  <dd>{billing?.modelSource === 'custom' ? t('billing.customApis') : t('billing.platformModel')}</dd>
                 </div>
-                <div className="min-w-0 rounded-xl border border-[var(--color-border)] bg-[var(--color-primary-soft)] p-3">
-                  <div className="text-lg font-bold text-[var(--color-primary)]">{formatCredits(billing?.creditBalance)}</div>
-                  <div className="mt-1 text-xxs font-semibold text-[var(--color-text-muted)]">{t('account.credits')}</div>
+                <div className="min-w-0">
+                  <dt className="text-[var(--color-text-muted)]">{billing?.pro?.active ? t('billing.proActive') : t('billing.proInactive')}</dt>
+                  <dd>{billing?.pro?.active && billing?.pro?.expiresAt
+                    ? `${t('billing.proExpiresAt')} ${new Date(billing.pro.expiresAt).toLocaleDateString(language)}`
+                    : t('billing.proStartsImmediately')}</dd>
                 </div>
-              </div>
+              </dl>
               <div className="rounded-lg border border-dashed border-[var(--color-border)] p-3 text-xs">
                 <div className="font-bold text-[var(--color-text)]">{t('account.buyCredits')}</div>
                 <p className="mt-1 leading-relaxed text-[var(--color-text-muted)]">
@@ -1221,7 +1150,6 @@ export default function AccountWorkspace({ account, isSuperAdmin, view = 'accoun
                 {billingMessage && <p role="alert" className="mt-2 text-sm text-[var(--color-danger)]">{billingMessage}</p>}
               </div>
             </Panel>
-              </>
             )}
 
             {activeTab === 'system' && isSuperAdmin && adminBilling && (
@@ -1293,6 +1221,55 @@ export default function AccountWorkspace({ account, isSuperAdmin, view = 'accoun
               </Panel>
             )}
           </div>
+          {activeTab === 'info' && <>
+            <OrderHistory refreshKey={billing?.recentOrders?.[0]?.id || ''} />
+            <Panel className="col-span-full">
+              <form onSubmit={handleSubmitFeedback}>
+                <h2 className="ui-panel-title">{t('account.feedbackTitle')}</h2>
+                <p className="mt-1 text-sm text-[var(--color-text-muted)]">{t('account.feedbackDescription')}</p>
+                <div className="mt-3 grid gap-2.5">
+                  <label className="ui-label grid gap-2 text-[var(--color-text-muted)]">
+                    {t('account.feedbackType')}
+                    <Select
+                      value={feedbackType}
+                      onChange={(event) => setFeedbackType(event.target.value)}
+                   >
+                      <option value="bug">{t('account.feedbackTypeBug')}</option>
+                      <option value="feature">{t('account.feedbackTypeFeature')}</option>
+                      <option value="report">{t('account.feedbackTypeReport')}</option>
+                      <option value="billing">{t('account.feedbackTypeBilling')}</option>
+                      <option value="other">{t('account.feedbackTypeOther')}</option>
+                    </Select>
+                  </label>
+                  <label className="ui-label grid gap-2 text-[var(--color-text-muted)]">
+                    {t('account.feedbackContent')}
+                    <Textarea
+                      value={feedbackMessage}
+                      onChange={(event) => setFeedbackMessage(event.target.value)}
+                      rows={4}
+                      maxLength={4000}
+                      placeholder={t('account.feedbackPlaceholder')}
+                   />
+                    <span className="text-right font-medium text-[var(--color-text-subtle)]">{feedbackMessage.length}/4000</span>
+                  </label>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                  <p className="max-w-[32rem] text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('account.feedbackHint')}</p>
+                  <Button variant="primary"
+                    type="submit"
+                    disabled={isSubmittingFeedback}
+                 >
+                    {isSubmittingFeedback ? t('account.feedbackSubmitting') : t('account.feedbackSubmit')}
+                  </Button>
+                </div>
+                {feedbackStatus && (
+                  <p className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs font-semibold text-[var(--color-text)]" role="status">
+                    {feedbackStatus}
+                  </p>
+                )}
+              </form>
+            </Panel>
+          </>}
           </div>
         )}
 
@@ -1504,6 +1481,15 @@ export default function AccountWorkspace({ account, isSuperAdmin, view = 'accoun
                     {rssConfigSource === 'admin' ? t('rss.adminDefault') : t('rss.personalConfig')}
                   </span>
                 </div>
+
+                {!apiSettingsLocked && rssSourceCatalog.some(source => source.recommended) && (
+                  <Button onClick={() => setRssFeedConfig(current => ({
+                    ...current,
+                    catalogIds: rssSourceCatalog.filter(source => source.recommended).map(source => source.id),
+                  }))}>
+                    {language.startsWith('zh') ? '套用推荐来源' : 'Use recommended sources'}
+                  </Button>
+                )}
 
                 {apiSettingsLocked ? (
                   <p className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-2 text-xxs leading-relaxed text-[var(--color-text-muted)]">{t('rss.locked')}</p>

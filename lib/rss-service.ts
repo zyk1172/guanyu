@@ -4,6 +4,7 @@ import { getOrCreateAppSetting, hasActivePro } from '@/lib/billing';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { prisma } from '@/lib/prisma';
 import {
+  RSS_SOURCE_CATALOG,
   getEffectiveRssSourceConfig,
   getRssSourceCatalog,
   parseRssXml,
@@ -30,6 +31,8 @@ export type RssSource = {
   region: string;
   country: string;
   feedUrl: string;
+  feedUrlZh?: string;
+  headlineOnly?: boolean;
   websiteUrl: string;
   feedFormat?: 'rss' | 'html';
   rssAvailability: string;
@@ -40,6 +43,11 @@ export type RssSource = {
 
 const FETCH_TIMEOUT_MS = 12_000;
 const MAX_RESPONSE_BYTES = 512 * 1024;
+// These official XML feeds include article bodies even though we only consume metadata.
+const EXTENDED_FEED_URLS = new Set(RSS_SOURCE_CATALOG
+  .filter(source => source.headlineOnly)
+  .flatMap(source => source.feedUrlZh ? [source.feedUrl, source.feedUrlZh] : [source.feedUrl]));
+const MAX_OFFICIAL_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_REDIRECTS = 3;
 const CACHE_TTL_MS = 2 * 60 * 1000;
 
@@ -84,7 +92,7 @@ async function requestFeedXml(feedUrl: string) {
     const remaining=deadline-Date.now();if(remaining<=0)throw new Error('RSS 源响应超时。');
     const response = await safeOutboundRequest(target, {
       timeoutMs: remaining,
-      maxBytes: MAX_RESPONSE_BYTES,
+      maxBytes: EXTENDED_FEED_URLS.has(feedUrl) ? MAX_OFFICIAL_RESPONSE_BYTES : MAX_RESPONSE_BYTES,
       headers: {
         Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, text/html;q=0.8, */*;q=0.1',
         'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
@@ -158,12 +166,11 @@ export async function getRssContext(request: Request) {
       adminConfig: appSetting.adminRssFeedIdsJson,
       personalConfig,
     });
-    const sources = (resolveRssSources(config) as Array<RssSource | undefined>).filter((source): source is RssSource => Boolean(source)).map(source => ({ ...source }));
     const locale = new URL(request.url).searchParams.get('locale') || 'zh-CN';
-    if (locale.startsWith('zh')) {
-      const dw = sources.find(source => source.id === 'dw-news');
-      if (dw) dw.feedUrl = 'https://rss.dw.com/rdf/rss-chi-all';
-    }
+    const sources = resolveRssSources(config).map(source => ({
+      ...source,
+      feedUrl: locale.startsWith('zh') ? source.feedUrlZh || source.feedUrl : source.feedUrl,
+    }));
     return { sources, catalog: (getRssSourceCatalog() as RssSource[]).map(displaySource), config, configSource: canUseOwnApi ? 'personal' : 'admin' };
 }
 

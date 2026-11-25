@@ -66,7 +66,7 @@ html[data-theme='newspaper'], html[data-theme='kids'] { color-scheme: light; }
 .ui-button:active:not(:disabled) { filter: brightness(.96); }
 .ui-button:disabled, .ui-button[aria-disabled='true'] { cursor: not-allowed; color: var(--color-text-subtle); background: var(--color-surface-muted); border-color: var(--color-border); filter: none; }
 .ui-button[aria-busy='true'] { cursor: progress; }
-.ui-button:focus-visible, .ui-check:focus-visible, .ui-file:focus-visible, summary:focus-visible, .skip-link:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; }
+.account-order-scroll:focus-visible, .ui-button:focus-visible, .ui-check:focus-visible, .ui-file:focus-visible, summary:focus-visible, .skip-link:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; }
 
 input.ui-control, select.ui-control, textarea.ui-control {
   display: block;
@@ -147,3 +147,5 @@ label:has(.ui-file.sr-only):focus-within { outline: 2px solid var(--color-primar
   .workspace-content { padding-block: 24px; }
 }
 @media (prefers-reduced-motion: reduce) { .ui-button, .ui-control { transition: none; } }
+
+.account-order-scroll { max-block-size: min(28rem, 55dvh); overflow-y: auto; scrollbar-gutter: stable; }

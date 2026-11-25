@@ -75,6 +75,12 @@ async function main(){
   assert.ok(payload.stories.every(story => story.headline.sourceId !== publicCustomId));
   assert.equal(payload.sourceHeadlines?.[publicCustomId].length, 8, 'per-source results survive the global ranking cap');
   assert.ok(payload.sourceHeadlines?.[publicCustomId].every(headline => headline.sourceId === publicCustomId));
+  const discoverySource = RSS_SOURCE_CATALOG.find(source => source.id === 'dialogue-earth')!;
+  const discovery = homeNewsPayload({
+    ...snapshot, headlines: [{ ...custom, sourceId: discoverySource.id, sourceName: discoverySource.name, summary: undefined }],
+  }, [discoverySource], 'zh-CN');
+  assert.equal(discovery.stories[0].imageHref, undefined, 'discovery cards do not generate a ticket to fetch the article for images');
+  assert.equal(discovery.sourceHeadlines?.[discoverySource.id][0].imageHref, undefined);
   const future={...snapshot,headlines:snapshot.headlines.map(item=>({...item,publishedAt:new Date(now+86400000).toISOString()}))};
   assert.equal(homeNewsPayload(future,contexts[0].sources,'zh-CN').stories[0].headline.publishedAt,'');
   assert.equal((await image(new Request('http://localhost/api/news/image?ticket=bad'))).status,400);

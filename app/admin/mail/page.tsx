@@ -1,6 +1,5 @@
 import { requireAdminPage } from '@/lib/page-auth';
-import Header from '@/components/Header';
-import AdminBackLink from '@/components/AdminBackLink';
+import AdminSectionFrame from '@/components/AdminSectionFrame';
 import { Panel } from '@/components/ui/controls';
 import { prisma } from '@/lib/prisma';
 import { formatEmailCategory } from '@/lib/account-display';
@@ -27,22 +26,15 @@ export default async function MailPage() {
     },
   });
 
-  return <main className="workspace-page pb-12">
-    <Header />
-    <div id="main-content" tabIndex={-1} className="workspace-container workspace-content space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="ui-page-title">邮件投递记录</h1>
-        <AdminBackLink />
-      </div>
-      {deliveries.length === 0 && <p>暂无邮件投递记录。</p>}
-      {deliveries.map(item => <Panel key={item.id} className="space-y-1">
-        <h2 className="ui-panel-title">{formatEmailCategory(item.category, 'zh-CN')} · {deliveryStatus[item.status] || '状态未知'}</h2>
-        <p>{item.recipient.replace(/^(.).*(@.*)$/, '$1•••$2')} · {item.provider || '未选通道'} · {item.attempts} 次</p>
-        <time dateTime={item.createdAt.toISOString()}>{item.createdAt.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}</time>
-        {item.providerRequestId && <p className="break-all">Request ID {item.providerRequestId}</p>}
-        {item.providerMessageId && <p className="break-all">Message ID {item.providerMessageId}</p>}
-        {item.error && <p>{item.error}</p>}
-      </Panel>)}
-    </div>
-  </main>;
+  return <AdminSectionFrame section="mail">
+    {deliveries.length === 0 && <p>暂无邮件投递记录。</p>}
+    {deliveries.map(item => <Panel key={item.id} className="space-y-1">
+      <h2 className="ui-panel-title">{formatEmailCategory(item.category, 'zh-CN')} · {deliveryStatus[item.status] || '状态未知'}</h2>
+      <p>{item.recipient.replace(/^(.).*(@.*)$/, '$1•••$2')} · {item.provider || '未选通道'} · {item.attempts} 次</p>
+      <time dateTime={item.createdAt.toISOString()}>{item.createdAt.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}</time>
+      {item.providerRequestId && <p className="break-all">Request ID {item.providerRequestId}</p>}
+      {item.providerMessageId && <p className="break-all">Message ID {item.providerMessageId}</p>}
+      {item.error && <p>{item.error}</p>}
+    </Panel>)}
+  </AdminSectionFrame>;
 }

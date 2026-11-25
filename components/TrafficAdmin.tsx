@@ -2,7 +2,7 @@
 
 import { useUiLanguage } from '@/components/LanguageProvider';
 import { Button, Panel } from '@/components/ui/controls';
-import { BarChart3, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 type Counts = { pv: number; uv: number; guestPv: number; memberPv: number };
@@ -27,7 +27,7 @@ export default function TrafficAdmin() {
   const max = Math.max(1, ...(data?.trend.map(item => item.pv) || []));
   return <Panel className="col-span-full min-w-0" aria-label={text('访问统计', 'Site traffic')} aria-busy={loading}>
     <div className="flex flex-wrap items-start justify-between gap-4">
-      <div><h3 className="ui-panel-title flex items-center gap-2"><BarChart3 size={20} className="text-[var(--color-primary)]" aria-hidden="true" />{text('访问统计', 'Site traffic')}</h3><p className="mt-1 text-xs leading-relaxed text-[var(--color-text-muted)]">{text('了解有多少人来到观隅，以及他们查看了哪些页面。', 'See how many people visit Guanyu and which pages they view.')}</p></div>
+      <p className="text-sm leading-relaxed text-[var(--color-text-muted)]">{text('了解有多少人来到观隅，以及他们查看了哪些页面。', 'See how many people visit Guanyu and which pages they view.')}</p>
       <div className="flex flex-wrap items-center gap-2">
         {[7, 30].map(value => <Button variant="tab" key={value} type="button" aria-pressed={days === value} disabled={loading}  onClick={() => { setLoading(true); setDays(value); }}>{text(`近 ${value} 天`, `Last ${value} days`)}</Button>)}
         <Button variant="secondary" size="icon" type="button" disabled={loading}  aria-label={text('刷新访问统计', 'Refresh traffic')} onClick={() => { setLoading(true); setRefresh(refresh + 1); }}><RefreshCw size={16} aria-hidden="true" /></Button>
