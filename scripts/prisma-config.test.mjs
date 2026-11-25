@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
+import { explicitPostgresTls } from '../lib/postgres-url.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -94,4 +95,24 @@ test('Prisma migration itself still rejects an absent datasource instead of usin
     assert.match(result.stderr, /datasource.*required|datasource\.url/i);
     assert.doesNotMatch(result.stderr, /P1001|PrismaConfigEnvError/);
   } finally { f.cleanup(); }
+});
+
+test('runtime pg TLS aliases keep full verification without emitting the compatibility warning', () => {
+  const base = 'postgresql://fixture:p%40ss@db.example/fixture';
+  for (const mode of ['prefer', 'require', 'verify-ca']) {
+    const url = explicitPostgresTls(`${base}?sslmode=${mode}&application_name=guanyu`);
+    assert.equal(url, `${base}?sslmode=verify-full&application_name=guanyu`);
+  }
+  for (const query of ['', '?sslmode=disable', '?sslmode=verify-full', '?sslmode=require&uselibpqcompat=true']) {
+    assert.equal(explicitPostgresTls(base + query), base + query);
+  }
+  const checked = spawnSync(process.execPath, ['--input-type=module', '-e', `
+    import assert from 'node:assert/strict';
+    import pg from 'pg';
+    import { explicitPostgresTls } from './lib/postgres-url.mjs';
+    const client = new pg.Client({ connectionString: explicitPostgresTls('${base}?sslmode=require') });
+    assert.deepEqual(client.connectionParameters.ssl, {});
+  `], { cwd: repo, encoding: 'utf8', timeout: 15_000 });
+  assert.equal(checked.status, 0, checked.stderr);
+  assert.doesNotMatch(checked.stderr, /SECURITY WARNING|sslmode/i);
 });
