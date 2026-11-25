@@ -72,6 +72,20 @@ test('Vercel build stops before migrations with actionable instructions if the U
   } finally { f.cleanup(); }
 });
 
+test('deployment preflight requires an encryption key before running migrations', () => {
+  const f = fixture();
+  try {
+    const env = { ...f.env, DATABASE_URL: 'postgresql://fixture:unused@127.0.0.1:1/fixture' };
+    for (const [key, status] of [['   ', 1], ['fixture-only', 0]]) {
+      const result = spawnSync(process.execPath, ['scripts/check-deployment-env.mjs'], {
+        cwd: f.dir, env: { ...env, APP_ENCRYPTION_KEY: key }, encoding: 'utf8', timeout: 15_000,
+      });
+      assert.equal(result.status, status, result.stderr);
+      if (status) assert.match(result.stderr, /APP_ENCRYPTION_KEY/);
+    }
+  } finally { f.cleanup(); }
+});
+
 test('Prisma migration itself still rejects an absent datasource instead of using a placeholder', () => {
   const f = fixture();
   try {

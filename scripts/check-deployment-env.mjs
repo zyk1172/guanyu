@@ -2,7 +2,7 @@ import 'dotenv/config';
 
 if (!process.env.DATABASE_URL?.trim()) {
   console.error('[Deployment config] DATABASE_URL is required for database migrations and the application.');
-  console.error('Set DATABASE_URL for this deployment before running migrations.');
+  console.error('Set DATABASE_URL before running migrations. On Vercel, set it in Project Settings → Environment Variables for Production or Preview, then Redeploy.');
   console.error('Use the real PostgreSQL connection string. Client generation alone does not need database credentials.');
   process.exitCode = 1;
 }
