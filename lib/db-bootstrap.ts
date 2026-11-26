@@ -12,46 +12,45 @@ export function ensureRuntimeSchema() {
   }
 
   if (!schemaPromise) {
-    schemaPromise = (async () => {
+    schemaPromise = prisma.$transaction(async (tx) => {
       // Serverless functions can cold-start in parallel. PostgreSQL's
       // `IF NOT EXISTS` DDL still races while a relation type is being created,
       // so serialize this compatibility bootstrap across all instances.
-      await prisma.$executeRawUnsafe('SELECT pg_advisory_lock(83672703);');
-      try {
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe('SELECT pg_advisory_xact_lock(83672703);');
+      await tx.$executeRawUnsafe(`
         ALTER TABLE "User"
         ADD COLUMN IF NOT EXISTS "creditBalanceCents" INTEGER NOT NULL DEFAULT 0;
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         ALTER TABLE "User"
         ADD COLUMN IF NOT EXISTS "sessionVersion" INTEGER NOT NULL DEFAULT 1;
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         ALTER TABLE "User"
         ADD COLUMN IF NOT EXISTS "isBanned" BOOLEAN NOT NULL DEFAULT false;
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         ALTER TABLE "UserSettings"
         ADD COLUMN IF NOT EXISTS "defaultReportLanguage" TEXT NOT NULL DEFAULT 'zh-CN',
         ADD COLUMN IF NOT EXISTS "rssFeedUrlsJson" TEXT NOT NULL DEFAULT '[]',
         ADD COLUMN IF NOT EXISTS "searchProvider" TEXT NOT NULL DEFAULT 'free',
         ADD COLUMN IF NOT EXISTS "deepseekApiKeyEncrypted" TEXT;
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         ALTER TABLE "Audit"
         ADD COLUMN IF NOT EXISTS "reportLanguage" TEXT NOT NULL DEFAULT 'zh-CN',
         ADD COLUMN IF NOT EXISTS "completionMarkdown" TEXT,
         ADD COLUMN IF NOT EXISTS "completionGeneratedAt" TIMESTAMP(3);
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         ALTER TABLE "Audit"
         ADD COLUMN IF NOT EXISTS "indexable" BOOLEAN NOT NULL DEFAULT false;
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         ALTER TABLE "AuditJob"
         ADD COLUMN IF NOT EXISTS "inputRetentionExpiresAt" TIMESTAMP(3);
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         ALTER TABLE "AuditJob"
         ADD COLUMN IF NOT EXISTS "attemptCount" INTEGER NOT NULL DEFAULT 0,
         ADD COLUMN IF NOT EXISTS "leaseExpiresAt" TIMESTAMP(3),
@@ -59,35 +58,35 @@ export function ensureRuntimeSchema() {
         ADD COLUMN IF NOT EXISTS "nextAttemptAt" TIMESTAMP(3),
         ADD COLUMN IF NOT EXISTS "workerId" TEXT;
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         ALTER TABLE "PurchaseOrder"
         ADD COLUMN IF NOT EXISTS "clientRequestId" TEXT;
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         ALTER TABLE "UserSettings"
         ALTER COLUMN "defaultIsPublic" SET DEFAULT false;
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         ALTER TABLE "AppSetting"
         ADD COLUMN IF NOT EXISTS "alipayPointsQrImageUrl" TEXT NOT NULL DEFAULT '/alipay-points.jpg',
         ADD COLUMN IF NOT EXISTS "alipayByokQrImageUrl" TEXT NOT NULL DEFAULT '/alipay-byok.jpg',
         ADD COLUMN IF NOT EXISTS "paypalQrImageUrl" TEXT NOT NULL DEFAULT '/paypal-qr.jpg',
         ADD COLUMN IF NOT EXISTS "adminRssFeedIdsJson" TEXT NOT NULL DEFAULT '[]';
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         ALTER TABLE "PointTransaction"
         ADD COLUMN IF NOT EXISTS "deltaCents" INTEGER,
         ADD COLUMN IF NOT EXISTS "balanceAfterCents" INTEGER;
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         ALTER TABLE "PurchaseOrder"
         ADD COLUMN IF NOT EXISTS "currency" TEXT NOT NULL DEFAULT 'CNY';
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         ALTER TABLE "VerificationCode"
         ADD COLUMN IF NOT EXISTS "attemptCount" INTEGER NOT NULL DEFAULT 0;
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "ExtensionLinkCode" (
           "id" TEXT NOT NULL,
           "userId" TEXT NOT NULL,
@@ -98,16 +97,16 @@ export function ensureRuntimeSchema() {
           CONSTRAINT "ExtensionLinkCode_pkey" PRIMARY KEY ("id")
         );
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE UNIQUE INDEX IF NOT EXISTS "ExtensionLinkCode_codeHash_key" ON "ExtensionLinkCode"("codeHash");
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS "ExtensionLinkCode_userId_idx" ON "ExtensionLinkCode"("userId");
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS "ExtensionLinkCode_expiresAt_idx" ON "ExtensionLinkCode"("expiresAt");
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         DO $$
         BEGIN
           IF NOT EXISTS (
@@ -119,7 +118,7 @@ export function ensureRuntimeSchema() {
           END IF;
         END $$;
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "AuditJob" (
           "id" TEXT NOT NULL,
           "userId" TEXT NOT NULL,
@@ -132,7 +131,7 @@ export function ensureRuntimeSchema() {
           CONSTRAINT "AuditJob_pkey" PRIMARY KEY ("id")
         );
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "EmailDelivery" (
           "id" TEXT NOT NULL,
           "userId" TEXT,
@@ -151,16 +150,16 @@ export function ensureRuntimeSchema() {
           CONSTRAINT "EmailDelivery_pkey" PRIMARY KEY ("id")
         );
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS "EmailDelivery_userId_createdAt_idx" ON "EmailDelivery"("userId", "createdAt");
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS "EmailDelivery_auditId_idx" ON "EmailDelivery"("auditId");
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS "EmailDelivery_status_createdAt_idx" ON "EmailDelivery"("status", "createdAt");
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         DO $$
         BEGIN
           IF NOT EXISTS (
@@ -179,22 +178,22 @@ export function ensureRuntimeSchema() {
           END IF;
         END $$;
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS "AuditJob_userId_idx" ON "AuditJob"("userId");
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS "AuditJob_status_idx" ON "AuditJob"("status");
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS "AuditJob_status_nextAttemptAt_idx" ON "AuditJob"("status", "nextAttemptAt");
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS "AuditJob_status_leaseExpiresAt_idx" ON "AuditJob"("status", "leaseExpiresAt");
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS "AuditJob_createdAt_idx" ON "AuditJob"("createdAt");
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         DO $$
         BEGIN
           IF NOT EXISTS (
@@ -206,7 +205,7 @@ export function ensureRuntimeSchema() {
           END IF;
         END $$;
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "ExtensionSession" (
           "id" TEXT NOT NULL,
           "userId" TEXT NOT NULL,
@@ -220,16 +219,16 @@ export function ensureRuntimeSchema() {
           CONSTRAINT "ExtensionSession_pkey" PRIMARY KEY ("id")
         );
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE UNIQUE INDEX IF NOT EXISTS "ExtensionSession_tokenHash_key" ON "ExtensionSession"("tokenHash");
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS "ExtensionSession_userId_idx" ON "ExtensionSession"("userId");
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS "ExtensionSession_lastUsedAt_idx" ON "ExtensionSession"("lastUsedAt");
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         DO $$
         BEGIN
           IF NOT EXISTS (
@@ -241,7 +240,7 @@ export function ensureRuntimeSchema() {
           END IF;
         END $$;
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "ServiceOperation" (
           "id" TEXT NOT NULL,
           "userId" TEXT NOT NULL,
@@ -259,47 +258,47 @@ export function ensureRuntimeSchema() {
           CONSTRAINT "ServiceOperation_pkey" PRIMARY KEY ("id")
         );
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         ALTER TABLE "ServiceOperation"
         ADD COLUMN IF NOT EXISTS "currentAttempt" INTEGER NOT NULL DEFAULT 1;
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         ALTER TABLE "Audit"
         ADD COLUMN IF NOT EXISTS "sourceJobId" TEXT;
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         ALTER TABLE "Audit"
         ADD COLUMN IF NOT EXISTS "isSourcePublic" BOOLEAN NOT NULL DEFAULT false;
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         ALTER TABLE "Audit"
         ADD COLUMN IF NOT EXISTS "isCompletionPublic" BOOLEAN NOT NULL DEFAULT false;
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         ALTER TABLE "SavedArticle"
         ADD COLUMN IF NOT EXISTS "clientRequestId" TEXT;
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         ALTER TABLE "UserSettings"
         DROP COLUMN IF EXISTS "defaultSaveResult",
         DROP COLUMN IF EXISTS "defaultAnalysisMode";
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE UNIQUE INDEX IF NOT EXISTS "Audit_sourceJobId_key" ON "Audit"("sourceJobId");
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE UNIQUE INDEX IF NOT EXISTS "SavedArticle_userId_clientRequestId_key" ON "SavedArticle"("userId", "clientRequestId");
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE UNIQUE INDEX IF NOT EXISTS "ServiceOperation_userId_idempotencyKey_key" ON "ServiceOperation"("userId", "idempotencyKey");
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS "ServiceOperation_userId_status_createdAt_idx" ON "ServiceOperation"("userId", "status", "createdAt");
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS "ServiceOperation_operation_status_expiresAt_idx" ON "ServiceOperation"("operation", "status", "expiresAt");
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         DO $$
         BEGIN
           IF NOT EXISTS (
@@ -311,7 +310,7 @@ export function ensureRuntimeSchema() {
           END IF;
         END $$;
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "AccountDeletionLog" (
           "id" TEXT NOT NULL,
           "userIdHash" TEXT NOT NULL,
@@ -320,10 +319,10 @@ export function ensureRuntimeSchema() {
           CONSTRAINT "AccountDeletionLog_pkey" PRIMARY KEY ("id")
         );
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS "AccountDeletionLog_createdAt_idx" ON "AccountDeletionLog"("createdAt");
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "SavedArticle" (
           "id" TEXT NOT NULL,
           "userId" TEXT NOT NULL,
@@ -337,13 +336,13 @@ export function ensureRuntimeSchema() {
           CONSTRAINT "SavedArticle_pkey" PRIMARY KEY ("id")
         );
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE UNIQUE INDEX IF NOT EXISTS "PurchaseOrder_userId_clientRequestId_key" ON "PurchaseOrder"("userId", "clientRequestId");
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS "SavedArticle_userId_createdAt_idx" ON "SavedArticle"("userId", "createdAt");
       `);
-      await prisma.$executeRawUnsafe(`
+      await tx.$executeRawUnsafe(`
         DO $$
         BEGIN
           IF NOT EXISTS (
@@ -355,10 +354,7 @@ export function ensureRuntimeSchema() {
           END IF;
         END $$;
       `);
-      } finally {
-        await prisma.$executeRawUnsafe('SELECT pg_advisory_unlock(83672703);').catch(() => {});
-      }
-    })().catch((error) => {
+    }, { maxWait: 10_000, timeout: 120_000 }).catch((error) => {
       schemaPromise = null;
       throw error;
     });
