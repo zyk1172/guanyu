@@ -18,10 +18,11 @@ import { POST as registerCode } from '../app/api/register/send-code/route';
 import { POST as resetPassword } from '../app/api/password/reset/route';
 import { POST as batch } from '../app/api/audits/batch/route';
 import { POST as complete } from '../app/api/audits/[id]/completion/route';
-import { effectiveCreditCents } from '../lib/billing';
+import { effectiveCreditCents, grantPointsDetailed } from '../lib/billing';
+import { POST as linkCode } from '../app/api/extension/link-code/route';
 import { queueReportCompleted } from '../lib/email';
 import { prisma } from '../lib/prisma';
-import { beginServiceOperation, failServiceOperation, recoverExpiredServiceOperations } from '../lib/service-operation';
+import { beginServiceOperation, completeServiceOperation, failServiceOperation, recoverExpiredServiceOperations } from '../lib/service-operation';
 
 const secret = process.env.NEXTAUTH_SECRET!;
 const base = new URL(process.env.NEXTAUTH_URL || 'http://localhost:3000').origin;
@@ -247,6 +248,41 @@ try {
   assert.equal((await resetPassword(await request('/api/password/reset', owner, resetBody))).status, 200);
   assert.ok((await prisma.verificationCode.findUniqueOrThrow({ where: { id: reset.id } })).consumedAt);
   assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: owner } })).sessionVersion, 2);
+  // Different request IDs and actors must share one report-level lease.
+  const claims = await Promise.all([owner, admin].map(userId => beginServiceOperation({
+    userId, auditId: foreign.id, idempotencyKey: randomUUID(),
+    operation: 'completion', reservedCredits: 200,
+    transactionType: 'AI_COMPLETION', description: 'Concurrent completion fixture',
+    expectedCompletionGeneratedAt: null,
+  })));
+  assert.equal(claims.filter(claim => claim.state === 'claimed').length, 1);
+  assert.equal(claims.filter(claim => claim.state === 'running').length, 1);
+  const winning = claims.find(claim => claim.state === 'claimed')!;
+  const completionDate = new Date();
+  await completeServiceOperation(winning.operation.id, winning.operation.currentAttempt, {
+    resultId: foreign.id, resultJson: JSON.stringify({ markdown: 'Fixture', generatedAt: completionDate }),
+  }, tx => tx.audit.update({ where: { id: foreign.id }, data: { completionMarkdown: 'Fixture', completionGeneratedAt: completionDate } }));
+  await assert.rejects(beginServiceOperation({
+    userId: admin, auditId: foreign.id, idempotencyKey: randomUUID(),
+    operation: 'completion', reservedCredits: 200, transactionType: 'AI_COMPLETION',
+    description: 'Stale completion fixture', expectedCompletionGeneratedAt: null,
+  }), { code: 'COMPLETION_VERSION_CHANGED' });
+  assert.equal(await prisma.pointTransaction.count({ where: { auditId: foreign.id, transactionType: 'AI_COMPLETION' } }), 1);
+
+  const grantId = randomUUID();
+  const grants = await Promise.all([
+    grantPointsDetailed(admin, 1, 'Grant fixture', undefined, grantId),
+    grantPointsDetailed(admin, 1, 'Grant fixture', undefined, grantId),
+    grantPointsDetailed(admin, 1, 'Grant fixture', undefined, randomUUID()),
+  ]);
+  assert.equal(grants.filter(grant => grant.repeated).length, 1);
+  assert.equal(await prisma.pointTransaction.count({ where: { userId: admin, transactionType: 'ADMIN_ADJUSTMENT' } }), 2);
+
+  const linkResponses = await Promise.all(Array.from({ length: 4 }, async () =>
+    linkCode(await request('/api/extension/link-code', admin, {}))));
+  assert.equal(linkResponses.filter(response => response.status === 200).length, 3);
+  assert.equal(linkResponses.filter(response => response.status === 429).length, 1);
+
   console.log('Cutover smoke passed: pagination, authorization, concurrent withdrawal, blocked deletion, quote confirmation, single refund, author outbox, uniform code limits, and password reset rollback.');
 } finally {
   await prisma.emailDelivery.deleteMany({ where: { userId: { in: users } } });
