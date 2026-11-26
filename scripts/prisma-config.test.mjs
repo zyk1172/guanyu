@@ -24,6 +24,7 @@ function fixture() {
   // An isolated cwd and environment prevent the developer's .env or CI database
   // from masking the missing-variable condition that caused the Vercel failure.
   delete env.DATABASE_URL;
+  delete env.DIRECT_URL;
   for (const key of Object.keys(env)) if (key.startsWith('DOTENV_CONFIG_')) delete env[key];
   return { dir, env, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
@@ -115,4 +116,55 @@ test('runtime pg TLS aliases keep full verification without emitting the compati
   `], { cwd: repo, encoding: 'utf8', timeout: 15_000 });
   assert.equal(checked.status, 0, checked.stderr);
   assert.doesNotMatch(checked.stderr, /SECURITY WARNING|sslmode/i);
+});
+
+test('Prisma CLI prefers a direct URL or derives a Neon direct endpoint without changing the runtime URL', () => {
+  const f = fixture();
+  try {
+    const pooled = 'postgresql://fixture:p%40ss@ep-bold-pond-aoryoaol-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&pgbouncer=true&schema=public&channel_binding=require';
+    const direct = 'postgresql://fixture:p%40ss@ep-bold-pond-aoryoaol.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&schema=public&channel_binding=require';
+    const override = 'postgresql://fixture:unused@db.example:5432/neondb?schema=public';
+    const otherPool = 'postgresql://fixture:unused@ep-other-pooler.example.com/neondb?pgbouncer=true';
+    for (const [runtime, explicit, expected] of [
+      [pooled, '', direct],
+      [pooled, '   ', direct],
+      [pooled, override, override],
+      [direct, '', direct],
+      [otherPool, '', otherPool],
+    ]) {
+      const env = { ...f.env, DATABASE_URL: runtime, DIRECT_URL: explicit, EXPECTED_MIGRATION_URL: expected };
+      const loaded = spawnSync(process.execPath, ['--input-type=module', '-e', `
+        import assert from 'node:assert/strict';
+        import { createRequire } from 'node:module';
+        const { loadConfigFromFile } = createRequire(import.meta.url)('@prisma/config');
+        const original = process.env.DATABASE_URL;
+        const result = await loadConfigFromFile({ configRoot: process.cwd() });
+        assert.equal(result.error, undefined);
+        assert.equal(result.config.datasource.url, process.env.EXPECTED_MIGRATION_URL);
+        assert.equal(process.env.DATABASE_URL, original);
+      `], { cwd: f.dir, env, encoding: 'utf8', timeout: 15_000 });
+      assert.equal(loaded.status, 0, loaded.stderr || loaded.error?.message);
+    }
+  } finally { f.cleanup(); }
+});
+
+test('Redis can be disabled without removing its credentials and all helpers become no-ops', () => {
+  const env = { ...process.env, REDIS_ENABLED: ' FaLsE ', UPSTASH_REDIS_REST_URL: 'https://fixture.upstash.io', UPSTASH_REDIS_REST_TOKEN: 'fixture-token' };
+  const checked = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', `
+    import assert from 'node:assert/strict';
+    import { isCacheEnabled, cacheGet, cacheSet, cacheDel, cacheDelByPrefix, slidingWindowCount, slidingWindowRecord } from './lib/cache.ts';
+    globalThis.fetch = async () => { throw new Error('unexpected network request'); };
+    assert.equal(isCacheEnabled(), false);
+    assert.equal(await cacheGet('fixture'), null);
+    assert.equal(await slidingWindowCount('fixture', 1000), null);
+    await cacheSet('fixture', {}, 1);
+    await cacheDel('fixture');
+    await cacheDelByPrefix('fixture');
+    await slidingWindowRecord('fixture', 1000);
+    assert.equal(process.env.UPSTASH_REDIS_REST_TOKEN, 'fixture-token');
+    delete process.env.REDIS_ENABLED;
+    assert.equal(isCacheEnabled(), true);
+  `], { cwd: repo, env, encoding: 'utf8', timeout: 15_000 });
+  assert.equal(checked.status, 0, checked.stderr || checked.error?.message);
+  assert.doesNotMatch(checked.stderr, /unexpected network request|Redis .* failed/);
 });
