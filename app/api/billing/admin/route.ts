@@ -1,7 +1,7 @@
 import { after, NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { getSuperAdminStatus } from '@/lib/admin';
-import { fulfillOrder, getOrCreateAppSetting, grantPoints, rejectOrder } from '@/lib/billing';
+import { fulfillOrder, getOrCreateAppSetting, grantPointsDetailed, rejectOrder } from '@/lib/billing';
 import { cacheDel, cacheDelByPrefix, CACHE_KEYS } from '@/lib/cache';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
 import { notifyAccountAccessChanged, notifyCreditsGranted, notifyOrderDecision, sendTrackedEmail } from '@/lib/email';
@@ -157,9 +157,19 @@ export async function PATCH(request: NextRequest) {
     if (!Number.isFinite(points) || points <= 0 || points > 100_000) {
       return NextResponse.json({ error: '增加点数必须大于 0 且不超过 100000 点。' }, { status: 400 });
     }
-    const balance = await grantPoints(userId, points, reason);
+    const operationId = body.operationId;
+    if (operationId !== undefined && (typeof operationId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(operationId))) {
+      return NextResponse.json({ error: '加点操作标识无效。' }, { status: 400 });
+    }
+    let grant;
+    try {
+      grant = await grantPointsDetailed(userId, points, reason, undefined, operationId);
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : '加点失败。' }, { status: 400 });
+    }
+    const { balance, repeated } = grant;
     const target = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
-    if (target?.email && points > 0) {
+    if (target?.email && points > 0 && !repeated) {
       after(async () => {
         try {
           await notifyCreditsGranted({ userId, email: target.email, points, balance, reason });
@@ -168,17 +178,23 @@ export async function PATCH(request: NextRequest) {
         }
       });
     }
-    return NextResponse.json({ ok: true, balance });
+    return NextResponse.json({ ok: true, balance, repeated });
   }
 
   if (action === 'grantProAccess' || action === 'unlockByok') {
     const userId = String(body.userId || '');
     if (!userId) return NextResponse.json({ error: '缺少用户 ID。' }, { status: 400 });
-    const target = await prisma.user.findUnique({ where: { id: userId }, select: { proAccessExpiresAt: true } });
-    if (!target) return NextResponse.json({ error: '用户不存在。' }, { status: 404 });
-    const now = new Date();
-    const expiresAt = calculateProAccessExpiry(now, target.proAccessExpiresAt, 30);
-    await prisma.user.update({ where: { id: userId }, data: { proAccessActivatedAt: new Date(), proAccessExpiresAt: expiresAt, pendingProAccessDays: 0, pendingProAccessExpiresAt: null } });
+    const expiresAt = await prisma.$transaction(async (tx) => {
+      // Use the same user lock as purchase fulfillment and pending activation.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`guanyu-credit:${userId}`}))`;
+      const target = await tx.user.findUnique({ where: { id: userId }, select: { proAccessExpiresAt: true } });
+      if (!target) return null;
+      const now = new Date();
+      const expires = calculateProAccessExpiry(now, target.proAccessExpiresAt, 30);
+      await tx.user.update({ where: { id: userId }, data: { proAccessActivatedAt: now, proAccessExpiresAt: expires, pendingProAccessDays: 0, pendingProAccessExpiresAt: null } });
+      return expires;
+    });
+    if (!expiresAt) return NextResponse.json({ error: '用户不存在。' }, { status: 404 });
     return NextResponse.json({ ok: true, expiresAt });
   }
 
