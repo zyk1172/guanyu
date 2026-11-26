@@ -40,6 +40,7 @@ export default function DiscussionBoard({ auditId }: { auditId: string }) {
   const [loadError, setLoadError] = useState('');
   const [error, setError] = useState<{ scope: string; message: string } | null>(null);
   const [notice, setNotice] = useState('');
+  const [newMessageId, setNewMessageId] = useState<string | null>(null);
   const replyInput = useRef<HTMLTextAreaElement>(null);
   const replyTrigger = useRef<HTMLButtonElement | null>(null);
   const inFlight = useRef(false);
@@ -142,6 +143,7 @@ export default function DiscussionBoard({ auditId }: { auditId: string }) {
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.message?.id) throw new Error(data.error || t('discussion.postFailed'));
       const message: DiscussionMessage = data.message;
+      setNewMessageId(message.id);
       setBoard(current => current && { ...current, messages: message.parentMessageId
         ? current.messages.map(root => root.id === message.parentMessageId && !root.replies?.some(reply => reply.id === message.id)
           ? { ...root, replies: [...(root.replies || []), message] } : root)
@@ -198,7 +200,7 @@ export default function DiscussionBoard({ auditId }: { auditId: string }) {
   const entry = (message: DiscussionMessage, target: DiscussionMessage | undefined, threadOpen: boolean) => {
     const deleted = message.status === 'DELETED';
     const visible = message.status === 'VISIBLE';
-    return <article id={messageAnchor(message.id)} tabIndex={-1} className="motion-message discussion-entry">
+    return <article id={messageAnchor(message.id)} tabIndex={-1} className={message.id === newMessageId ? "motion-message discussion-entry" : "discussion-entry"}>
       <AuthorAvatar key={message.author?.image || ''} author={message.author} />
       <div className="discussion-entry-body">
         <header className="discussion-meta">

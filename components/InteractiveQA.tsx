@@ -186,6 +186,7 @@ export default function InteractiveQA({ auditId, activeModel, ref, onBusyChange,
   const sending = useRef(false);
   const panel = useRef<HTMLDivElement>(null);
   const messages = controlledMessages ?? localMessages;
+  const [initialMessageCount] = useState(() => messages.length);
   useLayoutEffect(() => {
     if (followLatest.current && thread.current) thread.current.scrollTop = thread.current.scrollHeight;
   }, [messages.length, isSending]);
@@ -292,7 +293,7 @@ export default function InteractiveQA({ auditId, activeModel, ref, onBusyChange,
             {messages.map((m, idx) => (
               <div
                 key={idx}
-                className={`motion-message p-3 rounded-lg flex flex-col space-y-1 ${
+                className={`${idx >= initialMessageCount ? 'motion-message' : ''} p-3 rounded-lg flex flex-col space-y-1 ${
                   m.role === 'user'
                     ? 'bg-[var(--color-primary-soft)]  border border-[var(--color-primary)] align-end ml-6'
                     : 'bg-[var(--color-surface-muted)]  border border-[var(--color-border)]  mr-6'
@@ -311,14 +312,14 @@ export default function InteractiveQA({ auditId, activeModel, ref, onBusyChange,
         )}
 
         {isSending && (
-          <div role="status" className="text-xxs font-bold text-[var(--color-text-subtle)] flex items-center gap-2 pl-2">
+          <div role="status" className="motion-feedback text-xxs font-bold text-[var(--color-text-subtle)] flex items-center gap-2 pl-2">
             <span className="animate-pulse h-1.5 w-1.5 bg-[var(--color-primary)] rounded-full" />
             <span>{t('qa.loading')}</span>
           </div>
         )}
 
         {(error || activeModel.error) && (
-          <div role="alert" className="p-2.5 rounded bg-[var(--color-danger-soft)] text-xxs font-bold text-[var(--color-danger)] border border-[var(--color-danger)]">
+          <div role="alert" className="motion-feedback p-2.5 rounded bg-[var(--color-danger-soft)] text-xxs font-bold text-[var(--color-danger)] border border-[var(--color-danger)]">
             ⚠️ {error || activeModel.error}
           </div>
         )}
@@ -360,8 +361,8 @@ function ResearchEvidence({ research, chinese }: { research: FollowupResearch; c
     <p role="status">{labels[research.status]}</p>
     {research.disabledReason === 'model_offline' && <p className="mt-1">{chinese ? '当前模型关闭了联网，请在账号设置中选择启用联网的模型。' : 'This model has web research disabled. Select a web-enabled model in account settings.'}</p>}
     {research.disabledReason === 'deployment_disabled' && <p className="mt-1">{chinese ? '当前站点未开放此模型的联网功能。' : 'Web research for this model is disabled on this site.'}</p>}
-    {!!research.queries.length && <details className="mt-2"><summary className="cursor-pointer">{chinese ? '查看检索关键词' : 'Search keywords'}</summary><ul className="mt-2 list-disc space-y-1 pl-5">{research.queries.map(query => <li key={query}>{query}</li>)}</ul></details>}
-    {!!research.sources.length && <details className="mt-2"><summary className="cursor-pointer">{chinese ? `实际检索来源（${research.sources.length}）` : `Retrieved sources (${research.sources.length})`}</summary><ul className="mt-3 space-y-3">{research.sources.map(source => {
+    {!!research.queries.length && <details className="motion-disclosure mt-2"><summary className="cursor-pointer">{chinese ? '查看检索关键词' : 'Search keywords'}</summary><ul className="mt-2 list-disc space-y-1 pl-5">{research.queries.map(query => <li key={query}>{query}</li>)}</ul></details>}
+    {!!research.sources.length && <details className="motion-disclosure mt-2"><summary className="cursor-pointer">{chinese ? `实际检索来源（${research.sources.length}）` : `Retrieved sources (${research.sources.length})`}</summary><ul className="mt-3 space-y-3">{research.sources.map(source => {
       const href = safeMarkdownHref(source.url);
       return href ? <li key={source.url}><a href={href} target="_blank" rel="noopener noreferrer" className="break-words text-[var(--color-link)] underline">{source.title}</a><p className="mt-1">{source.kind === 'page' ? (chinese ? '已读取正文' : 'Page text read') : (chinese ? '仅检索摘要，未读到全文' : 'Search snippet; full text not read')}{source.publishedAt ? ` · ${source.publishedAt}` : ''}</p></li> : null;
     })}</ul></details>}

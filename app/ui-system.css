@@ -173,10 +173,10 @@ label:has(.ui-file.sr-only):focus-within { outline: 2px solid var(--color-primar
   50% { opacity: 1; transform: scale(1.15); }
 }
 
-.motion-tabs .ui-button { position: relative; isolation: isolate; }
+.motion-tabs { position: relative; isolation: isolate; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.motion-tabs::before { position: absolute; inset: 0 auto 0 0; z-index: -1; width: calc((100% - 4px) / 2); border-radius: var(--ui-control-radius); background: var(--color-primary-soft); content: ''; pointer-events: none; transition: transform var(--motion-enter-duration) var(--motion-ease); }
+.motion-tabs[data-mode='latest']::before { transform: translateX(calc(100% + 4px)); }
 .motion-tabs .ui-button[aria-pressed='true'] { background: transparent; }
-.motion-tab-indicator { position: absolute; inset: 0; z-index: -1; border-radius: var(--ui-control-radius); background: var(--color-primary-soft); pointer-events: none; }
-.motion-tab-label { position: relative; }
 .news-card { transition: border-color var(--ui-feedback-duration) ease-out, background-color var(--ui-feedback-duration) ease-out; }
 @media (hover: hover) {
   .news-card:hover { border-color: var(--color-border-strong); background: var(--color-card-hover); }
@@ -184,19 +184,19 @@ label:has(.ui-file.sr-only):focus-within { outline: 2px solid var(--color-primar
 .news-analysis-disclosure > summary svg { transition: transform var(--motion-enter-duration) var(--motion-ease); }
 
 @media (prefers-reduced-motion: no-preference) {
-  .ui-dialog[open] { animation: ui-dialog-enter var(--motion-enter-duration) var(--motion-ease) both; }
-  .ui-dialog[open]::backdrop { animation: ui-backdrop-enter var(--motion-enter-duration) ease-out both; }
-  .motion-content-enter, .motion-message { animation: ui-enter var(--motion-enter-duration) var(--motion-ease) both; }
-  .motion-news-card { animation: ui-enter 300ms var(--motion-ease) both; }
+  .ui-dialog[open] { animation: ui-dialog-enter var(--motion-enter-duration) var(--motion-ease) backwards; }
+  .ui-dialog[open]::backdrop { animation: ui-backdrop-enter var(--motion-enter-duration) ease-out backwards; }
+  .motion-content-enter, .motion-message { animation: ui-enter var(--motion-enter-duration) var(--motion-ease) backwards; }
+  .motion-news-card { animation: ui-enter 300ms var(--motion-ease) backwards; }
   .motion-news-card:nth-child(6n + 2) { animation-delay: 25ms; }
   .motion-news-card:nth-child(6n + 3) { animation-delay: 50ms; }
   .motion-news-card:nth-child(6n + 4) { animation-delay: 75ms; }
   .motion-news-card:nth-child(6n + 5) { animation-delay: 100ms; }
   .motion-news-card:nth-child(6n) { animation-delay: 125ms; }
   .motion-loading-dot { animation: ui-pending-pulse 1.6s ease-in-out infinite; }
-  details[open] > :not(summary) { animation: ui-enter 180ms var(--motion-ease) both; }
+  .motion-disclosure[open] > :not(summary) { animation: ui-enter 180ms var(--motion-ease) backwards; }
   @media (max-width: 767px) {
-    .workspace-nav[data-open='true'] { animation: ui-enter 180ms var(--motion-ease) both; }
+    .workspace-nav[data-open='true'] { animation: ui-enter 180ms var(--motion-ease) backwards; }
   }
 }
 
@@ -205,5 +205,7 @@ label:has(.ui-file.sr-only):focus-within { outline: 2px solid var(--color-primar
   to { opacity: 1; }
 }
 @media (prefers-reduced-motion: no-preference) {
-  [role='status']:not(:empty), [role='alert']:not(:empty) { animation: ui-feedback-enter 180ms ease-out both; }
+  .motion-feedback:not(:empty) { animation: ui-feedback-enter 180ms ease-out backwards; }
 }
+
+@media (prefers-reduced-motion: reduce) { .motion-tabs::before { transition: none; } }
