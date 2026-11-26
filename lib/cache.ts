@@ -1,11 +1,12 @@
 import { Redis } from '@upstash/redis';
 
 // Upstash Redis（REST）缓存层。未配置 UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN
-// 或 Redis 故障时，所有方法安静降级（返回 null / false），调用方直接回退数据库，
+// 或 REDIS_ENABLED=false、Redis 故障时，所有方法安静降级（返回 null / false），调用方直接回退数据库，
 // 不影响任何功能路径。
 const globalForRedis = globalThis as unknown as { __guanyuRedis?: Redis | null };
 
 function getRedis(): Redis | null {
+  if (process.env.REDIS_ENABLED?.trim().toLowerCase() === 'false') return null;
   if (globalForRedis.__guanyuRedis !== undefined) return globalForRedis.__guanyuRedis;
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
