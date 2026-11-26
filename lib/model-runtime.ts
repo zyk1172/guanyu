@@ -1,6 +1,7 @@
 import { normalizeModelBaseUrl } from '@/lib/model-endpoint';
 import { safeOutboundRequest } from '@/lib/safe-outbound';
 import type { PlatformModelProvider } from '@/lib/platform-model-core.mjs';
+import { hasToolCallMarkup } from './model-output';
 import type { WebResearchSession } from './web-research';
 
 export type RuntimeSearchSource = {
@@ -271,6 +272,14 @@ function chatText(content: unknown): string {
   return content.flatMap((block) => block?.type === 'text' && typeof block.text === 'string' ? [block.text] : []).join('').trim();
 }
 
+function chatFinishedWithToolCall(reason: unknown) {
+  return reason === 'tool_calls' || reason === 'function_call';
+}
+
+function invalidToolAnswer(result: ModelInvocationResult): ModelInvocationResult {
+  return { ...result, ok: false, status: 502, message: '', errorCode: 'invalid_tool_calls' };
+}
+
 async function invokeOpenAiCompatible(params: InvokeModelParams): Promise<ModelInvocationResult> {
   const deadline = Date.now() + params.timeoutMs;
   const model = {
@@ -320,15 +329,20 @@ async function invokeOpenAiCompatible(params: InvokeModelParams): Promise<ModelI
     usage.outputTokens += retryUsage.outputTokens;
     usage.cacheReadTokens += retryUsage.cacheReadTokens;
   }
-  return {
+  const choice = payload?.choices?.[0];
+  const result: ModelInvocationResult = {
     ok: response.status >= 200 && response.status < 300,
     status: response.status,
-    message: chatText(payload?.choices?.[0]?.message?.content),
+    message: chatText(choice?.message?.content),
     errorCode: response.status >= 400 ? `upstream_${response.status}` : undefined,
     usedTokenBudget: Boolean(params.maxTokens),
     sources: [],
     usage,
   };
+  if (result.ok && (chatFinishedWithToolCall(choice?.finish_reason) || choice?.message?.tool_calls?.length || choice?.message?.function_call)) {
+    return invalidToolAnswer(result);
+  }
+  return result;
 }
 
 async function invokeOpenAiResponses(params: InvokeModelParams): Promise<ModelInvocationResult> {
@@ -741,9 +755,13 @@ async function invokeWithWebTools(params: InvokeModelParams): Promise<ModelInvoc
         calls = (assistant.parts || []).filter((item: any) => item.functionCall).map((item: any, index: number) => ({ id: item.functionCall.id || `call-${round}-${index}`, name: item.functionCall.name, arguments: item.functionCall.args }));
         message = (assistant.parts || []).filter((item: any) => !item.thought && typeof item.text === 'string').map((item: any) => item.text).join('\n');
       } else {
-        assistant = payload.choices?.[0]?.message || {};
-        calls = (Array.isArray(assistant.tool_calls) ? assistant.tool_calls : []).map((item: any) => ({ id: item.id, name: item.function?.name, arguments: item.function?.arguments }));
+        const choice = payload.choices?.[0];
+        assistant = choice?.message || {};
+        calls = (Array.isArray(assistant.tool_calls) ? assistant.tool_calls : []).map((item: any) => ({ id: item?.id, name: item?.function?.name, arguments: item?.function?.arguments }));
         message = chatText(assistant.content);
+        if (!calls.length && (chatFinishedWithToolCall(choice?.finish_reason) || assistant.function_call)) {
+          return result(false, 502, '', 'invalid_tool_calls');
+        }
       }
       if (!calls.length) return result(true, response.status, message.trim());
       if (!toolsEnabled) return result(false, 502, '', 'web_research_loop_exceeded');
@@ -770,17 +788,22 @@ async function invokeWithWebTools(params: InvokeModelParams): Promise<ModelInvoc
   }
 }
 
+function invokeProvider(params: InvokeModelParams): Promise<ModelInvocationResult> {
+  if (params.webResearch) return invokeWithWebTools(params);
+  if (params.provider === 'openai') return invokeOpenAiResponses(params);
+  if (params.provider === 'gemini') return invokeGemini(params);
+  if (params.provider === 'anthropic') return invokeAnthropic(params);
+  if (params.provider === 'xiaomi_mimo') return invokeXiaomiMimo(params);
+  if (params.provider === 'qwen') return invokeQwen(params);
+  if (params.provider === 'moonshot') return invokeMoonshot(params);
+  if (params.provider === 'zhipu') return invokeZhipu(params);
+  return invokeOpenAiCompatible(params);
+}
+
 export async function invokeModel(params: InvokeModelParams): Promise<ModelInvocationResult> {
   try {
-    if (params.webResearch) return await invokeWithWebTools(params);
-    if (params.provider === 'openai') return await invokeOpenAiResponses(params);
-    if (params.provider === 'gemini') return await invokeGemini(params);
-    if (params.provider === 'anthropic') return await invokeAnthropic(params);
-    if (params.provider === 'xiaomi_mimo') return await invokeXiaomiMimo(params);
-    if (params.provider === 'qwen') return await invokeQwen(params);
-    if (params.provider === 'moonshot') return await invokeMoonshot(params);
-    if (params.provider === 'zhipu') return await invokeZhipu(params);
-    return await invokeOpenAiCompatible(params);
+    const result = await invokeProvider(params);
+    return result.ok && hasToolCallMarkup(result.message) ? invalidToolAnswer(result) : result;
   } catch (error: any) {
     const isTimeout = error?.name === 'TimeoutError' || error?.name === 'AbortError' || /超时|timeout/i.test(String(error?.message || ''));
     return {
