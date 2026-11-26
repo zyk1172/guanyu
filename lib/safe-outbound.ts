@@ -24,6 +24,33 @@ const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
 
 export class UnsafeOutboundUrlError extends Error {}
 
+function outboundTimeoutError() {
+  return new Error('外部请求超时。');
+}
+
+function remainingBudget(deadline: number) {
+  const remaining = Math.ceil(deadline - performance.now());
+  if (remaining <= 0) throw outboundTimeoutError();
+  return remaining;
+}
+
+// dns.lookup uses the OS resolver and cannot be cancelled by AbortSignal.
+// Bound the caller's wait and never start a socket after the deadline.
+export async function withinOutboundBudget<T>(work: () => Promise<T>, timeoutMs: number): Promise<T> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw outboundTimeoutError();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(outboundTimeoutError()), timeoutMs);
+      }),
+      Promise.resolve().then(work),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 function isBlockedIpv4(value: string) {
   const parts = value.split('.').map(Number);
   if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return true;
@@ -73,7 +100,7 @@ function isBlockedAddress(address: string) {
   return type === 4 ? isBlockedIpv4(address) : type === 6 ? isBlockedIpv6(address) : true;
 }
 
-export async function assertPublicOutboundUrl(input: string, options: { requireHttps?: boolean; allowPrivateAddress?: boolean } = {}) {
+export async function assertPublicOutboundUrl(input: string, options: { requireHttps?: boolean; allowPrivateAddress?: boolean; timeoutMs?: number } = {}) {
   let target: URL;
   try {
     target = new URL(input);
@@ -99,7 +126,7 @@ export async function assertPublicOutboundUrl(input: string, options: { requireH
   const type = isIP(hostname);
   const addresses = type
     ? [{ address: hostname, family: type }]
-    : await lookup(hostname, { all: true, verbatim: true });
+    : await withinOutboundBudget(() => lookup(hostname, { all: true, verbatim: true }), options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   if (addresses.length === 0 || (!options.allowPrivateAddress && addresses.some((entry) => isBlockedAddress(entry.address)))) {
     throw new UnsafeOutboundUrlError('外部服务地址解析到了受限制的网络地址。');
   }
@@ -112,17 +139,20 @@ export async function assertPublicOutboundUrl(input: string, options: { requireH
  * private target after a DNS-rebinding response.
  */
 export async function safeOutboundRequest(input: string | URL, options: SafeOutboundOptions = {}): Promise<SafeOutboundResponse> {
+  const budgetMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  if (!Number.isFinite(budgetMs) || budgetMs <= 0) throw outboundTimeoutError();
+  const deadlineAt = performance.now() + budgetMs;
   const { target, addresses } = await assertPublicOutboundUrl(String(input), {
     requireHttps: options.requireHttps,
     allowPrivateAddress: options.allowPrivateAddress,
+    timeoutMs: remainingBudget(deadlineAt),
   });
   const address = addresses.find((entry) => entry.family === 4) || addresses[0];
   const transport = target.protocol === 'https:' ? httpsRequest : httpRequest;
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timeoutMs = remainingBudget(deadlineAt);
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
 
   return new Promise<SafeOutboundResponse>((resolve, reject) => {
-    const deadline = setTimeout(() => request.destroy(new Error('外部请求超时。')), timeoutMs);
     const request = transport({
       protocol: target.protocol,
       hostname: address.address,
@@ -144,6 +174,7 @@ export async function safeOutboundRequest(input: string | URL, options: SafeOutb
 
       const declaredLength = Number.parseInt(headers.get('content-length') || '0', 10);
       if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+        clearTimeout(deadline);
         response.destroy();
         reject(new Error('外部响应体过大。'));
         return;
@@ -159,6 +190,10 @@ export async function safeOutboundRequest(input: string | URL, options: SafeOutb
         }
         chunks.push(chunk);
       });
+      response.on('aborted', () => {
+        clearTimeout(deadline);
+        reject(new Error('外部响应已中断。'));
+      });
       response.on('error', (error) => {
         clearTimeout(deadline);
         reject(error);
@@ -169,7 +204,8 @@ export async function safeOutboundRequest(input: string | URL, options: SafeOutb
       });
     });
 
-    request.setTimeout(timeoutMs, () => request.destroy(new Error('外部请求超时。')));
+    const deadline = setTimeout(() => request.destroy(outboundTimeoutError()), timeoutMs);
+    request.setTimeout(timeoutMs, () => request.destroy(outboundTimeoutError()));
     request.on('error', (error) => {
       clearTimeout(deadline);
       reject(error);
