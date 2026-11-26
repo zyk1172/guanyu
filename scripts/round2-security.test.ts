@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { withinOutboundBudget, safeOutboundRequest } from '../lib/safe-outbound';
 import { ANALYZE_ADMISSION_ACTION, ANALYZE_ADMISSION_LIMIT, getClientIp, shouldRejectAnalyzeAdmission } from '../lib/rate-limit';
 import { publicAuditDto, ownerAuditDto } from '../lib/audit-dto';
 import { serviceOperationChargeKey, serviceOperationRefundKey } from '../lib/service-operation';
@@ -149,4 +150,14 @@ test('billing admin step-up protects canonical and compatibility Pro grant actio
     assert.equal(requiresBillingAdminStepUp(action), true, `${action} must require step-up`);
   }
   assert.equal(requiresBillingAdminStepUp('settings'), false);
+});
+
+
+test('outbound deadline rejects stalled resolution and prevents a zero-budget request', async () => {
+  assert.equal(await withinOutboundBudget(async () => 'resolved', 1000), 'resolved');
+  await assert.rejects(withinOutboundBudget(() => new Promise<never>(() => {}), 10), /外部请求超时/);
+  let started = false;
+  await assert.rejects(withinOutboundBudget(async () => { started = true; }, 0), /外部请求超时/);
+  assert.equal(started, false);
+  await assert.rejects(safeOutboundRequest('https://93.184.216.34', { timeoutMs: 0 }), /外部请求超时/);
 });
