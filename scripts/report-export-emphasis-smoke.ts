@@ -54,6 +54,7 @@ try {
   assert.equal((await post(request('WORD', 'POST', otherToken))).status, 403);
   await prisma.reportFollowup.createMany({ data: [
     { id: crypto.randomUUID(), reportId: audit.id, reportVersion: 1, userId: owner.id, question: '这项核验材料是什么？', answer: '第一段。\n\n第二段：旧报告的**证据缺口**尚待核实。', sources: [{ title: '模拟原始文件', url: 'https://evidence.example/one', kind: 'page' }] },
+    { id: crypto.randomUUID(), reportId: audit.id, reportVersion: 1, userId: owner.id, question: '无效的历史追问', answer: '< | | DSML | | calls>' },
     { id: crypto.randomUUID(), reportId: audit.id, reportVersion: 1, userId: other.id, question: '他人的私有问题', answer: '他人的私有回答' },
     { id: crypto.randomUUID(), reportId: audit.id, reportVersion: 2, userId: owner.id, question: '其他报告版本问题', answer: '其他报告版本的回答' },
   ] });
@@ -104,7 +105,7 @@ try {
       assert.match(markdown, /https:\/\/evidence\.example\/one/);
       assert.match(markdown, /核心指标与评分理由/);
       assert.match(markdown, /证据等级分布/);
-      assert.doesNotMatch(markdown, /他们的私有|他人的私有|其他报告版本|附录：新闻原文|externally_verified|pending_verification/);
+      assert.doesNotMatch(markdown, /他们的私有|他人的私有|其他报告版本|无效的历史追问|DSML|附录：新闻原文|externally_verified|pending_verification/);
       const originalVariant = await post(request(format, 'POST', token, base.origin, true));
       assert.equal(originalVariant.status, 200);
       const { content, charged } = await originalVariant.json();

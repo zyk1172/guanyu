@@ -12,6 +12,7 @@ import { resolveOperationModel } from '@/lib/operation-model';
 import { answerEventFollowup, FOLLOWUP_SCOPE } from '@/lib/followup-research';
 import { customWebResearchEnabled, effectiveSearchMode } from '@/lib/web-search-policy';
 import { recordModelUsage } from '@/lib/model-usage';
+import { hasToolCallMarkup } from '@/lib/model-output';
 import { historicalAuditModelName } from '@/lib/audit-model-display';
 import { sameOriginResponse } from '@/lib/request-security';
 import { publicAuditDto } from '@/lib/audit-dto';
@@ -115,10 +116,11 @@ export async function POST(request: Request) {
 【OUTPUT LANGUAGE - CRITICAL】${languageInstruction}`;
 
     const recentHistory = Array.isArray(chatHistory)
-      ? chatHistory.slice(-10).map((item) => ({
-          role: item?.role === 'assistant' ? 'assistant' : 'user',
-          content: String(item?.content || '').slice(0, 1500),
-        }))
+      ? chatHistory.slice(-10).flatMap((item) => {
+          const role = item?.role === 'assistant' ? 'assistant' : 'user';
+          const content = String(item?.content || '');
+          return role === 'assistant' && hasToolCallMarkup(content) ? [] : [{ role, content: content.slice(0, 1500) }];
+        })
       : [];
 
     const userMessageContent = `【新闻标题】：${auditRecord.title}
@@ -195,6 +197,9 @@ ${recentHistory.map((h) => `${h.role === 'user' ? '用户' : 'AI'}: ${h.content}
       serviceOperation = claimed.operation;
       if (claimed.state === 'completed') {
         const stored = JSON.parse(claimed.operation.resultJson || '{}');
+        if (typeof stored.reply === 'string' && hasToolCallMarkup(stored.reply)) {
+          return NextResponse.json({ error: '这条追问的历史回复无效，请刷新页面后重新提问。' }, { status: 409 });
+        }
         return NextResponse.json({
           reply: stored.reply || '',
           usage: stored.usage || {

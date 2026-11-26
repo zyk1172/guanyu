@@ -1,5 +1,6 @@
 import { readCompletionArticle } from './ai-completion-core.mjs';
 import { exportAppendixNotice, exportCopy, exportDisclaimer, exportFieldLabel, exportLocalizedValue, getExportBrand, normalizeExportLanguage } from './export-language-core.mjs';
+import { hasToolCallMarkup } from './model-output';
 import { formatJudgmentType, formatMaterialType, formatUnconfirmedItem, formatVerificationStatus, getReportText } from './report-display-core.mjs';
 import { emphasizeReportMarkdown, emphasizeReportTextMarkdown, normalizeEmphasisPhrases } from './report-emphasis';
 
@@ -260,7 +261,8 @@ export function buildReportExport(audit: ExportAudit, options: ExportOptions = {
   } else {
     add(label('AI 补充分析', 'AI supplementary analysis'), [prose(completedDraft)]);
   }
-  add(label('已完成追问', 'Completed follow-ups'), (options.followups ?? []).map((turn, index): ExportEntry => ({
+  const followups = (options.followups ?? []).filter(turn => !hasToolCallMarkup(turn.answer));
+  add(label('已完成追问', 'Completed follow-ups'), followups.map((turn, index): ExportEntry => ({
     heading: `${index + 1}. ${text(turn.question)}`,
     body: text(turn.answer),
     detail: turn.createdAt ? dateLabel(turn.createdAt.toISOString(), language) : undefined,
