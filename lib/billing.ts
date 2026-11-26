@@ -210,7 +210,7 @@ export async function consumeQuestionPoint(userId: string, auditId: string, requ
     customFree: true,
   });
 }
-export async function grantPointsDetailed(userId: string, points: number, reason: string, orderId?: string, operationId = randomUUID()) {
+export async function grantPointsDetailed(userId: string, points: number, reason: string, orderId?: string, operationId: string = randomUUID()) {
   if (!Number.isFinite(points) || points <= 0 || points > 100_000 || pointsToCents(points) <= 0) throw new Error('增加点数必须大于 0 且不超过 100000 点。');
   const cents = pointsToCents(points);
   const result = await prisma.$transaction(async (tx) => {
@@ -219,7 +219,7 @@ export async function grantPointsDetailed(userId: string, points: number, reason
       description: reason, orderId,
       idempotencyKey: orderId ? `order-credit:${orderId}` : `grant:${userId}:${operationId}`,
     });
-    if (changed.repeated && (changed.transaction.deltaCents !== cents || changed.transaction.reason !== reason)) {
+    if (!orderId && changed.repeated && (changed.transaction.deltaCents !== cents || changed.transaction.reason !== reason)) {
       throw new Error('操作标识已用于不同的加点请求。');
     }
     return changed;
