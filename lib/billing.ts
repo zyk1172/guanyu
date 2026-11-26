@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Prisma } from '@/lib/generated/prisma/client';
 import { prisma } from '@/lib/prisma';
 import { ensureRuntimeSchema } from '@/lib/db-bootstrap';
@@ -79,6 +80,8 @@ export async function grantSignupBonus(userId: string) {
 
 export async function activatePendingPro(userId: string) {
   return prisma.$transaction(async (tx) => {
+    // Order fulfillment already holds this lock through changeBalance.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`guanyu-credit:${userId}`}))`;
     const user = await tx.user.findUnique({ where: { id: userId }, select: { planType: true, pendingProAccessDays: true, pendingProAccessExpiresAt: true, proAccessExpiresAt: true } });
     if (!user || isByokPlan(user.planType) || user.pendingProAccessDays <= 0) return user?.proAccessExpiresAt || null;
     if (!user.pendingProAccessExpiresAt || user.pendingProAccessExpiresAt <= new Date()) { await tx.user.update({ where: { id: userId }, data: { pendingProAccessDays: 0, pendingProAccessExpiresAt: null } }); return null; }
@@ -207,10 +210,26 @@ export async function consumeQuestionPoint(userId: string, auditId: string, requ
     customFree: true,
   });
 }
+export async function grantPointsDetailed(userId: string, points: number, reason: string, orderId?: string, operationId = randomUUID()) {
+  if (!Number.isFinite(points) || points <= 0 || points > 100_000 || pointsToCents(points) <= 0) throw new Error('增加点数必须大于 0 且不超过 100000 点。');
+  const cents = pointsToCents(points);
+  const result = await prisma.$transaction(async (tx) => {
+    const changed = await changeBalance(tx, userId, cents, {
+      transactionType: orderId ? 'CREDIT_PURCHASE' : 'ADMIN_ADJUSTMENT',
+      description: reason, orderId,
+      idempotencyKey: orderId ? `order-credit:${orderId}` : `grant:${userId}:${operationId}`,
+    });
+    if (changed.repeated && (changed.transaction.deltaCents !== cents || changed.transaction.reason !== reason)) {
+      throw new Error('操作标识已用于不同的加点请求。');
+    }
+    return changed;
+  });
+  return { balance: centsToDisplayPoints(result.after), repeated: result.repeated };
+}
+
+// Preserve the numeric return contract for existing callers.
 export async function grantPoints(userId: string, points: number, reason: string, orderId?: string) {
-  if (!Number.isFinite(points) || points <= 0 || points > 100_000) throw new Error('增加点数必须大于 0 且不超过 100000 点。');
-  const result = await prisma.$transaction((tx) => changeBalance(tx, userId, pointsToCents(points), { transactionType: orderId ? 'CREDIT_PURCHASE' : 'ADMIN_ADJUSTMENT', description: reason, orderId, idempotencyKey: orderId ? `order-credit:${orderId}` : `grant:${userId}:${Date.now()}` }));
-  return centsToDisplayPoints(result.after);
+  return (await grantPointsDetailed(userId, points, reason, orderId)).balance;
 }
 
 export async function createDiscussionMessageWithCharge(params: {
