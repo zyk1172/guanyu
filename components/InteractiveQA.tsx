@@ -292,7 +292,7 @@ export default function InteractiveQA({ auditId, activeModel, ref, onBusyChange,
             {messages.map((m, idx) => (
               <div
                 key={idx}
-                className={`p-3 rounded-lg flex flex-col space-y-1 ${
+                className={`motion-message p-3 rounded-lg flex flex-col space-y-1 ${
                   m.role === 'user'
                     ? 'bg-[var(--color-primary-soft)]  border border-[var(--color-primary)] align-end ml-6'
                     : 'bg-[var(--color-surface-muted)]  border border-[var(--color-border)]  mr-6'

@@ -149,3 +149,61 @@ label:has(.ui-file.sr-only):focus-within { outline: 2px solid var(--color-primar
 @media (prefers-reduced-motion: reduce) { .ui-button, .ui-control { transition: none; } }
 
 .account-order-scroll { max-block-size: min(28rem, 55dvh); overflow-y: auto; scrollbar-gutter: stable; }
+
+/* Shared interaction motion uses the same control and theme contract. */
+:root {
+  --motion-enter-duration: 240ms;
+  --motion-ease: cubic-bezier(.2, .75, .25, 1);
+}
+
+@keyframes ui-enter {
+  from { opacity: .3; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes ui-dialog-enter {
+  from { opacity: 0; transform: translateY(10px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes ui-backdrop-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes ui-pending-pulse {
+  0%, 100% { opacity: .55; transform: scale(.85); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
+.motion-tabs .ui-button { position: relative; isolation: isolate; }
+.motion-tabs .ui-button[aria-pressed='true'] { background: transparent; }
+.motion-tab-indicator { position: absolute; inset: 0; z-index: -1; border-radius: var(--ui-control-radius); background: var(--color-primary-soft); pointer-events: none; }
+.motion-tab-label { position: relative; }
+.news-card { transition: border-color var(--ui-feedback-duration) ease-out, background-color var(--ui-feedback-duration) ease-out; }
+@media (hover: hover) {
+  .news-card:hover { border-color: var(--color-border-strong); background: var(--color-card-hover); }
+}
+.news-analysis-disclosure > summary svg { transition: transform var(--motion-enter-duration) var(--motion-ease); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .ui-dialog[open] { animation: ui-dialog-enter var(--motion-enter-duration) var(--motion-ease) both; }
+  .ui-dialog[open]::backdrop { animation: ui-backdrop-enter var(--motion-enter-duration) ease-out both; }
+  .motion-content-enter, .motion-message { animation: ui-enter var(--motion-enter-duration) var(--motion-ease) both; }
+  .motion-news-card { animation: ui-enter 300ms var(--motion-ease) both; }
+  .motion-news-card:nth-child(6n + 2) { animation-delay: 25ms; }
+  .motion-news-card:nth-child(6n + 3) { animation-delay: 50ms; }
+  .motion-news-card:nth-child(6n + 4) { animation-delay: 75ms; }
+  .motion-news-card:nth-child(6n + 5) { animation-delay: 100ms; }
+  .motion-news-card:nth-child(6n) { animation-delay: 125ms; }
+  .motion-loading-dot { animation: ui-pending-pulse 1.6s ease-in-out infinite; }
+  details[open] > :not(summary) { animation: ui-enter 180ms var(--motion-ease) both; }
+  @media (max-width: 767px) {
+    .workspace-nav[data-open='true'] { animation: ui-enter 180ms var(--motion-ease) both; }
+  }
+}
+
+@keyframes ui-feedback-enter {
+  from { opacity: .2; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  [role='status']:not(:empty), [role='alert']:not(:empty) { animation: ui-feedback-enter 180ms ease-out both; }
+}

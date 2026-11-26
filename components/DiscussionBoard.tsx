@@ -198,7 +198,7 @@ export default function DiscussionBoard({ auditId }: { auditId: string }) {
   const entry = (message: DiscussionMessage, target: DiscussionMessage | undefined, threadOpen: boolean) => {
     const deleted = message.status === 'DELETED';
     const visible = message.status === 'VISIBLE';
-    return <article id={messageAnchor(message.id)} tabIndex={-1} className="discussion-entry">
+    return <article id={messageAnchor(message.id)} tabIndex={-1} className="motion-message discussion-entry">
       <AuthorAvatar key={message.author?.image || ''} author={message.author} />
       <div className="discussion-entry-body">
         <header className="discussion-meta">
