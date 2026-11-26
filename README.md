@@ -58,7 +58,8 @@ OPENAI_MODEL_DEFAULT=gpt-4o
 
 - `OPENAI_API_KEY` 可以留空，用户登录后在账号管理里保存自己的模型 API Key。
 - `APP_ENCRYPTION_KEY` 用来加密数据库中的模型 API Key，生产环境必须固定且妥善保存。
-- `DATABASE_URL` 支持 Prisma PostgreSQL 连接参数，例如 `connection_limit=10&pool_timeout=20`。
+- `DATABASE_URL` 用于应用运行时，Neon 推荐池化连接。`DIRECT_URL` 可选，供 Prisma CLI（包括部署迁移）优先使用非池化连接；若未设置，已知 Neon `-pooler` 域名自动转换为直连域名并移除 `pgbouncer` 参数，其他数据库地址保持原样。直连应与运行时指向同一数据库及 schema。Vercel 中优先配置 Production 的 `DIRECT_URL`，修改后重新部署。
+- `REDIS_ENABLED=false` 可暂时停用 Upstash Redis（保持原凭据）；默认启用已配置的 Redis。重新启用前应确保旧缓存已过期或失效。变更 Vercel 环境变量后重新部署。
 
 ## 本地开发
 
