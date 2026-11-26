@@ -70,6 +70,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: '请求标识无效，请刷新页面后重试。' }, { status: 400 });
     }
 
+    const expectedCompletionGeneratedAt = body.expectedCompletionGeneratedAt ?? null;
+    if (expectedCompletionGeneratedAt !== null &&
+        (typeof expectedCompletionGeneratedAt !== 'string' ||
+         !Number.isFinite(Date.parse(expectedCompletionGeneratedAt)))) {
+      return NextResponse.json({ error: '补全版本无效，请刷新页面。' }, { status: 400 });
+    }
     const { user, audit } = result;
     if (audit.originalContent.trim().length < 50) {
       return NextResponse.json({ error: '未保存足够的新闻原文，无法进行 AI 补全。' }, { status: 400 });
@@ -123,6 +129,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         transactionType: 'AI_COMPLETION',
         description: `使用${operationModel.snapshot?.displayName || operationModel.modelId}完成 AI 补全，消耗 ${formatCredits(operationModel.costCents)} 点`,
         auditId: audit.id,
+        expectedCompletionGeneratedAt: expectedCompletionGeneratedAt === null ? null : new Date(expectedCompletionGeneratedAt).toISOString(),
         modelSnapshot: operationModel.snapshot ? {
           configId: operationModel.snapshot.configId,
           displayName: operationModel.snapshot.displayName,
