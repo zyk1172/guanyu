@@ -23,6 +23,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       originalContent: true,
       focus: true,
       reportLanguage: true,
+      auditResultJson: true,
     },
   });
   if (!audit) return NextResponse.json({ error: '原报告不存在。' }, { status: 404 });
@@ -30,11 +31,22 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: '只有报告创建者可以重新分析。' }, { status: 403 });
   }
 
+  // The normalized report persists the original URL in meta. Older reports
+  // without it remain eligible for reanalysis without inventing a source.
+  let sourceUrl: string | undefined;
+  try {
+    const stored = JSON.parse(audit.auditResultJson);
+    if (typeof stored?.meta?.sourceUrl === 'string') sourceUrl = stored.meta.sourceUrl;
+  } catch {
+    // A malformed legacy report must not prevent reanalysis of its saved text.
+  }
+
   try {
     const job = await createAnalyzeJob(user.id, {
       title: audit.title,
       source: audit.source,
       content: audit.originalContent,
+      sourceUrl,
       focus: audit.focus || '',
       reportLanguage: normalizeReportLanguage(audit.reportLanguage),
     });
