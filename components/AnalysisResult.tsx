@@ -595,7 +595,7 @@ function AiCompletionButton({ auditId, reportLanguage }: { auditId: string; repo
   const [markdown, setMarkdown] = useState<string | null>(null);
   const article = readCompletionArticle(markdown);
   const [completionVersion, setCompletionVersion] = useState<string | null>(null);
-  const [completionLoaded, setCompletionLoaded] = useState(false);
+  const [completionLoadedFor, setCompletionLoadedFor] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showControls, setShowControls] = useState(false);
@@ -604,21 +604,23 @@ function AiCompletionButton({ auditId, reportLanguage }: { auditId: string; repo
 
   useEffect(() => {
     const controller = new AbortController();
-    setCompletionLoaded(false);
-    setMarkdown(null);
-    setCompletionVersion(null);
     fetch(`/api/audits/${encodeURIComponent(auditId)}/completion`, { signal: controller.signal, cache: 'no-store' })
-      .then(response => response.ok ? response.json() : null)
+      .then(response => {
+        if (!response.ok) throw new Error('Completion load failed');
+        return response.json();
+      })
       .then(data => {
         if (!controller.signal.aborted && data) {
-          if (readCompletionArticle(data.markdown)) setMarkdown(data.markdown);
+          setMarkdown(readCompletionArticle(data.markdown) ? data.markdown : null);
           setCompletionVersion(data.generatedAt ?? null);
-          setCompletionLoaded(true);
+          setCompletionLoadedFor(auditId);
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!controller.signal.aborted) setError(getReportText('completionFailed', reportLanguage));
+      });
     return () => controller.abort();
-  }, [auditId]);
+  }, [auditId, reportLanguage]);
 
   const generate = async () => {
     setIsGenerating(true);
@@ -663,7 +665,7 @@ function AiCompletionButton({ auditId, reportLanguage }: { auditId: string; repo
             <p className="text-xs leading-relaxed text-[var(--color-text-muted)]">
               {uiText('modelSelector.accountModelHint', '使用账号设置中当前激活的模型。')}
             </p>
-            <Button variant="primary" type="button" onClick={generate} disabled={!completionLoaded || isGenerating || activeModel.loading}>
+            <Button variant="primary" type="button" onClick={generate} disabled={completionLoadedFor !== auditId || isGenerating || activeModel.loading}>
               {isGenerating ? text('generatingCompletion') : `${text('aiCompletion')} · ${activeModel.source === 'custom' ? '0' : activeModel.estimatedCost} ${uiText('modelSelector.credits', '点')}`}
             </Button>
           </div>
