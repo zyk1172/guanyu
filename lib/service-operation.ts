@@ -46,6 +46,7 @@ export type BeginServiceOperationParams = {
   transactionType: string;
   description: string;
   auditId?: string;
+  expectedCompletionGeneratedAt?: string | null;
   modelSnapshot?: BillingModelSnapshot;
 };
 
@@ -56,6 +57,10 @@ export async function beginServiceOperation(params: BeginServiceOperationParams)
         SELECT "id" FROM "Audit" WHERE "id" = ${params.auditId} FOR KEY SHARE
       `;
       if (!audits.length) throw new AppError('AUDIT_NOT_FOUND', '目标报告已删除或不存在。', 404);
+    }
+    if (params.operation === 'completion' && params.auditId) {
+      // All actors (including administrators) share the same report lease.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`guanyu-completion-report:${params.auditId}`}))`;
     }
     const lockKey = `guanyu-service-operation:${params.userId}:${params.idempotencyKey}`;
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
@@ -79,6 +84,26 @@ export async function beginServiceOperation(params: BeginServiceOperationParams)
       && existing.expiresAt > now
     ) {
       return { state: 'running' as const, operation: existing };
+    }
+
+    if (params.operation === 'completion' && params.auditId) {
+      const active = await tx.serviceOperation.findFirst({
+        where: {
+          operation: 'completion', resultId: params.auditId,
+          status: 'RUNNING', expiresAt: { gt: now },
+        },
+      });
+      if (active) return { state: 'running' as const, operation: active };
+
+      // Read after checking the lease: a completed operation commits its
+      // report update atomically. A stale tab may not overwrite that result.
+      const audit = await tx.audit.findUniqueOrThrow({
+        where: { id: params.auditId },
+        select: { completionGeneratedAt: true },
+      });
+      if ((audit.completionGeneratedAt?.toISOString() ?? null) !== (params.expectedCompletionGeneratedAt ?? null)) {
+        throw new AppError('COMPLETION_VERSION_CHANGED', 'AI 补全结果已更新，请刷新页面查看后再重新生成。', 409);
+      }
     }
 
     if (existing?.status === 'RUNNING') {
