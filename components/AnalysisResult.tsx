@@ -947,7 +947,7 @@ export default function AnalysisResultView({ result: rawResult, relatedCoverage,
   };
 
   return (
-    <div className="report-reading space-y-5">
+    <div className="motion-content-enter report-reading space-y-5">
       {verificationNotice && <div data-verification-toast role="status" className="rounded-lg border border-[var(--color-success)]/35 bg-[color-mix(in_srgb,var(--color-success)_10%,var(--color-surface))] px-3 py-2 text-xs font-bold text-[var(--color-success)]">{verificationNotice}</div>}
       <div className={isQuick(result) ? undefined : 'report-layout'}>
         <div ref={contentRef} className="report-content min-w-0">

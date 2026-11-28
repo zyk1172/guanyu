@@ -777,7 +777,7 @@ export default function AccountWorkspace({ account, isSuperAdmin, view = 'accoun
 
         {/* 1. 基本信息面板 */}
         {(activeTab === 'info' || activeTab === 'system') && (
-          <div className={`grid items-start ${activeTab === 'system' ? 'gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(340px,0.65fr)]' : 'gap-6 lg:grid-cols-2'}`}>
+          <div className={`motion-content-enter grid items-start ${activeTab === 'system' ? 'gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(340px,0.65fr)]' : 'gap-6 lg:grid-cols-2'}`}>
           {activeTab === 'system' && (
             <Panel className="col-span-full overflow-hidden">
               <div className="flex flex-col gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1275,7 +1275,7 @@ export default function AccountWorkspace({ account, isSuperAdmin, view = 'accoun
 
         {/* 2. 模型与偏好设置面板 */}
         {activeTab === 'settings' && (
-          <form onSubmit={handleSaveSettings} className="settings-form bg-[var(--color-surface)] p-6 rounded-xl border border-[var(--color-border)] shadow-sm space-y-6">
+          <form onSubmit={handleSaveSettings} className="motion-content-enter settings-form bg-[var(--color-surface)] p-6 rounded-xl border border-[var(--color-border)] shadow-sm space-y-6">
             <h3 className="ui-panel-title text-[var(--color-text)] border-b border-[var(--color-border)] pb-2">
               {t('account.modelSettings')}
             </h3>

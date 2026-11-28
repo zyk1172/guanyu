@@ -13,6 +13,14 @@ import { HOME_NEWS_REFRESH_MS, type HomeHeadline, type HomeNewsResponse, type Ho
 import type { NewsArticle } from '@/lib/news-search-types';
 import { newsDate } from '@/lib/news-search-core';
 
+function NewsModeTabs({ mode, zh, onChange }: { mode: 'hot' | 'latest'; zh: boolean; onChange: (mode: 'hot' | 'latest') => void }) {
+  return <div className="news-feed-tabs motion-tabs" data-mode={mode}>
+    {(['hot', 'latest'] as const).map(item => <Button key={item} variant="tab" aria-pressed={mode === item} onClick={() => onChange(item)}>
+      {item === 'hot' ? (zh ? '热点' : 'Hot topics') : (zh ? '最新' : 'Latest')}
+    </Button>)}
+  </div>;
+}
+
 function NewsPhoto({ src }: { src?: string }) {
   const [failed,setFailed]=useState(false);
   return src && !failed ? <Image className="news-card-photo" src={src} width={640} height={360} alt="" unoptimized loading="lazy" onError={()=>setFailed(true)} /> : null;
@@ -217,20 +225,20 @@ function NewsFeed({ onSelect, busy, canAnalyze, cost, identity, signedIn }: Feed
   async function analyze(story:HomeNewsStory){if(choosing.current||busy)return;choosing.current=true;setActive(story.id);try{await onSelect({title:story.headline.title,url:story.headline.url,source:story.headline.sourceName,snippet:story.headline.summary||'',publishedAt:newsDate(story.headline.publishedAt),provider:'rss'})}finally{choosing.current=false;setActive('')}}
   return <section className="home-news" aria-label={zh?'RSS 新闻推荐':'RSS news recommendations'}>
     <div className="news-feed-toolbar">
-      <div className="news-feed-tabs"><Button variant="tab" aria-pressed={mode==='hot'} onClick={()=>{setMode('hot');setLimit(6)}}>{zh?'热点':'Hot topics'}</Button><Button variant="tab" aria-pressed={mode==='latest'} onClick={()=>{setMode('latest');setLimit(6)}}>{zh?'最新':'Latest'}</Button></div>
+      <NewsModeTabs mode={mode} zh={zh} onChange={next => { setMode(next); setLimit(6); }} />
       <Select aria-label={zh?'新闻源筛选':'News source'} className="news-source-filter" value={selectedSource} onChange={event=>{setSource(event.target.value);setMode(event.target.value === 'all' && data?.hotCount ? 'hot' : 'latest');setLimit(6)}}><option value="all">{zh?'全部新闻源':'All sources'}</option>{data?.sources.map(item=><option key={item.id} value={item.id}>{zh?item.nameZh||item.name:item.name}</option>)}</Select>
       <Button variant="secondary" disabled={!identity} busy={refreshing} onClick={() => void load(true)} aria-label={zh?'刷新新闻':'Refresh news'}><RefreshCw aria-hidden="true"/>{refreshing ? (zh ? '刷新中…' : 'Refreshing…') : (zh ? '刷新' : 'Refresh')}</Button>
-      <details className="news-ranking-help"><summary>{zh?'热点依据':'How topics are selected'}</summary><div><p>{zh?'热点取自近 48 小时的多源关注，或近 24 小时 Google 新闻头条收录，综合来源数量和更新时间排序。相同网站的不同订阅源不重复计数；这是报道关注度，不代表全网阅读量或事实已核实。':'Topics have coverage from multiple publishers within 48 hours or appear in Google News headlines within 24 hours. Ranking uses source diversity and recency, not site views or a verdict on truth. Feeds from the same publisher count once.'}</p><p>{cost!==null?(zh?`分析成功后按当前模型计费，每篇 ${formatCreditCents(cost)} 点。`:`Analysis costs ${formatCreditCents(cost)} credits after a report is saved.`):(zh?'浏览新闻免费，生成分析时确认当前模型费用。':'Browse for free. Analysis uses your current model rate.')}{zh?' 自定义 API 的调用费用由服务商收取。':' Custom API provider fees apply separately.'}</p></div></details>
+      <details className="motion-disclosure news-ranking-help"><summary>{zh?'热点依据':'How topics are selected'}</summary><div><p>{zh?'热点取自近 48 小时的多源关注，或近 24 小时 Google 新闻头条收录，综合来源数量和更新时间排序。相同网站的不同订阅源不重复计数；这是报道关注度，不代表全网阅读量或事实已核实。':'Topics have coverage from multiple publishers within 48 hours or appear in Google News headlines within 24 hours. Ranking uses source diversity and recency, not site views or a verdict on truth. Feeds from the same publisher count once.'}</p><p>{cost!==null?(zh?`分析成功后按当前模型计费，每篇 ${formatCreditCents(cost)} 点。`:`Analysis costs ${formatCreditCents(cost)} credits after a report is saved.`):(zh?'浏览新闻免费，生成分析时确认当前模型费用。':'Browse for free. Analysis uses your current model rate.')}{zh?' 自定义 API 的调用费用由服务商收取。':' Custom API provider fees apply separately.'}</p></div></details>
     </div>
     <div className="news-feed-status">
       {data?.sourceErrors.length ? <p role="status">{zh?`${data.sources.length-data.sourceErrors.length}/${data.sources.length} 个订阅源已更新，其余暂不可用。`:`${data.sources.length-data.sourceErrors.length}/${data.sources.length} sources updated; others are temporarily unavailable.`}</p>:null}
       {data?.fetchedAt && <p>{data.stale?(zh?'显示上次成功同步的新闻':'Showing the last successful update'):(zh?'更新于':'Updated')} {new Intl.DateTimeFormat(language,{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}).format(new Date(data.fetchedAt))}</p>}
     </div>
-    {data&&!data.hotCount&&mode==='latest'&&selectedSource==='all'&&<p role="status" className="news-feed-notice">{zh?'暂未发现有足够依据的热点，当前展示最新报道。':'No supported hot topics are available. Showing the latest reports.'}</p>}
-    {error&&<div role="alert" className="news-feed-notice"><p>{error}</p><Button busy={refreshing} onClick={() => void load(true)}>{zh?'重试':'Retry'}</Button></div>}
+    {data&&!data.hotCount&&mode==='latest'&&selectedSource==='all'&&<p role="status" className="motion-feedback news-feed-notice">{zh?'暂未发现有足够依据的热点，当前展示最新报道。':'No supported hot topics are available. Showing the latest reports.'}</p>}
+    {error&&<div role="alert" className="motion-feedback news-feed-notice"><p>{error}</p><Button busy={refreshing} onClick={() => void load(true)}>{zh?'重试':'Retry'}</Button></div>}
     {initialLoad==='loading'&&!data?<p role="status" className="news-feed-loading">{zh?'正在同步新闻与热点…':'Loading news and topic coverage…'}</p>:stories.length?<>
       <div className="news-card-grid">
-        {stories.slice(0, limit).map(story => <article className="news-card" key={story.id}>
+        {stories.slice(0, limit).map(story => <article className="news-card motion-news-card" key={story.headline.id}>
           <NewsPhoto key={story.imageHref} src={story.imageHref} />
           <Button variant="ghost" className="news-card-trigger" onClick={() => setSelected(story)}>
             <span className="news-card-title">{story.headline.title}</span>
@@ -246,6 +254,6 @@ function NewsFeed({ onSelect, busy, canAnalyze, cost, identity, signedIn }: Feed
           void analyze(story);
         }} />}
       {stories.length>limit&&<div className="news-feed-more"><Button onClick={()=>setLimit(limit+6)}>{zh?'查看更多报道':'More reports'}</Button></div>}
-    </>:initialLoad==='ready'&&!error?<p role="status" className="news-feed-notice">{zh?'当前筛选下暂无报道。可以切换“最新”、选择其他新闻源，或搜索关键词。':'No reports match these filters. Try Latest, another source, or a keyword search.'}</p>:null}
+    </>:initialLoad==='ready'&&!error?<p role="status" className="motion-feedback news-feed-notice">{zh?'当前筛选下暂无报道。可以切换“最新”、选择其他新闻源，或搜索关键词。':'No reports match these filters. Try Latest, another source, or a keyword search.'}</p>:null}
   </section>;
 }
